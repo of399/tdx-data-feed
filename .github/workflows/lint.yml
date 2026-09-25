@@ -14,4 +14,8 @@ jobs:
         with:
           python-version: '3.14'
       - run: pip install ruff==0.16.7
-      - run: ruff check .
+      - run: ruff check . --output-format=concise
+      - run: ruff check . || true  # debug: 输出错误但不 fail
+      - run: python -c "import os; print('CWD:', os.getcwd()); print('FILES:', sorted(os.listdir('.')))"
+      - run: ls -la ruff.toml pyproject.toml .pre-commit-config.yaml 2>&1 || true
+      - run: cat ruff.toml
