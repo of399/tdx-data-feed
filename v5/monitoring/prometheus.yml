@@ -1,0 +1,81 @@
+# Prometheus 配置 · M3 W6 + M5 监控告警全链路
+#
+# 启动（apt 安装后自动跑）：
+#   systemctl status prometheus
+#   监听 :9090（web UI），数据存储 /var/lib/prometheus/
+#
+# 抓取目标：
+#   - math-sympy-http:8002/metrics（应用级：tool_calls / latency / fallback / cache）
+#   - node:9100/metrics（系统级：CPU / 内存 / 磁盘 / 网络）
+#   - tdx_monitor textfile collector（自定义：services health / alerts）
+#   - prometheus:9090/metrics（自身 metrics）
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: tdx-vault-5
+    env: production
+
+rule_files:
+  - "/etc/prometheus/prometheus-alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['127.0.0.1:9093']
+
+scrape_configs:
+  # 应用级 metrics：math-sympy-http
+  - job_name: 'math-sympy-http'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['127.0.0.1:8002']
+        labels:
+          service: math-sympy-http
+          tier: application
+          env: production
+
+  # 系统级 metrics：node-exporter
+  - job_name: 'node'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['127.0.0.1:9100']
+        labels:
+          tier: system
+          env: production
+
+  # 自定义 metrics：tdx_monitor textfile collector
+# node-exporter 启用 --collector.textfile.directory 后，tdx_monitor.prom 中的 metrics
+# 自动暴露在 node-exporter 的 /metrics（无需独立 scrape job）
+# 由 systemd timer (tdx-monitor.timer) 每 5min 写一次到 /var/lib/prometheus/node-exporter/tdx_monitor.prom
+# 注意：Prometheus file_sd_configs 在 2.53.5 不支持 glob *，已通过 node-exporter textfile collector 暴露
+# （node job 已自动包含 tdx_* metrics）
+
+  # Prometheus 自身 metrics
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['127.0.0.1:9090']
+        labels:
+          service: prometheus
+          tier: monitoring
+
+  # Alertmanager 自身 metrics
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['127.0.0.1:9093']
+        labels:
+          service: alertmanager
+          tier: monitoring
+
+  # Canary 灰度 metrics（v5/scripts/canary_metric_exporter.py）
+  - job_name: 'canary'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['127.0.0.1:9101']
+        labels:
+          service: canary-exporter
+          tier: application
+          env: production

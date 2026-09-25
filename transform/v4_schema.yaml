@@ -1,0 +1,22 @@
+# v4 训练数据 schema（以 v3 为基底，v3 实测：stock_a.json, alpaca, 8085 条）
+format: alpaca
+columns:
+  prompt: instruction
+  query: input
+  response: output
+
+# v3 input 字段定义（实测自 stock_a.json 首条）
+input_window_days: 20
+input_fields:
+  日期: date (YYYY-MM-DD)
+  开盘: open, float2
+  收盘: close, float2
+  最高: high, float2
+  最低: low, float2
+  成交量: volume, 单位=股（parquet 为手，转换时 ×100）
+  涨跌幅: pct_change, % , float2（与前一交易日收盘比）
+
+# instruction 模板（与 v3 一致）
+instruction_template: "你是专业的A股量化分析师。请基于以下截至{date}的近20个交易日行情数据，对股票 {code} 做技术面分析并给出操作建议。"
+
+# output：待生成（当前留空，由后续训练/生成环节填充）

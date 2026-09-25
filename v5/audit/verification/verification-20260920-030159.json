@@ -1,0 +1,43 @@
+{
+  "ts": "2026-09-20T03:01:46.830180+00:00",
+  "tests": [
+    {
+      "name": "math_sympy",
+      "passed": 127,
+      "failed": 0,
+      "elapsed_s": 12.5,
+      "exit_code": 0,
+      "ok": true
+    },
+    {
+      "name": "smoke_test",
+      "elapsed_s": 0.23,
+      "cases_total": 4,
+      "cases_passed": 3,
+      "results": [
+        {
+          "tool": "are_equiv",
+          "ok": false,
+          "response_ok": false
+        },
+        {
+          "tool": "sympy_compute",
+          "ok": true,
+          "response_ok": true
+        },
+        {
+          "tool": "prove_equiv_with_precondition",
+          "ok": true,
+          "response_ok": true
+        },
+        {
+          "tool": "math_strategy_route_and_execute",
+          "ok": true,
+          "response_ok": true
+        }
+      ],
+      "ok": false
+    }
+  ],
+  "all_ok": false
+}

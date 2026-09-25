@@ -1,0 +1,80 @@
+# ruff 配置 · tdx-data-feed
+# 见: Makefile (make lint / make fix)
+# 规则参考: https://docs.astral.sh/ruff/rules/
+
+# 项目元数据
+target-version = "py314"
+line-length = 100
+extend-exclude = [
+    "data/**",
+    "double_up/**",
+    "v5/audit/**",
+    "*.egg-info/**",
+    "build/**",
+    "dist/**",
+]
+
+[lint]
+# 默认规则集（pycodestyle + pyflakes + isort + pyupgrade + simplify + bugbear + ruff）
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (import 排序)
+    "UP",  # pyupgrade (Py 3.14 现代写法)
+    "SIM", # simplify
+    "B",   # bugbear
+    "RUF", # ruff 特有
+]
+ignore = [
+    "E501",  # line too long (有 line-length + black 会管)
+    # 中文项目合理选择（不要 ASCII 化中文括号）
+    "RUF001",  # ambiguous-unicode-character-string (668 处, 中文 () [] 在 string 里)
+    "RUF002",  # ambiguous-unicode-character-docstring (647 处, 中文 () [] 在 docstring)
+    "RUF003",  # ambiguous-unicode-character-comment (454 处, 中文 () [] 在注释)
+    # E741 (ambiguous-variable-name) 在金融/OHLC 代码里是 false positive
+    # l/I/O 是 low/index/open 的行业惯用缩写, 不会与 1/0 混淆
+    "E741",
+    # BLE001 (blind-except) 移到 per-file-ignores, 强制新代码不能用
+    # 老代码已逐文件审视, 不阻塞 CI
+]
+
+# 允许 fix 的规则（safe + unsafe）
+fixable = ["ALL"]
+unfixable = []
+
+[lint.per-file-ignores]
+# 测试文件允许未使用导入
+"**/tests/**/*.py" = ["F401", "F811"]
+# __init__.py 通常有 unused imports
+"**/__init__.py" = ["F401"]
+# scripts/ 允许 print + BLE001
+# BLE001 (blind-except) 老代码已逐文件审视 - 强制新代码不能用
+# 见 audit/2026-09-25-task-4-ble001-strategy.md
+"v5/scripts/**/*.py" = ["BLE001", "T201"]
+"scripts/**/*.py" = ["BLE001"]
+"tdxfeed/**/*.py" = ["BLE001"]
+"agents/**/*.py" = ["BLE001"]
+"v5/mcp_servers/**/*.py" = ["BLE001"]
+"v5/mcp_math/**/*.py" = ["BLE001"]
+"v5/tests/**/*.py" = ["BLE001", "UP031"]
+"mcp/servers/**/*.py" = ["BLE001"]
+"min_sync*.py" = ["BLE001"]
+"train_monitor.py" = ["BLE001"]
+
+[lint.isort]
+known-first-party = ["v5", "mcp_math"]
+combine-as-imports = true
+
+[format]
+# 与 black 兼容的格式
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+docstring-code-format = true
+
+[lint.flake8-quotes]
+docstring-quotes = "double"
+
+[lint.pyupgrade]
+keep-runtime-typing = true

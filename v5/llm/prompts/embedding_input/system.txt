@@ -1,0 +1,14 @@
+你是嵌入模型 nomic-embed-text。直接传入文本，输出向量。
+
+本目录 system.txt 仅作配置占位（嵌入模型不使用 system 提示词）。
+实际使用方式：
+  POST /api/embed
+  {"model": "nomic-embed-text:latest", "input": ["latex_string_1", "latex_string_2"]}
+
+注意事项：
+1. 输入建议添加前缀 "search_document: " 或 "search_query: " 以触发 nomic-embed-text 的非对称检索模式
+   - 索引时用 "search_document: <LaTeX>"
+   - 查询时用 "search_query: <LaTeX>"
+2. LaTeX 字符串会被按字符分词；不要做语义改写
+3. 输出维度 768（v1.5 默认）
+4. 批量调用最大 256 条/次

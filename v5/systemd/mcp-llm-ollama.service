@@ -1,0 +1,40 @@
+# /etc/systemd/system/mcp-llm-ollama.service  ——  让 mcp-llm-ollama 自启
+#
+# 说明：本服务以 stdio 模式启动，被 CodeBuddy / Claude Desktop 等 MCP client
+# 子进程化调用。systemd 仅保证 ollama daemon 在前台运行；
+# 此 unit 一般不需要 enable（stdio MCP server 由 client 启动）。
+#
+# 但如果你想让本服务作为 HTTP MCP server 长期运行（需要先改 llm_ollama.py
+# 增加 streamable_http_app），可以 enable。
+#
+# 安装：
+#   sudo cp /home/jiuben/tdx-data-feed/v5/systemd/mcp-llm-ollama.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+
+[Unit]
+Description=mcp-llm-ollama MCP server (LLM bridge for v5-VE1-M2)
+Documentation=file:///home/jiuben/tdx-data-feed/v5/mcp_servers/llm_ollama.py
+After=ollama.service
+Requires=ollama.service
+
+[Service]
+Type=simple
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python \
+    /home/jiuben/tdx-data-feed/v5/mcp_servers/llm_ollama.py
+Restart=on-failure
+RestartSec=5
+User=jiuben
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="OLLAMA_HOST=http://127.0.0.1:11434"
+Environment="LLM_DEFAULT_CHAT=qwen3:14b"
+Environment="LLM_DEFAULT_REASON=deepseek-r1:14b"
+Environment="LLM_DEFAULT_EMBED=nomic-embed-text:latest"
+Environment="LLM_CHAT_TIMEOUT_S=300"
+Environment="LLM_REASON_TIMEOUT_S=8"
+Environment="LLM_MAX_INPUT_CHARS=32000"
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcp-llm-ollama
+
+[Install]
+WantedBy=multi-user.target

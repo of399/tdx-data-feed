@@ -1,0 +1,14 @@
+[Unit]
+Description=Weekly Vault Suggestion Report (M5 Phase 2)
+Documentation=file:///home/jiuben/tdx-data-feed/v5-implementation-plan.md
+
+[Timer]
+# 每周日 02:00 UTC 跑一次（相当于本地周日 10:00 或周一 10:00，看夏令时）
+OnCalendar=Sun *-*-* 02:00:00
+# 错过启动后立即补跑
+Persistent=true
+# 指向 service
+Unit=suggestion_agent.service
+
+[Install]
+WantedBy=timers.target

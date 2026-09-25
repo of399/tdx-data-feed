@@ -1,0 +1,34 @@
+{
+  "_comment": "v5-VE1-M2 MCP servers 配置片段 — 由 s7-install-mcp-config.py 合并到 CodeBuddy settings.json",
+  "_comment_2": "CodeBuddy MCP 配置位置：~/.config/CodeBuddy CN/User/settings.json 的 mcp.servers 字段",
+  "mcpServers": {
+    "math-sympy": {
+      "command": "/home/jiuben/tdx-data-feed/venv/bin/python",
+      "args": ["/home/jiuben/tdx-data-feed/v5/mcp_servers/math_sympy.py"],
+      "env": {},
+      "disabled": false
+    },
+    "math-sympy-http": {
+      "_comment": "可选：HTTP 模式已运行于 :8002（PID 288631），可被任何 HTTP 客户端调用，无需 MCP 包装",
+      "url": "http://127.0.0.1:8002"
+    },
+    "llm-ollama": {
+      "_comment": "依赖 Ollama daemon 在 :11434 运行；提供 LLM 双栈（chat/embed/judge）",
+      "command": "/home/jiuben/tdx-data-feed/venv/bin/python",
+      "args": ["/home/jiuben/tdx-data-feed/v5/mcp_servers/llm_ollama.py"],
+      "env": {
+        "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
+      },
+      "disabled": false
+    },
+    "vllm-health": {
+      "_comment": "vLLM 健康检查（仅在 vLLM 启动后启用）",
+      "command": "/home/jiuben/tdx-data-feed/venv/bin/python",
+      "args": ["/home/jiuben/tdx-data-feed/v5/mcp_servers/vllm_health.py"],
+      "env": {
+        "VLLM_BASE_URL": "http://127.0.0.1:8001"
+      },
+      "disabled": true
+    }
+  }
+}

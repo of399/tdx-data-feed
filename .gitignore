@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+vllm-venv/                # 已删除 (2026-09-25)
+.env
+.venv
+env/
+
+# 测试 / 覆盖率
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ruff / linters
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+.pyright_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 数据与模型（不进 git）
+models/
+data/
+parquet-vol-backup/
+train/
+downloads/
+.codebuddy/
+
+# 临时文件 / 日志
+*.log
+*.tmp
+*.bak
+*.failed.log
+
+# 输出目录
+dist/
+build/
+*.egg-info/
+
+# 报告输出（可选项：跟踪 markdown 报告, 忽略 jsonl 数据）
+*.jsonl
+!v5/audit/*.md
+
+# 本地配置
+.env.local
+secrets.yaml
+
+# 操作系统
+Thumbs.db
+
+# 自动化报告 (cron 生成的, 不需要入 git)
+evolution.jsonl
+scheduler.jsonl
+fallback-chain.jsonl
+fallback-canary.jsonl
+llm-calls.jsonl
+system-health.jsonl
+canary_state.json
+suggestion-*.json
+
+# 数据字典 (大文件)
+double_up/*.csv
+double_up/d_signal_*.csv
+double_up/d_signal_*.txt
+double_up/double_up_*.csv
+double_up/double_up_*.txt
+v5/cache/
+v5/workbench/workbench.db*

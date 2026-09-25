@@ -1,0 +1,33 @@
+[Unit]
+Description=vLLM Qwen3-14B Tensor-Parallel Server (judge)
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=jiuben
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="HF_HOME=/home/jiuben/models/hf"
+Environment="VLLM_CACHE_ROOT=/home/jiuben/.cache/vllm"
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python -m vllm.entrypoints.openai.api_server \
+    --model /home/jiuben/models/Qwen3-14B \
+    --tensor-parallel-size 2 \
+    --dtype bfloat16 \
+    --max-model-len 16384 \
+    --gpu-memory-utilization 0.92 \
+    --max-num-seqs 16 \
+    --max-num-batched-tokens 4096 \
+    --enable-prefix-caching \
+    --enable-chunked-prefill \
+    --port 8001 \
+    --host 127.0.0.1 \
+    --served-model-name qwen3-14b-vllm
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/vllm-qwen3-judge.log
+StandardError=append:/var/log/vllm-qwen3-judge.err
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

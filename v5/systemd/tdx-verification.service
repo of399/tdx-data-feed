@@ -1,0 +1,15 @@
+[Unit]
+Description=tdx Verification (run math_sympy tests + smoke test)
+Documentation=v5-implementation-plan.md §4.2 M4
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/tdx_verification.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tdx-verification
+User=jiuben
+
+[Install]
+WantedBy=multi-user.target

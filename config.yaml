@@ -1,0 +1,28 @@
+output_root: /home/jiuben/tdx-data-feed/data
+
+data_range:
+  daily: full_history
+  minute_layers:
+    - market_60d
+    - core_full_history
+
+
+core_stocks:
+  - sh600000
+  - sz000001
+  - sh000001
+  - sz399001
+  - etf_prefix: 51,15
+  - cb_prefix: 11,12
+
+adjustments:
+  - qfq
+  - hfq
+
+sources:
+  - pytdx
+  - akshare
+
+obsidian_vault: /home/jiuben/StockVault
+schedule: '0 2 * * 1'
+v4_schema: /home/jiuben/tdx-data-feed/v4_schema.yaml

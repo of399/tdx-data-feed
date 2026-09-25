@@ -1,0 +1,32 @@
+# /etc/systemd/system/ollama.service  ——  让 ollama daemon 机器重启后自启
+#
+# 安装：
+#   sudo cp /home/jiuben/tdx-data-feed/v5/systemd/ollama.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ollama.service
+#   sudo systemctl status ollama.service
+
+[Unit]
+Description=Ollama daemon (LLM server for mcp-llm-ollama)
+Documentation=https://ollama.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/snap/bin/ollama serve
+Restart=always
+RestartSec=3
+# GPU 与内存
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+Environment="OLLAMA_KEEP_ALIVE=30m"
+Environment="OLLAMA_NUM_PARALLEL=1"
+Environment="OLLAMA_MAX_LOADED_MODELS=1"
+# 进程限制
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ollama
+
+[Install]
+WantedBy=multi-user.target

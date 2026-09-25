@@ -1,0 +1,12 @@
+[Unit]
+Description=tdx-monitor timer (5min interval)
+Documentation=v5-implementation-plan.md §4.2 M4
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=tdx-monitor.service
+
+[Install]
+WantedBy=timers.target

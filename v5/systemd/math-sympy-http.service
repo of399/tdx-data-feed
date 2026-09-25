@@ -1,0 +1,27 @@
+[Unit]
+Description=v5-VE1 Math SymPy FastAPI Server (D6.6)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=jiuben
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="OLLAMA_URL=http://127.0.0.1:11434"
+Environment="DEFAULT_CHAT_MODEL=qwen3:14b"
+Environment="DEFAULT_REASON_MODEL=deepseek-r1:14b"
+Environment="DEFAULT_EMBED_MODEL=nomic-embed-text:latest"
+Environment="DEFAULT_JUDGE_MODEL=qwen3-14b-tdx-fast:14b"
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python \
+    /home/jiuben/tdx-data-feed/v5/mcp_servers/math_sympy_http.py \
+    --host 127.0.0.1 --port 8002 --workers 1
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/math-sympy-http.log
+StandardError=append:/var/log/math-sympy-http.err
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

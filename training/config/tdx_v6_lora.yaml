@@ -1,0 +1,54 @@
+# tdx_v6_lora.yaml — v6 训练配置
+# 数据: 5238 条 (vault v4 段，加强 prompt)
+# 相比 v5: instruction 加 risk hint + 输出格式硬要求
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: null
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+dataset: tdx_v6_train
+eval_dataset: tdx_v6_train
+template: qwen
+finetuning_type: lora
+trust_remote_code: true
+max_samples: 5238
+
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v6
+overwrite_output_dir: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+num_train_epochs: 3.0
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+weight_decay: 0.0
+max_grad_norm: 1.0
+seed: 42
+
+cutoff_len: 256
+packing: false
+
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+flash_attn: sdpa
+torch_compile: false
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+
+logging_steps: 20
+save_steps: 200
+save_total_limit: 3
+save_strategy: steps
+eval_strategy: steps
+eval_steps: 200
+load_best_model_at_end: false
+
+report_to: none
+dataloader_num_workers: 0
+remove_unused_columns: false
+bf16: true

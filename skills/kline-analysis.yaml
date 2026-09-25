@@ -1,0 +1,90 @@
+# kline-analysis skill — K线 / 形态 / 方向预测（主分析能力）
+# ====================================================================
+# 这是多 Agent 架构的核心 Skill，绑定已训练的 qwen3-14b-tdx LoRA。
+
+name: kline-analysis
+version: "0.1.0"
+description: |
+  用 14B LoRA 分析近 20 日 K线，输出涨跌幅预测与原因（alpaca 格式）。
+  主分析 Agent 的核心能力，所有股票问答的入口。
+
+llm:
+  model_id: qwen3-14b-tdx
+  base_model: Qwen/Qwen3-14B
+  adapter_path: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx/checkpoint-final
+  inference:
+    backend: transformers + peft    # 或 vllm（待验证）
+    dtype: bfloat16
+    device_map: auto
+    max_new_tokens: 256
+    temperature: 0.0                # 推理不采样
+
+# 依赖的 MCP 工具
+tools:
+  - mcp:tdx-parquet-reader.read_daily_kline
+  - mcp:tdx-calc.calc_ma
+  - mcp:tdx-calc.calc_macd
+  - mcp:tdx-calc.calc_kdj
+  - mcp:tdx-vault.search            # 可选：检索历史相似形态
+
+# 输入 schema
+input_schema:
+  type: object
+  properties:
+    code:
+      type: string
+      description: 标的代码，如 sh600000
+    lookback:
+      type: integer
+      default: 20
+      description: 回看天数（默认 20，与训练一致）
+  required: [code]
+
+# 输出 schema（alpaca 格式）
+output_schema:
+  type: object
+  properties:
+    direction:
+      type: integer
+      enum: [-1, 0, 1]
+      description: 方向（-1=跌, 0=平, 1=涨）
+    pct:
+      type: number
+      description: 预期涨跌幅（%）
+    confidence:
+      type: number
+      minimum: 0
+      maximum: 1
+    reason:
+      type: string
+      description: 简短原因（< 100 字）
+  required: [direction, pct, reason]
+
+# Prompt 模板（与训练一致）
+prompt_template: |
+  ### 指令:
+  根据以下股票近 {lookback} 个交易日的 K 线数据，判断未来 5 个交易日的涨跌方向、幅度及原因。
+
+  ### 输入:
+  {kline_json}
+
+  ### 回答:
+  ```json
+  {
+    "方向": "涨|跌|平",
+    "幅度": -10.0~10.0,
+    "置信度": 0.0~1.0,
+    "原因": "..."
+  }
+  ```
+
+# 编排优先级（在 Agent 中的调度权重）
+priority: 100
+timeout_sec: 30
+fallback_skill: indicator-match   # 若 14B 不可用，降级到纯指标匹配
+
+# 监控指标（上报给 agent 层）
+metrics:
+  - latency_ms
+  - gpu_mem_mb
+  - output_format_compliance

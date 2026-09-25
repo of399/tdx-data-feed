@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tdx-data-feed MCP Server Pool Tools Schema",
+  "version": "0.1.0",
+  "updated": "2026-09-17",
+  "servers": {
+    "tdx-parquet-reader": {
+      "description": "读 Parquet 数据（行情/财务/股本）",
+      "command": "python mcp/servers/parquet_reader.py",
+      "tools": [
+        {
+          "name": "read_daily_kline",
+          "description": "读日 K 线 Parquet",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string", "description": "标的代码，如 sh600000"},
+              "start": {"type": "string", "description": "起始日期 YYYYMMDD"},
+              "end": {"type": "string", "description": "结束日期 YYYYMMDD"},
+              "limit": {"type": "integer"}
+            },
+            "required": ["code"]
+          }
+        },
+        {
+          "name": "read_finance",
+          "description": "读财务摘要（核心 300 + 补集，1.67M 行）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string"},
+              "periods": {"type": "integer", "default": 8}
+            }
+          }
+        },
+        {
+          "name": "read_xdxr",
+          "description": "读股本变动（除权除息）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string"}
+            }
+          }
+        },
+        {
+          "name": "list_codes",
+          "description": "列代码清单",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pattern": {"type": "string", "description": "代码前缀，如 sh6 / sz000"},
+              "market": {"type": "string", "enum": ["sh", "sz", "bj"]},
+              "has_data": {"type": "boolean", "default": true}
+            }
+          }
+        }
+      ]
+    },
+    "tdx-calc": {
+      "description": "金融计算（技术指标 / 复权）",
+      "command": "python mcp/servers/calc.py",
+      "tools": [
+        {
+          "name": "calc_ma",
+          "description": "简单 / 指数移动均线",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "prices": {"type": "array", "items": {"type": "number"}},
+              "window": {"type": "integer", "default": 5},
+              "type": {"type": "string", "enum": ["sma", "ema"], "default": "sma"}
+            },
+            "required": ["prices"]
+          }
+        },
+        {
+          "name": "calc_macd",
+          "description": "MACD（含金叉标记）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "prices": {"type": "array", "items": {"type": "number"}},
+              "fast": {"type": "integer", "default": 12},
+              "slow": {"type": "integer", "default": 26},
+              "signal": {"type": "integer", "default": 9}
+            },
+            "required": ["prices"]
+          }
+        },
+        {
+          "name": "calc_kdj",
+          "description": "KDJ",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "high": {"type": "array", "items": {"type": "number"}},
+              "low": {"type": "array", "items": {"type": "number"}},
+              "close": {"type": "array", "items": {"type": "number"}},
+              "n": {"type": "integer", "default": 9}
+            },
+            "required": ["high", "low", "close"]
+          }
+        },
+        {
+          "name": "calc_rsi",
+          "description": "RSI",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "prices": {"type": "array", "items": {"type": "number"}},
+              "n": {"type": "integer", "default": 14}
+            },
+            "required": ["prices"]
+          }
+        },
+        {
+          "name": "calc_boll",
+          "description": "布林带",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "prices": {"type": "array", "items": {"type": "number"}},
+              "n": {"type": "integer", "default": 20},
+              "k": {"type": "number", "default": 2}
+            },
+            "required": ["prices"]
+          }
+        },
+        {
+          "name": "calc_adj_factor",
+          "description": "复权因子（前/后）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "xdxr_events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "date": {"type": "string"},
+                    "songzhuan": {"type": "number"},
+                    "rights": {"type": "number"},
+                    "bonus": {"type": "number"}
+                  }
+                }
+              },
+              "end_date": {"type": "string"}
+            },
+            "required": ["xdxr_events"]
+          }
+        }
+      ]
+    },
+    "tdx-vault": {
+      "description": "StockVault RAG 向量检索（Ollama nomic-embed-text）",
+      "command": "python mcp/servers/vault.py",
+      "tools": [
+        {
+          "name": "search",
+          "description": "向量检索",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {"type": "string"},
+              "top_k": {"type": "integer", "default": 5}
+            },
+            "required": ["query"]
+          }
+        },
+        {
+          "name": "add_doc",
+          "description": "添加文档到向量库",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "text": {"type": "string"},
+              "meta": {"type": "object"}
+            },
+            "required": ["text"]
+          }
+        },
+        {
+          "name": "list_cats",
+          "description": "列出文档分类及文档数",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ]
+    }
+  },
+  "tool_count": 13,
+  "total_tools": 13
+}
