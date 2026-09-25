@@ -4,12 +4,15 @@ T1: 超参数调优（LightGBM + Optuna）
 
 基于现有 features.parquet 跑 Optuna search，输出 tuned model + metrics。
 """
-import pandas as pd
-import numpy as np
+import argparse
+import json
+import time
+
 import lightgbm as lgb
-from sklearn.metrics import roc_auc_score
+import numpy as np
 import optuna
-import json, argparse, time
+import pandas as pd
+from sklearn.metrics import roc_auc_score
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--features', default='v5/audit/baseline_features.parquet')
@@ -73,7 +76,7 @@ print(f"Optuna 完成 {len(study.trials)} trials, 耗时 {time.time()-t0:.0f}s")
 print(f"  best AUC = {study.best_value:.4f}")
 print(f"  best params = {study.best_params}")
 
-print(f"\n[Final] 用最优参数重训...")
+print("\n[Final] 用最优参数重训...")
 final_params = {
     'objective': 'binary', 'metric': 'auc', 'boosting_type': 'gbdt',
     'verbose': -1, 'seed': args.seed, **study.best_params,
@@ -88,8 +91,8 @@ model = lgb.train(
 
 y_pred = model.predict(X_val)
 final_auc = roc_auc_score(y_val, y_pred)
-print(f"\n=== Final ===")
-print(f"baseline AUC: 0.806")
+print("\n=== Final ===")
+print("baseline AUC: 0.806")
 print(f"tuned AUC:    {final_auc:.4f}")
 print(f"delta:        {final_auc - 0.806:+.4f}")
 

@@ -11,13 +11,13 @@ T2: 特征增强 + 行业 target encoding
 
 训练用 baseline 模型架构，输出 AUC 增量评估。
 """
-import pandas as pd
-import numpy as np
-import glob, json
-from pathlib import Path
+import argparse
+import json
+
 import lightgbm as lgb
+import numpy as np
+import pandas as pd
 from sklearn.metrics import roc_auc_score
-import argparse, time
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--features', default='v5/audit/baseline_features.parquet')
@@ -26,13 +26,13 @@ ap.add_argument('--seed', type=int, default=42)
 args = ap.parse_args()
 
 # 1. 加载
-print(f"[1] 加载 features")
+print("[1] 加载 features")
 df = pd.read_parquet(args.features)
 df['date'] = pd.to_datetime(df['date'])
 print(f"  shape: {df.shape}")
 
 # 2. 加载 baostock 行业
-print(f"[2] 加载 baostock industry")
+print("[2] 加载 baostock industry")
 industry = pd.read_parquet('/tmp/baostock_industry.parquet')
 # 把 sh.600000 → sh600000 (与 symbol 格式匹配)
 industry['symbol'] = industry['code'].str.replace('.', '')
@@ -82,7 +82,7 @@ new_features = ['industry_code_id', 'log_days_listed', 'log_amp20', 'market_dumm
 df['industry_code_id'] = df['industry_code'].astype('category').cat.codes
 
 base_features = [c for c in df.columns if c not in ('label', 'symbol', 'date', 'industry', 'industry_code', 'ipoDate', 'industry_mean_trigger', 'industry_code_id')]
-feature_cols = base_features + ['industry_code_id'] + ['industry_mean_trigger', 'log_days_listed', 'log_amp20', 'market_dummy']
+feature_cols = [*base_features, 'industry_code_id', 'industry_mean_trigger', 'log_days_listed', 'log_amp20', 'market_dummy']
 feature_cols = list(dict.fromkeys(feature_cols))  # 去重保持顺序
 
 X = df[feature_cols].astype(float)
@@ -99,7 +99,7 @@ print(f"新特征: {new_features}")
 print(f"总 features: {len(feature_cols)}")
 
 # 9. 用 baseline 同架构 + industry categorical
-print(f"\n[3] 训练")
+print("\n[3] 训练")
 train_data = lgb.Dataset(X_train, label=y_train, categorical_feature=['industry_code_id'])
 val_data = lgb.Dataset(X_val, label=y_val, reference=train_data, categorical_feature=['industry_code_id'])
 params = {
@@ -117,7 +117,7 @@ model = lgb.train(
 y_pred = model.predict(X_val)
 auc = roc_auc_score(y_val, y_pred)
 baseline_auc = 0.806
-print(f"\n=== T2 评估 ===")
+print("\n=== T2 评估 ===")
 print(f"baseline AUC:    {baseline_auc:.4f}")
 print(f"v2 (with industry+log features) AUC: {auc:.4f}")
 print(f"delta:           {auc - baseline_auc:+.4f}")
@@ -142,6 +142,6 @@ importance = pd.DataFrame({
     'split': model.feature_importance(importance_type='split'),
 }).sort_values('gain', ascending=False)
 importance.to_csv(f'{args.out_prefix}_importance.csv', index=False)
-print(f"\nTop 15 特征 (含新):")
+print("\nTop 15 特征 (含新):")
 print(importance.head(15).to_string())
 print(f"\n✓ {args.out_prefix}_model.txt + _metrics.json + _importance.csv")

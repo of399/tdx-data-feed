@@ -12,11 +12,13 @@
 
 输出: v5/audit/v6_train_enriched.json (供 llamafactory 微调用)
 """
-import pandas as pd
-import numpy as np
-import json, re, time
-from pathlib import Path
+import json
+import re
+import time
+
 import lightgbm as lgb
+import numpy as np
+import pandas as pd
 
 # === 路径 ===
 V6_TRAIN = 'data/v6_train/v6_train.json'
@@ -79,7 +81,7 @@ def parse_meta(instruction):
 
 def main():
     # 加载
-    print(f"[1] 加载数据")
+    print("[1] 加载数据")
     with open(V6_TRAIN) as f:
         v6 = json.load(f)
     triggers = pd.read_csv(TRIGGERS)
@@ -90,8 +92,8 @@ def main():
     basic['ipoDate'] = pd.to_datetime(basic['ipoDate'], errors='coerce')
     industry = pd.read_parquet(INDUSTRY)
     industry['symbol'] = industry['code'].str.replace('.', '')
-    industry_map = dict(zip(industry['symbol'], industry['industry'].fillna('UNKNOWN')))
-    ipo_map = dict(zip(basic['symbol'], basic['ipoDate']))
+    industry_map = dict(zip(industry['symbol'], industry['industry'].fillna('UNKNOWN'), strict=True))
+    ipo_map = dict(zip(basic['symbol'], basic['ipoDate'], strict=True))
 
     v2 = lgb.Booster(model_file=V2_MODEL)
     mc = lgb.Booster(model_file=MC_MODEL)
@@ -111,7 +113,7 @@ def main():
                 enriched.append(sample)  # 保留原样
                 continue
             inp_rows = json.loads(inp_str)
-            last_day = inp_rows[-1]
+            # # last_day = inp_rows[-1]  # F841  # 已移除: 未使用 (F841)
             # symbol (code → sh600000 / sz000001)
             sym_prefix = 'sh' if code.startswith('6') else ('sz' if code.startswith(('0', '3')) else 'bj')
             symbol = f'{sym_prefix}{code}'
@@ -175,7 +177,7 @@ def main():
                 'output': new_out,
             }
             enriched.append(new_sample)
-        except Exception as e:
+        except Exception:
             if i < 3:
                 import traceback
                 traceback.print_exc()
@@ -192,7 +194,7 @@ def main():
     print(f"  triggered_in_history: {sum(1 for s in enriched if '历史触发' in s.get('output', ''))}")
 
     # 样本预览
-    print(f"\n=== 样本预览 (前 1 条) ===")
+    print("\n=== 样本预览 (前 1 条) ===")
     s = enriched[0]
     print(f"instruction (last 100):\n  ...{s['instruction'][-200:]}")
     print(f"\ninput (last 200):\n  ...{s['input'][-300:]}")

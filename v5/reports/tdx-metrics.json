@@ -1,16 +1,16 @@
 {
-  "ts": "2026-09-25T10:03:05.379036+00:00",
+  "ts": "2026-09-25T23:50:01.079207+00:00",
   "hostname": "jiuben-System-Product-Name",
   "load": {
-    "load_1min": 7.84,
-    "load_5min": 3.56,
-    "load_15min": 1.65
+    "load_1min": 0.23,
+    "load_5min": 0.39,
+    "load_15min": 0.46
   },
   "disk": {
     "total_gb": 1831.7,
-    "used_gb": 633.5,
-    "free_gb": 1105.0,
-    "used_pct": 34.6
+    "used_gb": 669.5,
+    "free_gb": 1069.1,
+    "used_pct": 36.6
   },
   "gpu": {
     "available": true,
@@ -18,18 +18,18 @@
       {
         "index": 0,
         "name": "NVIDIA GeForce RTX 5060 Ti",
-        "util_pct": 49.0,
-        "mem_used_mb": 8096.0,
+        "util_pct": 6.0,
+        "mem_used_mb": 731.0,
         "mem_total_mb": 16311.0,
-        "temp_c": 51.0
+        "temp_c": 31.0
       },
       {
         "index": 1,
         "name": "NVIDIA GeForce RTX 5060 Ti",
-        "util_pct": 55.0,
-        "mem_used_mb": 8402.0,
+        "util_pct": 0.0,
+        "mem_used_mb": 13.0,
         "mem_total_mb": 16311.0,
-        "temp_c": 54.0
+        "temp_c": 28.0
       }
     ]
   },
@@ -37,14 +37,14 @@
     {
       "name": "math-sympy-http",
       "url": "http://127.0.0.1:8002/health",
-      "status": "offline",
-      "error": "timed out"
+      "status": "online",
+      "elapsed_ms": 1.9
     },
     {
       "name": "ollama",
       "url": "http://127.0.0.1:11434/api/tags",
-      "status": "online",
-      "elapsed_ms": 1.0
+      "status": "offline",
+      "error": "[Errno 111] Connection refused"
     },
     {
       "name": "workbench",
@@ -55,11 +55,11 @@
   ],
   "audit_log": {
     "exists": true,
-    "size_mb": 0.26,
+    "size_mb": 0.27,
     "warning": false
   },
   "alerts": [
-    "🟠 服务离线: math-sympy-http",
+    "🟠 服务离线: ollama",
     "🟠 服务离线: workbench"
   ]
 }

@@ -27,13 +27,14 @@ Scan A-share stocks for 20-day rolling window with ≥100% price range.
   <out_prefix>_enriched.csv    enriched (含 baostock 元数据)
   <out_prefix>_candidate.csv   候选 (每只股票 1 个最早 trigger)
 """
-import pandas as pd
+import argparse
 import glob
 import json
 import time
 from pathlib import Path
-import argparse
+
 import numpy as np
+import pandas as pd
 
 START_DATE = "2001-01-01"
 WINDOW = 20
@@ -133,9 +134,12 @@ def enrich(raw_df, name_map):
     basic = pd.read_parquet('/tmp/baostock_basic.parquet')
 
     def parquet_to_baostock(s):
-        if s.startswith('sh'): return 'sh.' + s[2:]
-        if s.startswith('sz'): return 'sz.' + s[2:]
-        if s.startswith('bj'): return 'bj.' + s[2:]
+        if s.startswith('sh'):
+            return 'sh.' + s[2:]
+        if s.startswith('sz'):
+            return 'sz.' + s[2:]
+        if s.startswith('bj'):
+            return 'bj.' + s[2:]
         return s
 
     df = raw_df.copy()
@@ -157,10 +161,14 @@ def enrich(raw_df, name_map):
     df['has_zero_vol'] = (df['win_low_sum_vol'] == 0)
 
     def market(s):
-        if s.startswith('sh'): return 'SH'
-        if s.startswith('sz'): return 'SZ'
-        if s.startswith('bj'): return 'BJ'
+        if s.startswith('sh'):
+            return 'SH'
+        if s.startswith('sz'):
+            return 'SZ'
+        if s.startswith('bj'):
+            return 'BJ'
         return '?'
+
     df['market'] = df['symbol'].apply(market)
     df['avg_amount'] = df['win_amount'] / 20.0
 
@@ -200,7 +208,7 @@ def main():
         try:
             ts = scan_one(symbol, f)
             all_triggers.extend(ts)
-        except Exception as e:
+        except Exception:
             pass
         if (i + 1) % 500 == 0:
             elapsed = time.time() - t0
@@ -236,7 +244,7 @@ def main():
     print(f"✓ candidate: {len(first)} unique stocks → {out_cand}")
 
     # 快速统计
-    print(f"\n=== 摘要 ===")
+    print("\n=== 摘要 ===")
     print(f"  总 trigger: {len(enriched)}")
     print(f"  候选股票: {len(first)}")
     print(f"  按市场: {enriched['market'].value_counts().to_dict()}")
