@@ -1,0 +1,22 @@
+{
+  "auc": 0.8057329396009432,
+  "pos_count": 32835,
+  "neg_count": 199883,
+  "n_features": 24,
+  "best_iter": 183,
+  "params": {
+    "objective": "binary",
+    "metric": "auc",
+    "boosting_type": "gbdt",
+    "learning_rate": 0.05,
+    "num_leaves": 63,
+    "max_depth": 7,
+    "min_child_samples": 50,
+    "feature_fraction": 0.8,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 5,
+    "verbose": -1,
+    "seed": 42
+  },
+  "timestamp": "2026-09-25T18:50:54.390789"
+}
