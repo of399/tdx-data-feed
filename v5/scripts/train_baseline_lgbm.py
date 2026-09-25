@@ -16,13 +16,16 @@
   v5/audit/baseline_metrics.json
   v5/audit/baseline_importance.csv
 """
-import pandas as pd
-import numpy as np
-import glob, json, time
-from pathlib import Path
 import argparse
-from sklearn.metrics import roc_auc_score, classification_report
+import glob
+import json
+import time
+from pathlib import Path
+
 import lightgbm as lgb
+import numpy as np
+import pandas as pd
+from sklearn.metrics import classification_report, roc_auc_score
 
 START_DATE = "2001-01-01"
 TRIGGER_CSV = "v5/audit/double_triggers_enriched.csv"
@@ -218,7 +221,7 @@ def main():
 
     y_pred = model.predict(X_val)
     auc = roc_auc_score(y_val, y_pred)
-    print(f"\n=== 评估 ===")
+    print("\n=== 评估 ===")
     print(f"ROC-AUC: {auc:.4f}")
     y_pred_bin = (y_pred >= 0.5).astype(int)
     print(classification_report(y_val, y_pred_bin, digits=4))
@@ -228,7 +231,7 @@ def main():
         'importance_gain': model.feature_importance(importance_type='gain'),
         'importance_split': model.feature_importance(importance_type='split'),
     }).sort_values('importance_gain', ascending=False)
-    print(f"\n=== Top 15 特征 (gain) ===")
+    print("\n=== Top 15 特征 (gain) ===")
     print(importance.head(15).to_string())
 
     model.save_model(f'{args.out_prefix}_model.txt')
@@ -246,7 +249,7 @@ def main():
         json.dump(metrics, f, indent=2)
     importance.to_csv(f'{args.out_prefix}_importance.csv', index=False)
 
-    print(f"\n✓ 输出:")
+    print("\n✓ 输出:")
     print(f"  - {args.out_prefix}_model.txt")
     print(f"  - {args.out_prefix}_features.parquet")
     print(f"  - {args.out_prefix}_metrics.json")

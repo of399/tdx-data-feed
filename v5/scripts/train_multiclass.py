@@ -12,13 +12,14 @@ T5: 多分类 (涨幅分级 1x / 1.5x / 2x / 3x / 5x+)
 
 需要先跑 scan_double.py 重新生成 raw (含 win_amount 等), 再 enrich 取 max(high)/min(low)
 """
-import pandas as pd
-import numpy as np
+import argparse
+import json
+import time
+
 import lightgbm as lgb
-from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix
-import json, argparse, time
-from pathlib import Path
-import glob
+import numpy as np
+import pandas as pd
+from sklearn.metrics import classification_report, f1_score, roc_auc_score
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--features', default='v5/audit/baseline_features.parquet')
@@ -40,7 +41,7 @@ def calc_forward_look(df_daily, sym):
     f = f'data/parquet/daily/{sym}.parquet'
     try:
         d = pd.read_parquet(f)
-    except:
+    except Exception:
         return None
     if d['date'].dtype != 'datetime64[ns]':
         s = d['date'].astype(str)
@@ -77,20 +78,25 @@ df['fwd_range'] = df['fwd_range'].fillna(0)
 
 # 3. 分级
 def to_class(r):
-    if r < 1.0: return 0
-    if r < 1.5: return 1
-    if r < 2.0: return 2
-    if r < 3.0: return 3
-    if r < 5.0: return 4
+    if r < 1.0:
+        return 0
+    if r < 1.5:
+        return 1
+    if r < 2.0:
+        return 2
+    if r < 3.0:
+        return 3
+    if r < 5.0:
+        return 4
     return 5
 
 df['class'] = df['fwd_range'].apply(to_class)
-print(f"\n分级分布:")
+print("\n分级分布:")
 print(df['class'].value_counts().sort_index())
 print(f"  NaN/inf: {df['fwd_range'].isna().sum() + (df['fwd_range'] == np.inf).sum()}")
 
 # 4. 训练 multiclass LightGBM
-print(f"\n[3] 训练 multiclass ...")
+print("\n[3] 训练 multiclass ...")
 unique_syms = df['symbol'].unique()
 np.random.seed(args.seed)
 np.random.shuffle(unique_syms)
@@ -129,11 +135,10 @@ model = lgb.train(
 # 5. 评估
 y_pred_proba = model.predict(X_val)
 y_pred_class = y_pred_proba.argmax(axis=1)
-print(f"\n=== T5 评估 ===")
+print("\n=== T5 评估 ===")
 print(classification_report(y_val, y_pred_class, digits=3))
 
 # Macro F1
-from sklearn.metrics import f1_score
 macro_f1 = f1_score(y_val, y_pred_class, average='macro')
 weighted_f1 = f1_score(y_val, y_pred_class, average='weighted')
 
