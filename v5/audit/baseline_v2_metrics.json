@@ -1,0 +1,15 @@
+{
+  "baseline_auc": 0.806,
+  "v2_auc": 0.8105162454671322,
+  "delta": 0.004516245467132141,
+  "new_features": [
+    "industry_code_id",
+    "log_days_listed",
+    "log_amp20",
+    "market_dummy",
+    "industry_mean_trigger"
+  ],
+  "best_iter": 296,
+  "n_features": 30,
+  "timestamp": "2026-09-25T21:35:38.582523"
+}
