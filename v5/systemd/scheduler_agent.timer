@@ -1,0 +1,11 @@
+[Unit]
+Description=Run M5 scheduler_agent every hour (smart dispatch)
+Documentation=file:///home/jiuben/tdx-data-feed/v5-implementation-plan.md
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=scheduler_agent.service
+
+[Install]
+WantedBy=timers.target

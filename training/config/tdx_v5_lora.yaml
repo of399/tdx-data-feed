@@ -1,0 +1,64 @@
+# tdx_v5_lora.yaml — v5 训练配置（基于 v4 fast 续训）
+# 用法：llamafactory-cli /home/jiuben/tdx-data-feed/training/config/tdx_v5_lora.yaml
+# 数据：v5_train.jsonl (12656) + v5_val.jsonl (667)，比 v4 (80071) 小很多
+# 预估：~3-4 小时（QLoRA 4bit + 双卡 16G）
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: null  # 改为从零训（v4 merged 路径太复杂）
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+dataset: tdx_v5_train
+eval_dataset: tdx_v5_val
+template: qwen
+finetuning_type: lora
+trust_remote_code: true
+max_samples: 13000
+
+# LoRA 超参
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+
+# 训练超参
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v5
+overwrite_output_dir: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+num_train_epochs: 3.0
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+weight_decay: 0.0
+max_grad_norm: 1.0
+seed: 42
+
+# 序列与 packing
+cutoff_len: 512
+packing: true
+packing_strategy: wrapped
+neftune_noise_alpha: 0
+
+# 精度与显存
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+bnb_4bit_compute_dtype: bfloat16
+flash_attn: fa2
+torch_compile: true
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+
+# 日志与 checkpoint
+logging_steps: 20
+save_steps: 200
+save_total_limit: 3
+save_strategy: steps
+evaluation_strategy: steps
+eval_steps: 200
+load_best_model_at_end: false
+
+# 监控
+report_to: none
+dataloader_num_workers: 4
+remove_unused_columns: false
+bf16: true

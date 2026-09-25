@@ -1,0 +1,20 @@
+[Unit]
+Description=PushPlus Bridge (Alertmanager → 微信推送)
+Documentation=file:///home/jiuben/tdx-data-feed/v5-implementation-plan.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jiuben
+EnvironmentFile=-/home/jiuben/tdx-data-feed/v5/scripts/.pushplus.env
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/pushplus_bridge.py --host 127.0.0.1 --port 5002
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pushplus_bridge
+
+[Install]
+WantedBy=multi-user.target

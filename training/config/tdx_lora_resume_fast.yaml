@@ -1,0 +1,50 @@
+# tdx_lora_resume_fast.yaml — 从 checkpoint-4200 续训加速配置
+# 用法：llamafactory-cli train /home/jiuben/tdx-data-feed/training/config/tdx_lora_resume_fast.yaml
+#
+# 加速要点（相对现役 tdx_lora.yaml）：
+#   1. adapter_name_or_path -> checkpoint-4200：用已训 43h 的 LoRA 权重初始化，继续训练剩余部分
+#   2. packing: true        -> 多样本拼接，减少 padding 浪费，+20-40% 吞吐
+#   3. torch_compile: true   -> PyTorch 2.x 编译，+10-20%
+#   4. num_train_epochs: 1.2 -> 现役已训到 ~1.86/3 epoch，补训剩余 ~1.14 epoch（留余量 1.2）
+#
+# 显存：保留 gradient_checkpointing + QLoRA 4bit，双卡 16G 安全。
+# 风险：torch_compile 首次 step 编译 warm-up 约 1-2 分钟，之后稳定。
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx/checkpoint-4200
+dataset: tdx_v4_train,tdx_v4_val
+eval_dataset: tdx_v4_val
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+template: qwen
+finetuning_type: lora
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target: all
+cutoff_len: 512
+learning_rate: 1.0e-4
+num_train_epochs: 1.2
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+logging_steps: 20
+save_steps: 200
+save_total_limit: 3
+save_strategy: steps
+eval_strategy: steps
+eval_steps: 200
+per_device_eval_batch_size: 1
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-fast
+overwrite_output_dir: true
+bf16: true
+fp16: false
+flash_attn: fa2
+do_train: true
+packing: true
+torch_compile: true

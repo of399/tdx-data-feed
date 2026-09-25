@@ -1,0 +1,90 @@
+# indicator-match skill — 形态 / 技术指标匹配（kline-analysis 的 fallback）
+# ===========================================================================
+# 纯计算 + 检索，不需要 GPU 推理，是 kline-analysis 的降级方案（GPU 不可用时）。
+
+name: indicator-match
+version: "0.1.0"
+description: |
+  形态匹配 / 指标交叉验证：基于预计算指标 + 历史相似 K线，给出方向预测。
+  当 kline-analysis 的 14B 不可用时作为 fallback（GPU 满 / 模型未训练 / OOM）。
+  准确率略低于 LLM，但**绝对稳定**且**零 GPU**。
+
+llm:
+  model_id: none                       # 纯规则 + 计算，零 LLM
+  inference: null
+
+tools:
+  - mcp:tdx-parquet-reader.read_daily_kline
+  - mcp:tdx-calc.calc_ma
+  - mcp:tdx-calc.calc_macd
+  - mcp:tdx-calc.calc_kdj
+  - mcp:tdx-calc.calc_rsi
+  - mcp:tdx-calc.calc_boll
+  - mcp:tdx-vault.search               # 检索历史相似形态的"后续收益"
+
+# 决策逻辑（纯规则，不调 LLM）
+decision_logic:
+  weight_table:
+    macd_golden_cross: 1.5             # MACD 金叉
+    macd_death_cross: -1.5
+    kdj_j_oversold: 1.0                # J < 20 超卖
+    kdj_j_overbought: -1.0
+    rsi_oversold: 1.0                  # RSI < 30
+    rsi_overbought: -1.0
+    price_above_ma20: 0.5              # 站上 MA20
+    price_below_ma20: -0.5
+    boll_break_upper: -1.0             # 突破上轨（超买）
+    boll_break_lower: 1.0              # 跌破下轨（超卖）
+    hammer: 0.5
+    shooting_star: -0.5
+    bullish_engulfing: 1.0
+    bearish_engulfing: -1.0
+    similar_pattern_positive_return: 1.0  # 历史相似形态后续 5 日正收益
+    similar_pattern_negative_return: -1.0
+  threshold:
+    strong_buy: 4.0
+    buy: 2.0
+    neutral: -2.0~2.0
+    sell: -2.0
+    strong_sell: -4.0
+
+input_schema:
+  type: object
+  properties:
+    code:
+      type: string
+    lookback:
+      type: integer
+      default: 20
+    use_similar_history:
+      type: boolean
+      default: true
+      description: 是否用历史相似 K线辅助（默认开启）
+
+output_schema:
+  type: object
+  properties:
+    code:
+      type: string
+    score:
+      type: number
+      description: 加权得分（-5 ~ +5）
+    direction:
+      type: integer
+      enum: [-1, 0, 1]
+    pct:
+      type: number
+    reason:
+      type: string
+      description: 触发的关键信号（如 "MACD金叉 + RSI超卖 + 历史相似形态后续+3.2%"）
+
+prompt_template: null                # 纯规则，无 prompt
+
+priority: 80                          # 比 kline-analysis 低
+timeout_sec: 3                        # 必须快（fallback）
+fallback_skill: null
+
+metrics:
+  - latency_ms
+  - rule_trigger_count
+  - similar_history_hit_rate

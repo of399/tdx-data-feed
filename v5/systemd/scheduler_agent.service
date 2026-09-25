@@ -1,0 +1,20 @@
+[Unit]
+Description=M5 Vault 5 Agent Scheduler (smart dispatch per cycle)
+Documentation=file:///home/jiuben/tdx-data-feed/v5-implementation-plan.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/scheduler_agent.py --once
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=scheduler-agent
+User=jiuben
+Group=jiuben
+Environment="V5_DIR=/home/jiuben/tdx-data-feed/v5"
+Environment="VAULT_PATH=/home/jiuben/StockVault"
+
+[Install]
+WantedBy=multi-user.target

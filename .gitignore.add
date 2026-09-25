@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Env / IDE
+.env
+.venv
+venv/
+.idea/
+.vscode/
+
+# 业务产物（不推）
+data/
+double_up/
+*.parquet
+*.log
+*.csv
+*.jsonl
+*.pkl
+*.gguf
+
+# Models (大文件)
+models/*.gguf
+models/awq-quantize-*.log
+
+# 临时报告
+/tmp/*.json
+
+# vllm 量化 venv (8GB)
+vllm-venv/

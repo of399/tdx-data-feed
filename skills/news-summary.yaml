@@ -1,0 +1,86 @@
+# news-summary skill — 新闻 / 政策 / 公告 检索与摘要
+# =============================================================
+# 实时性要求高，可选接入外部新闻 API（akshare / 财新 / Wind 等）。
+
+name: news-summary
+version: "0.1.0"
+description: |
+  检索某标的近期新闻、政策、公告，生成摘要。
+  数据源：可选外部新闻 API + StockVault 已索引文档。
+  对实时性 / 准确度要求高，可独立迭代。
+
+llm:
+  model_id: qwen3-7b                  # 7B 足够做摘要
+  base_model: Qwen/Qwen3-7B
+  inference:
+    backend: vllm
+    dtype: bfloat16
+    max_new_tokens: 384
+    temperature: 0.2                   # 略高于 0，允许摘要措辞变化
+
+tools:
+  - mcp:tdx-vault.search               # 内部文档检索
+  - external:news_api.search           # 外部 API（待接入 akshare 财新 / 同花顺）
+  - mcp:tdx-parquet-reader.list_codes
+
+input_schema:
+  type: object
+  properties:
+    code:
+      type: string
+    lookback_days:
+      type: integer
+      default: 7
+      description: 检索最近 N 天
+    topics:
+      type: array
+      items:
+        type: string
+        enum: [earnings, dividend, regulation, policy, management, mna, product, lawsuit]
+      description: 主题过滤（可选）
+  required: [code]
+
+output_schema:
+  type: object
+  properties:
+    code:
+      type: string
+    items:
+      type: array
+      description: [{title, source, date, summary, impact: positive/negative/neutral}, ...]
+    overall_sentiment:
+      type: string
+      enum: [positive, negative, neutral, mixed]
+
+prompt_template: |
+  ### 指令:
+  以下是该股票 {code} 近期 {lookback_days} 天的新闻/政策/公告检索结果。
+  请为每条生成 50 字以内的摘要，并标注对股价的影响（positive / negative / neutral）。
+  最后给出整体情绪判断。
+
+  ### 输入:
+  {news_items}
+
+  ### 回答:
+  ```json
+  {
+    "items": [{"title": "...", "date": "YYYY-MM-DD", "summary": "...", "impact": "positive|negative|neutral"}, ...],
+    "overall_sentiment": "positive|negative|neutral|mixed"
+  }
+  ```
+
+priority: 40
+timeout_sec: 20
+fallback_skill: null                  # 新闻查询失败可静默跳过，不阻塞主流程
+
+# 实时性策略
+freshness:
+  cache_ttl_sec: 300                  # 5 分钟内重复查询走缓存
+  external_api_timeout_sec: 5
+  retry_on_failure: 2
+
+metrics:
+  - latency_ms
+  - cache_hit_rate
+  - external_api_success_rate
+  - summary_freshness_minutes

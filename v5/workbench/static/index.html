@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>v5-VE1-M2 Workbench · 数学理解子层优化路线图</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%88%9B%3C/text%3E%3C/svg%3E" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.6/standalone/umd/vis-network.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <!-- ========== HEADER ========== -->
+    <header class="header">
+      <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
+      <div class="header__brand">
+        <div class="header__brand-icon">∫</div>
+        <span>v5-VE1-M2 Workbench</span>
+      </div>
+      <span class="header__phase" id="phaseLabel">Phase A · 底座建设</span>
+      <div class="header__spacer"></div>
+      <button class="header__btn" id="themeToggle" title="切换主题">🌓 主题</button>
+      <button class="header__btn" id="settingsBtn" title="设置">⚙️ 设置</button>
+      <button class="header__btn header__btn--primary" id="seedBtn" title="重新加载种子数据">⟳ 重置</button>
+    </header>
+
+    <div class="main">
+      <!-- ========== SIDEBAR ========== -->
+      <nav class="sidebar" id="sidebar">
+        <div class="nav-item active" data-view="dashboard">
+          <span class="nav-item__icon">🏠</span>
+          <span>概览</span>
+        </div>
+        <div class="nav-item" data-view="roadmap">
+          <span class="nav-item__icon">🗺️</span>
+          <span>路线图</span>
+          <span class="nav-item__badge" id="taskCount">0</span>
+        </div>
+        <div class="nav-item" data-view="graph">
+          <span class="nav-item__icon">🕸️</span>
+          <span>概念图谱</span>
+        </div>
+        <div class="nav-item" data-view="notes">
+          <span class="nav-item__icon">📝</span>
+          <span>笔记反思</span>
+        </div>
+        <div class="nav-item" data-view="metrics">
+          <span class="nav-item__icon">📈</span>
+          <span>指标面板</span>
+        </div>
+        <div class="nav-item" data-view="shortcuts">
+          <span class="nav-item__icon">⚡</span>
+          <span>快捷区</span>
+        </div>
+        <div class="nav-item" data-view="settings">
+          <span class="nav-item__icon">⚙️</span>
+          <span>偏好设置</span>
+        </div>
+      </nav>
+
+      <!-- ========== CONTENT ========== -->
+      <main class="content" id="content">
+        <!-- Dashboard View -->
+        <section data-view="dashboard" class="view">
+          <div class="panel">
+            <div class="panel__header">
+              <span class="panel__title">📌 版本标识</span>
+              <span class="panel__sub" id="versionInfo">载入中...</span>
+            </div>
+            <div class="panel__body" id="versionCard">
+              <div class="kpi-grid" id="versionKpis"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel__header">
+              <span class="panel__title">📊 关键指标概览</span>
+              <span class="panel__sub">实时数据</span>
+            </div>
+            <div class="panel__body">
+              <div class="kpi-grid" id="kpiGrid"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel__header">
+              <span class="panel__title">🗺️ 阶段进度</span>
+              <span class="panel__sub">3 个 Phase · 12 周</span>
+            </div>
+            <div class="panel__body">
+              <div class="phase-progress" id="phaseProgress"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Roadmap View -->
+        <section data-view="roadmap" class="view" style="display:none">
+          <div class="panel">
+            <div class="panel__header">
+              <span class="panel__title">🗺️ 路线图</span>
+              <span class="panel__sub" id="roadmapSubtitle">分阶段任务</span>
+              <div class="panel__actions">
+                <button class="btn btn--primary btn--sm" id="addTaskBtn">+ 新增任务</button>
+              </div>
+            </div>
+            <div class="phase-tabs" id="phaseTabs"></div>
+            <div class="filter-bar">
+              <input class="filter-bar__search" id="taskSearch" placeholder="🔍 搜索任务标题或描述..." />
+              <select class="filter-bar__select" id="taskStatusFilter">
+                <option value="">全部状态</option>
+                <option value="todo">待办</option>
+                <option value="in_progress">进行中</option>
+                <option value="done">已完成</option>
+                <option value="blocked">阻塞</option>
+              </select>
+              <select class="filter-bar__select" id="taskPriorityFilter">
+                <option value="">全部优先级</option>
+                <option value="1">P1 · 最高</option>
+                <option value="2">P2</option>
+                <option value="3">P3</option>
+              </select>
+            </div>
+            <div class="task-list" id="taskList"></div>
+          </div>
+        </section>
+
+        <!-- Graph View -->
+        <section data-view="graph" class="view" style="display:none">
+          <div class="panel">
+            <div class="panel__header">
+              <span class="panel__title">🕸️ 概念与能力图谱</span>
+              <span class="panel__sub">节点 = 概念/工具/模型；边 = 依赖关系</span>
+            </div>
+            <div class="panel__body">
+              <div id="network"></div>
+              <div style="margin-top:12px; display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--text-soft);">
+                <span><span style="display:inline-block;width:10px;height:10px;background:#4f46e5;border-radius:50%;margin-right:4px;"></span> 数学领域</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#10b981;border-radius:50%;margin-right:4px;"></span> 能力层</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#f59e0b;border-radius:50%;margin-right:4px;"></span> 工具</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#ec4899;border-radius:50%;margin-right:4px;"></span> 模型</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Notes View -->
+        <section data-view="notes" class="view" style="display:none">
+          <div class="panel">
+            <div class="panel__header">
+              <span class="panel__title">📝 反思与笔记</span>
+              <span class="panel__sub">学习 / 问题 / 决策 / 想法</span>
+              <div class="panel__actions">
+                <button class="btn btn--primary btn--sm" id="addNoteBtn">+ 新增笔记</button>
+              </div>
+            </div>
+            <div class="filter-bar">
+              <input class="filter-bar__search" id="noteSearch" placeholder="🔍 搜索笔记标题或内容..." />
+              <select class="filter-bar__select" id="noteTypeFilter">
+                <option value="">全部类型</option>
+                <option value="learning">学习</option>
+                <option value="issue">问题</option>
+                <option value="decision">决策</option>
+                <option value="idea">想法</option>
+              </select>
+            </div>
+            <div class="panel__body" id="notesList"></div>
+          </div>
+        </section>
+
+        <!-- Metrics View -->
+        <section data-view="metrics" class="view" style="display:none">
+          <div class="panel">
+            <div class="panel__header">
+              <span class="panel__title">📈 自定义指标面板</span>
+              <span class="panel__sub">追踪数学理解能力提升</span>
+              <div class="panel__actions">
+                <button class="btn btn--primary btn--sm" id="addMetricBtn">+ 新增指标</button>
+              </div>
+            </div>
+            <div class="panel__body">
+              <div class="kpi-grid" id="metricsGrid"></div>
+              <div style="margin-top:20px;">
+                <h3 style="font-size:13px; margin-bottom:12px; color:var(--text-soft);">📊 趋势图</h3>
+                <div class="chart-container" style="height:300px;">
+                  <canvas id="metricsChart"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Shortcuts View -->
+        <section data-view="shortcuts" class="view" style="display:none">
+          <div class="panel">
+            <div class="panel__header">
+              <span class="panel__title">⚡ 常用工具快捷区</span>
+              <span class="panel__sub">拖拽排序 · 悬停删除 · 添加自定义</span>
+              <div class="panel__actions">
+                <button class="btn btn--primary btn--sm" id="addShortcutBtn">+ 添加</button>
+              </div>
+            </div>
+            <div class="shortcuts-grid" id="shortcutsGrid"></div>
+          </div>
+        </section>
+
+        <!-- Settings View -->
+        <section data-view="settings" class="view" style="display:none">
+          <div class="panel">
+            <div class="panel__header">
+              <span class="panel__title">⚙️ 偏好设置</span>
+              <span class="panel__sub">主题 · 布局 · 通知</span>
+            </div>
+            <div class="panel__body">
+              <label class="form-label">主题</label>
+              <select class="select" id="settingTheme">
+                <option value="light">☀️ 浅色</option>
+                <option value="dark">🌙 深色</option>
+                <option value="auto">🌓 跟随系统</option>
+              </select>
+
+              <label class="form-label">布局密度</label>
+              <select class="select" id="settingDensity">
+                <option value="comfortable">舒适</option>
+                <option value="compact">紧凑</option>
+              </select>
+
+              <label class="form-label">侧边栏默认视图</label>
+              <select class="select" id="settingDefaultView">
+                <option value="dashboard">概览</option>
+                <option value="roadmap">路线图</option>
+                <option value="notes">笔记</option>
+                <option value="metrics">指标</option>
+              </select>
+
+              <hr style="margin:20px 0; border:none; border-top:1px solid var(--border);" />
+
+              <label class="form-label">通知选项</label>
+              <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                  <input type="checkbox" id="settingNotifTask" checked />
+                  <span style="font-size:13px;">任务状态变更提醒</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                  <input type="checkbox" id="settingNotifNote" checked />
+                  <span style="font-size:13px;">新增笔记提醒</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                  <input type="checkbox" id="settingNotifMetric" />
+                  <span style="font-size:13px;">指标达成目标提醒</span>
+                </label>
+              </div>
+
+              <hr style="margin:20px 0; border:none; border-top:1px solid var(--border);" />
+
+              <label class="form-label">数据</label>
+              <div style="display:flex; gap:8px;">
+                <button class="btn" id="exportDataBtn">📥 导出 JSON</button>
+                <button class="btn" id="resetBtn" style="color:var(--danger);">🗑️ 重置全部数据</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- ========== TOAST CONTAINER ========== -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ========== MODAL ========== -->
+  <div class="modal-bg" id="modalBg" style="display:none;">
+    <div class="modal" id="modal">
+      <div class="modal__header">
+        <span class="modal__title" id="modalTitle">Modal</span>
+        <button class="modal__close" id="modalClose">✕</button>
+      </div>
+      <div class="modal__body" id="modalBody"></div>
+      <div class="modal__footer" id="modalFooter" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

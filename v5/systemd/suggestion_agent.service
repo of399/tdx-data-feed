@@ -1,0 +1,16 @@
+[Unit]
+Description=Vault Suggestion Agent (M5 Phase 2 简化版：linking + tag + moc + promotion)
+Documentation=file:///home/jiuben/tdx-data-feed/v5-implementation-plan.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jiuben
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/suggestion_agent.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=suggestion_agent
+# 不让失败阻塞下次触发
+SuccessExitStatus=0 1

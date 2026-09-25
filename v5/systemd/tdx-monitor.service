@@ -1,0 +1,17 @@
+[Unit]
+Description=tdx System Monitor (CPU/GPU/Disk/Services health)
+Documentation=file:///home/jiuben/tdx-data-feed/v5-implementation-plan.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/tdx_monitor.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tdx-monitor
+User=jiuben
+
+[Install]
+WantedBy=multi-user.target

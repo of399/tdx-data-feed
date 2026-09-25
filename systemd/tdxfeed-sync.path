@@ -1,0 +1,9 @@
+[Unit]
+Description=（保留）手动触发：检测文件变化时同步
+
+[Path]
+PathExists=/home/jiuben/tdx-data-feed/.state/manual-sync-trigger
+Unit=tdxfeed-sync.service
+
+[Install]
+WantedBy=paths.target

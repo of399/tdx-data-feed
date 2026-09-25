@@ -1,0 +1,451 @@
+# math_ontology.yaml · v5-VE1-M2 §12.5 D4.1 数学概念本体
+#
+# 结构：概念 → 关系（is_a / part_of / requires / related_to）
+# 用途：让 math_linker 能基于"概念关系"做语义链接，不只靠嵌入相似度
+#
+# 字段说明：
+#   id:        概念唯一 ID（小写蛇形）
+#   name:      中文名
+#   name_en:   英文名
+#   category:  分类（algebra/calculus/geometry/...）
+#   is_a:      父概念（继承）
+#   part_of:   所属体系（如 微积分 ⊂ 数学分析）
+#   requires:  前置概念
+#   related:   相关概念
+#   keywords:  关键词（用于模糊匹配）
+
+concepts:
+  # ============== 微积分 ==============
+  - id: limit
+    name: 极限
+    name_en: limit
+    category: calculus
+    is_a: ['mathematical_analysis_concept']
+    part_of: ['calculus']
+    requires: ['real_number']
+    related: ['continuity', 'derivative', 'integral']
+    keywords: ['极限', 'limit', 'lim', '当x趋近', 'as x approaches']
+
+  - id: continuity
+    name: 连续
+    name_en: continuity
+    category: calculus
+    is_a: ['mathematical_analysis_concept']
+    part_of: ['calculus']
+    requires: ['limit']
+    related: ['limit', 'derivative']
+    keywords: ['连续', 'continuous', '连续性', 'continuity']
+
+  - id: derivative
+    name: 导数
+    name_en: derivative
+    category: calculus
+    is_a: ['mathematical_analysis_concept']
+    part_of: ['calculus']
+    requires: ['limit']
+    related: ['integral', 'differential', 'partial_derivative']
+    keywords: ['导数', 'derivative', '求导', '微商', 'd/dx', "f'"]
+
+  - id: partial_derivative
+    name: 偏导数
+    name_en: partial derivative
+    category: calculus
+    is_a: ['derivative']
+    part_of: ['multivariable_calculus']
+    requires: ['derivative', 'multivariable_function']
+    related: ['gradient', 'total_derivative']
+    keywords: ['偏导', 'partial', '∂', 'del', 'partial derivative']
+
+  - id: gradient
+    name: 梯度
+    name_en: gradient
+    category: calculus
+    is_a: ['vector_calculus_concept']
+    part_of: ['multivariable_calculus']
+    requires: ['partial_derivative', 'vector']
+    related: ['directional_derivative', 'divergence', 'curl']
+    keywords: ['梯度', 'gradient', '∇', 'nabla']
+
+  - id: integral
+    name: 积分
+    name_en: integral
+    category: calculus
+    is_a: ['mathematical_analysis_concept']
+    part_of: ['calculus']
+    requires: ['limit', 'derivative']
+    related: ['derivative', 'definite_integration', 'indefinite_integration']
+    keywords: ['积分', 'integral', 'integrate', '∫', 'antiderivative']
+
+  - id: definite_integration
+    name: 定积分
+    name_en: definite integral
+    category: calculus
+    is_a: ['integral']
+    part_of: ['calculus']
+    requires: ['integral', 'limit']
+    related: ['indefinite_integration', 'riemann_sum']
+    keywords: ['定积分', 'definite integral', '上下限', 'bounds', '∫_a^b']
+
+  - id: indefinite_integration
+    name: 不定积分
+    name_en: indefinite integral
+    category: calculus
+    is_a: ['integral']
+    part_of: ['calculus']
+    requires: ['integral', 'antiderivative']
+    related: ['definite_integration']
+    keywords: ['不定积分', 'indefinite integral', '∫f(x)dx']
+
+  - id: series
+    name: 级数
+    name_en: series
+    category: calculus
+    is_a: ['mathematical_analysis_concept']
+    part_of: ['calculus']
+    requires: ['sequence']
+    related: ['power_series', 'taylor_series', 'fourier_series']
+    keywords: ['级数', 'series', 'sum', '∑']
+
+  - id: taylor_series
+    name: 泰勒级数
+    name_en: Taylor series
+    category: calculus
+    is_a: ['power_series']
+    part_of: ['calculus']
+    requires: ['series', 'derivative']
+    related: ['maclaurin_series', 'power_series']
+    keywords: ['泰勒', 'Taylor', '展开', 'expansion', 'T(x)']
+
+  # ============== 代数 ==============
+  - id: function
+    name: 函数
+    name_en: function
+    category: algebra
+    is_a: ['mathematical_concept']
+    part_of: ['algebra']
+    related: ['variable', 'domain', 'codomain']
+    keywords: ['函数', 'function', 'f(x)', '映射', 'mapping']
+
+  - id: polynomial
+    name: 多项式
+    name_en: polynomial
+    category: algebra
+    is_a: ['algebraic_expression']
+    part_of: ['algebra']
+    requires: ['variable']
+    related: ['monomial', 'quadratic', 'cubic']
+    keywords: ['多项式', 'polynomial', '系数', 'coefficient']
+
+  - id: quadratic
+    name: 二次方程
+    name_en: quadratic equation
+    category: algebra
+    is_a: ['polynomial']
+    part_of: ['algebra']
+    requires: ['polynomial']
+    related: ['cubic', 'discriminant']
+    keywords: ['二次', 'quadratic', 'ax^2+bx+c', '抛物线', 'parabola']
+
+  - id: matrix
+    name: 矩阵
+    name_en: matrix
+    category: linear_algebra
+    is_a: ['algebraic_structure']
+    part_of: ['linear_algebra']
+    related: ['vector', 'determinant', 'eigenvalue']
+    keywords: ['矩阵', 'matrix', '"A_{ij}"', '行列']
+
+  - id: vector
+    name: 向量
+    name_en: vector
+    category: linear_algebra
+    is_a: ['mathematical_object']
+    part_of: ['linear_algebra']
+    related: ['matrix', 'dot_product', 'cross_product']
+    keywords: ['向量', 'vector', 'v', '矢量']
+
+  - id: determinant
+    name: 行列式
+    name_en: determinant
+    category: linear_algebra
+    is_a: ['scalar_function']
+    part_of: ['linear_algebra']
+    requires: ['matrix']
+    related: ['eigenvalue', 'matrix_inverse']
+    keywords: ['行列式', 'determinant', 'det', '"|A|"']
+
+  - id: eigenvalue
+    name: 特征值
+    name_en: eigenvalue
+    category: linear_algebra
+    is_a: ['scalar_value']
+    part_of: ['linear_algebra']
+    requires: ['matrix', 'vector']
+    related: ['eigenvector', 'determinant']
+    keywords: ['特征值', 'eigenvalue', 'λ', 'lambda']
+
+  - id: eigenvector
+    name: 特征向量
+    name_en: eigenvector
+    category: linear_algebra
+    is_a: ['vector']
+    part_of: ['linear_algebra']
+    requires: ['eigenvalue', 'matrix']
+    related: ['eigenvalue']
+    keywords: ['特征向量', 'eigenvector']
+
+  # ============== 几何 ==============
+  - id: triangle
+    name: 三角形
+    name_en: triangle
+    category: geometry
+    is_a: ['polygon']
+    part_of: ['euclidean_geometry']
+    related: ['right_triangle', 'pythagorean_theorem', 'sine_law', 'cosine_law']
+    keywords: ['三角形', 'triangle', '三边']
+
+  - id: right_triangle
+    name: 直角三角形
+    name_en: right triangle
+    category: geometry
+    is_a: ['triangle']
+    part_of: ['euclidean_geometry']
+    requires: ['triangle']
+    related: ['pythagorean_theorem', 'trigonometric_function']
+    keywords: ['直角三角形', 'right triangle', '直角']
+
+  - id: pythagorean_theorem
+    name: 勾股定理
+    name_en: Pythagorean theorem
+    category: geometry
+    is_a: ['theorem']
+    part_of: ['euclidean_geometry']
+    requires: ['right_triangle']
+    related: ['distance_formula', 'dot_product']
+    keywords: ['勾股定理', 'Pythagorean', 'a^2+b^2=c^2']
+
+  - id: circle
+    name: 圆
+    name_en: circle
+    category: geometry
+    is_a: ['conic_section']
+    part_of: ['euclidean_geometry']
+    related: ['ellipse', 'sphere']
+    keywords: ['圆', 'circle', 'x^2+y^2=r^2', '圆周']
+
+  - id: ellipse
+    name: 椭圆
+    name_en: ellipse
+    category: geometry
+    is_a: ['conic_section']
+    part_of: ['euclidean_geometry']
+    related: ['circle', 'hyperbola', 'parabola']
+    keywords: ['椭圆', 'ellipse', 'x^2/a^2+y^2/b^2=1']
+
+  # ============== 概率统计 ==============
+  - id: probability
+    name: 概率
+    name_en: probability
+    category: statistics
+    is_a: ['measure_theory_concept']
+    part_of: ['probability_theory']
+    related: ['random_variable', 'distribution', 'expectation']
+    keywords: ['概率', 'probability', 'P', '几率']
+
+  - id: random_variable
+    name: 随机变量
+    name_en: random variable
+    category: statistics
+    is_a: ['variable']
+    part_of: ['probability_theory']
+    related: ['distribution', 'expectation', 'variance']
+    keywords: ['随机变量', 'random variable', 'X', 'Y']
+
+  - id: distribution
+    name: 分布
+    name_en: distribution
+    category: statistics
+    is_a: ['function']
+    part_of: ['probability_theory']
+    requires: ['random_variable']
+    related: ['normal_distribution', 'expectation']
+    keywords: ['分布', 'distribution', 'PDF', 'pmf', '概率密度']
+
+  - id: normal_distribution
+    name: 正态分布
+    name_en: normal distribution
+    category: statistics
+    is_a: ['distribution']
+    part_of: ['probability_theory']
+    requires: ['distribution', 'exponential_function']
+    related: ['distribution', 'expectation']
+    keywords: ['正态', '高斯', 'normal', 'Gaussian', 'N(μ', 'σ^2)', 'e^(-x^2)']
+
+  - id: expectation
+    name: 期望
+    name_en: expectation
+    category: statistics
+    is_a: ['scalar_value']
+    part_of: ['probability_theory']
+    requires: ['random_variable']
+    related: ['variance', 'distribution']
+    keywords: ['期望', 'expectation', 'E(X)', '均值', 'mean']
+
+  - id: variance
+    name: 方差
+    name_en: variance
+    category: statistics
+    is_a: ['scalar_value']
+    part_of: ['probability_theory']
+    requires: ['random_variable']
+    related: ['expectation', 'standard_deviation']
+    keywords: ['方差', 'variance', 'Var(X)', 'σ^2', 'D(X)']
+
+  # ============== 离散数学 ==============
+  - id: set
+    name: 集合
+    name_en: set
+    category: discrete_math
+    is_a: ['mathematical_object']
+    part_of: ['discrete_math']
+    related: ['subset', 'union', 'intersection', 'function']
+    keywords: ['集合', 'set', '∈', '元素']
+
+  - id: graph_theory
+    name: 图论
+    name_en: graph theory
+    category: discrete_math
+    is_a: ['mathematical_structure']
+    part_of: ['discrete_math']
+    related: ['vertex', 'edge', 'tree']
+    keywords: ['图', 'graph', '顶点', 'vertex', '边', 'edge']
+
+  - id: permutation
+    name: 排列
+    name_en: permutation
+    category: discrete_math
+    is_a: ['combinatorial_concept']
+    part_of: ['discrete_math']
+    requires: ['set']
+    related: ['combination', 'factorial']
+    keywords: ['排列', 'permutation', 'P(n', 'k)', 'n!']
+
+  - id: combination
+    name: 组合
+    name_en: combination
+    category: discrete_math
+    is_a: ['combinatorial_concept']
+    part_of: ['discrete_math']
+    requires: ['set', 'binomial']
+    related: ['permutation', 'binomial']
+    keywords: ['组合', 'combination', 'C(n', 'k)', '选择']
+
+  # ============== 基础概念 ==============
+  - id: variable
+    name: 变量
+    name_en: variable
+    category: algebra
+    is_a: ['mathematical_concept']
+    part_of: ['algebra']
+    related: ['constant', 'function']
+    keywords: ['变量', 'variable', 'x', 'y', 'z', 'unknown']
+
+  - id: constant
+    name: 常数
+    name_en: constant
+    category: algebra
+    is_a: ['mathematical_concept']
+    part_of: ['algebra']
+    related: ['variable']
+    keywords: ['常数', 'constant', 'e', 'π', 'pi']
+
+  - id: equation
+    name: 方程
+    name_en: equation
+    category: algebra
+    is_a: ['mathematical_statement']
+    part_of: ['algebra']
+    requires: ['variable']
+    related: ['polynomial', 'inequality']
+    keywords: ['方程', 'equation', 'solve', '解']
+
+  - id: inequality
+    name: 不等式
+    name_en: inequality
+    category: algebra
+    is_a: ['mathematical_statement']
+    part_of: ['algebra']
+    requires: ['variable']
+    related: ['equation']
+    keywords: ['不等式', 'inequality', '≤', '≥', '<', '>']
+
+  - id: exponential_function
+    name: 指数函数
+    name_en: exponential function
+    category: algebra
+    is_a: ['function']
+    part_of: ['algebra']
+    related: ['logarithm', 'e']
+    keywords: ['指数', 'exponential', 'a^x', 'e^x']
+
+  - id: logarithm
+    name: 对数
+    name_en: logarithm
+    category: algebra
+    is_a: ['function']
+    part_of: ['algebra']
+    requires: ['exponential_function']
+    related: ['exponential_function']
+    keywords: ['对数', 'logarithm', 'log', 'ln', 'log_a']
+
+  - id: trigonometric_function
+    name: 三角函数
+    name_en: trigonometric function
+    category: algebra
+    is_a: ['function']
+    part_of: ['algebra']
+    related: ['sin', 'cos', 'tan', 'pythagorean_theorem']
+    keywords: ['三角', 'trigonometric', 'sin', 'cos', 'tan', '正弦', '余弦', '正切']
+
+  - id: complex_number
+    name: 复数
+    name_en: complex number
+    category: algebra
+    is_a: ['number_system']
+    part_of: ['algebra']
+    requires: ['real_number']
+    related: ['real_number', 'imaginary_unit']
+    keywords: ['复数', 'complex', 'a+bi', 'i']
+
+# 概念间关系（用于推理）
+relations:
+  prerequisite:  # X 是 Y 的前置
+    - ['derivative', 'limit']
+    - ['integral', 'limit']
+    - ['eigenvalue', 'matrix']
+    - ['taylor_series', 'derivative']
+    - ['partial_derivative', 'derivative']
+    - ['gradient', 'partial_derivative']
+    - ['definite_integration', 'integral']
+    - ['indefinite_integration', 'integral']
+    - ['pythagorean_theorem', 'right_triangle']
+    - ['logarithm', 'exponential_function']
+    - ['expectation', 'ratio']
+    - ['variance', 'expectation']
+    - ['normal_distribution', 'exponential_function']
+
+  hierarchy:  # X ⊂ Y（X 是 Y 的子类）
+    - ['partial_derivative', 'derivative']
+    - ['definite_integration', 'integral']
+    - ['indefinite_integration', 'integral']
+    - ['right_triangle', 'triangle']
+    - ['normal_distribution', 'distribution']
+    - ['taylor_series', 'series']
+    - ['matrix', 'linear_algebra']
+    - ['ellipse', 'conic_section']
+    - ['circle', 'conic_section']
+
+stats:
+  total_concepts: 41
+  total_relations: 31
+  categories: ['calculus', 'algebra', 'geometry', 'statistics', 'discrete_math', 'linear_algebra']

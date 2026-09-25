@@ -1,0 +1,63 @@
+# adj-factor skill — 复权因子计算（前/后复权）
+# ======================================================
+# 完全纯工具型 skill，不调用 LLM，纯计算。
+
+name: adj-factor
+version: "0.1.0"
+description: |
+  根据股本变动事件（xdxr）计算前复权 / 后复权因子。
+  纯 pandas 计算，不调 LLM（节省 GPU / 延迟）。
+
+llm:
+  model_id: none                       # 纯工具，不调 LLM
+  inference: null
+
+tools:
+  - mcp:tdx-parquet-reader.read_xdxr
+  - mcp:tdx-calc.calc_adj_factor
+
+input_schema:
+  type: object
+  properties:
+    code:
+      type: string
+      description: 标的代码
+    end_date:
+      type: string
+      description: 截止日期 YYYYMMDD（默认最新）
+    type:
+      type: string
+      enum: [fwd, bwd, both]
+      default: both
+      description: 前复权 / 后复权 / 都要
+  required: [code]
+
+output_schema:
+  type: object
+  properties:
+    code:
+      type: string
+    fwd_factor:
+      type: number
+      description: 前复权因子（历史价 → 当前价）
+    bwd_factor:
+      type: number
+      description: 后复权因子（当前价 → 最初价）
+    n_events:
+      type: integer
+      description: 涉及的除权除息事件数
+
+prompt_template: null                # 纯工具，无 prompt
+
+priority: 30                          # 优先级低于主分析
+timeout_sec: 5
+fallback_skill: null                  # 纯计算失败就直接报错
+
+metrics:
+  - latency_ms
+  - cache_hit_rate
+
+# 用途示例（被其他 skill 内部调用）：
+# - kline-analysis 在算跨年度涨跌幅时，会先调此 skill 取 fwd_factor
+# - backtest skill 算复权收益时必调
+# - financial-summary 在算"考虑送转股后的 EPS"时也调

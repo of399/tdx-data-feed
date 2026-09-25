@@ -1,0 +1,20 @@
+[Unit]
+Description=M5 Vault Evolution Daily Report Generator
+Documentation=file:///home/jiuben/tdx-data-feed/v5-implementation-plan.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/daily_evolution_report.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=evolution-daily-report
+User=jiuben
+Group=jiuben
+Environment="V5_DIR=/home/jiuben/tdx-data-feed/v5"
+Environment="VAULT_PATH=/home/jiuben/StockVault"
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,94 @@
+name: sop-quick
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  sop-quick:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: 安装业务依赖
+        run: pip install -r requirements.txt
+
+      - name: Python 环境信息
+        run: |
+          {
+            echo "--- python version ---"
+            python --version
+            echo "--- which python ---"
+            which python
+            echo "--- pip list (key deps) ---"
+            pip list 2>&1 | grep -iE 'sympy|akshare|fastapi|mcp|httpx|pytdx'
+            echo "--- ls v5/mcp_math ---"
+            ls v5/mcp_math/
+            echo "--- ls v5/mcp_servers ---"
+            ls v5/mcp_servers/
+          } 2>&1 | tee /tmp/env-info.txt
+
+      - name: 业务模块可导入性 smoke test
+        run: |
+          {
+            python -c "
+          import sys
+          sys.path.insert(0, 'v5')
+          print('=== smoke test start ===')
+          print('python:', sys.version)
+          print('path:', sys.path[:3])
+          try:
+              from v5.mcp_math import strategy_selector
+              print('  ✓ v5.mcp_math.strategy_selector')
+          except Exception as e:
+              print(f'  ✗ strategy_selector: {type(e).__name__}: {e}')
+              import traceback; traceback.print_exc()
+          try:
+              from v5.mcp_math import derivation
+              print('  ✓ v5.mcp_math.derivation')
+          except Exception as e:
+              print(f'  ✗ derivation: {type(e).__name__}: {e}')
+              import traceback; traceback.print_exc()
+          try:
+              from v5.mcp_math import math_cache
+              print('  ✓ v5.mcp_math.math_cache')
+          except Exception as e:
+              print(f'  ✗ math_cache: {type(e).__name__}: {e}')
+              import traceback; traceback.print_exc()
+          try:
+              from v5.mcp_servers import math_sympy
+              print('  ✓ v5.mcp_servers.math_sympy')
+          except Exception as e:
+              print(f'  ✗ math_sympy: {type(e).__name__}: {e}')
+              import traceback; traceback.print_exc()
+          try:
+              from v5.mcp_servers import math_sympy_http
+              print('  ✓ v5.mcp_servers.math_sympy_http')
+          except Exception as e:
+              print(f'  ✗ math_sympy_http: {type(e).__name__}: {e}')
+              import traceback; traceback.print_exc()
+          print('=== smoke test end ===')
+          " 2>&1
+          } | tee /tmp/smoke-test.txt
+
+      - name: pytest collect (测试发现)
+        run: |
+          pytest v5/tests/test_alerting_pipeline.py v5/tests/test_ask_path_integration.py --collect-only -q 2>&1 | tee /tmp/pytest-collect.txt
+
+      - name: 上传 CI 诊断日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sop-diagnostics
+          path: |
+            /tmp/env-info.txt
+            /tmp/smoke-test.txt
+            /tmp/pytest-collect.txt
+          retention-days: 7

@@ -1,0 +1,3 @@
+训练监控已启动: http://0.0.0.0:7860  (Ctrl+C 退出)
+  数据源 OUT = /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-fast
+  健康检查日志 = /home/jiuben/tdx-data-feed/logs/train_health.log

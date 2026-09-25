@@ -1,0 +1,122 @@
+# Prometheus alerts · M3 W6 监控告警规则
+#
+# 加载方式（prometheus.yml）:
+#   rule_files:
+#     - "alerts.yml"
+#
+# 依据：v5-implementation-plan.md §4.2 M3 W6 告警渠道
+
+groups:
+  - name: math-sympy-http
+    interval: 30s
+    rules:
+
+      # 🔴 高错误率（5 分钟内 > 10%）
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(tool_calls_total{status="fail"}[5m]))
+            /
+            sum(rate(tool_calls_total[5m]))
+          ) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          service: math-sympy-http
+        annotations:
+          summary: "math-sympy-http 错误率 > 10% 持续 2 分钟"
+          description: |
+            当前错误率 {{ $value | humanizePercentage }}，
+            持续 2 分钟。可能原因：上游故障、fallback 链失效、代码 bug。
+          runbook: "检查 /var/log/math-sympy-http.log + /api/monitor/recent-errors"
+
+      # 🟠 LLM 兜底过慢（p95 > 30s）
+      - alert: LLMSlowResponse
+        expr: |
+          histogram_quantile(
+            0.95,
+            rate(tool_latency_seconds_bucket{tool="math_strategy_route_and_execute"}[5m])
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+          service: math-sympy-http
+        annotations:
+          summary: "LLM 兜底 p95 > 30s"
+          description: |
+            当前 p95 延迟 {{ $value }}s，
+            LLM 兜底过慢，建议检查 Ollama / vLLM 服务状态。
+          runbook: "curl http://127.0.0.1:11434/api/tags (Ollama)"
+
+      # 🟡 cache 命中率过低（30 分钟内 < 50%）
+      - alert: CacheHitRatioLow
+        expr: cache_hit_ratio{cache="math"} < 0.5
+        for: 30m
+        labels:
+          severity: warning
+          service: math-sympy-http
+        annotations:
+          summary: "math_cache hit ratio < 50% 持续 30 分钟"
+          description: |
+            当前命中率 {{ $value | humanizePercentage }}，
+            可能原因：缓存被清空、查询模式变化。
+          runbook: "math_cache.clear_expired() + 检查 input 分布"
+
+      # 🟡 fallback 链频繁使用（sympy 失败率 > 30%）
+      - alert: FallbackChainAbuse
+        expr: |
+          rate(fallback_attempts_total{strategy="sympy"}[5m]) > 0.3
+          and
+          rate(fallback_strategy_used{strategy="llm"}[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: math-sympy-http
+        annotations:
+          summary: "fallback 链频繁降级到 LLM"
+          description: |
+            sympy 失败率 > 30% 且 LLM 兜底调用 > 10次/秒。
+            可能原因：用户提交超复杂公式、Latex 解析失败。
+
+      # ⚪ upstream math-sympy-http 不可达
+      - alert: UpstreamDown
+        expr: up{job="math-sympy-http"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: math-sympy-http
+        annotations:
+          summary: "math-sympy-http 不健康"
+          description: |
+            math-sympy-http 1 分钟内未响应。
+            检查 systemd 状态：systemctl status math-sympy-http
+
+      # ⚪ fallback 链断裂（某层在 sympy 段活跃时无调用）
+      # 旧规则 bug: absent() 只反映"series 从未出现"，无法体现"30m 内无增量"
+      # 修复：主链 sympy 有调用 + 任何深度层(ask/numeric)30m 内无增量 = 真链断
+      - alert: FallbackLayerMissing
+        expr: |
+          (
+            sum by(service) (increase(fallback_attempts_total{strategy="sympy"}[30m])) > 0
+          )
+          and
+          (
+            (
+              sum by(service) (increase(fallback_attempts_total{strategy="ask"}[30m])) == 0
+              or
+              sum by(service) (increase(fallback_attempts_total{strategy="numeric"}[30m])) == 0
+            )
+          )
+        for: 5m
+        labels:
+          severity: info
+          service: math-sympy-http
+        annotations:
+          summary: "fallback 深层 (ask/numeric) 30 分钟无增量"
+          description: |
+            主链 sympy 段 30m 内有调用，但 ask/numeric 段均无增量。
+            可能原因：(1) 请求过简单全走 sympy 即成功（可忽略）；
+                     (2) 复杂度阈值 THRESHOLD_ASK/THRESHOLD_NUMERIC 配置偏高；
+                     (3) ask/numeric 路径代码失效。
+            调试：curl 127.0.0.1:8002/audit/recent 看 primary_strategy_distribution。
+          runbook: "v5/scripts/daily_fallback_report.py 看近期 strategy 分布"

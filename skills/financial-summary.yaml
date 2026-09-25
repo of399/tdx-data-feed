@@ -1,0 +1,80 @@
+# financial-summary skill — 财务摘要 / 三大报表查询
+# =================================================================
+# 轻量子任务，用 7B 或纯 SQL/pandas 都可（按需切换）。
+
+name: financial-summary
+version: "0.1.0"
+description: |
+  查财务数据并生成自然语言摘要。可查营收、净利润、ROE、毛利率等。
+  数据源：data/parquet/finance.parquet（1.67M 行）。
+
+llm:
+  model_id: qwen3-7b                  # 7B 即可，财务查询不需要 14B 涌现能力
+  base_model: Qwen/Qwen3-7B
+  inference:
+    backend: vllm                     # 高并发场景用 vllm
+    dtype: bfloat16
+    max_new_tokens: 512
+    temperature: 0.0
+
+tools:
+  - mcp:tdx-parquet-reader.read_finance
+  - mcp:tdx-parquet-reader.list_codes
+  - mcp:tdx-vault.search               # 可选：检索行业平均
+
+input_schema:
+  type: object
+  properties:
+    code:
+      type: string
+      description: 标的代码
+    metric:
+      type: string
+      enum: [revenue, net_profit, roe, gross_margin, eps, pe, pb]
+      description: 要查询的指标
+    periods:
+      type: integer
+      default: 8
+      description: 取最近 N 个季度
+  required: [code, metric]
+
+output_schema:
+  type: object
+  properties:
+    code:
+      type: string
+    metric:
+      type: string
+    values:
+      type: array
+      description: [{period_end, value, yoy_pct}, ...]
+    summary:
+      type: string
+      description: 一句话总结（如"近 4 季度营收同比 +15.2%，盈利能力持续改善"）
+
+prompt_template: |
+  ### 指令:
+  以下是该股票 {periods} 个季度的财务数据（{metric}）。
+  请按 period_end 升序整理，并计算同比变化率，最后给出一句话总结。
+
+  ### 输入:
+  {finance_data}
+
+  ### 回答:
+  ```json
+  {
+    "code": "{code}",
+    "metric": "{metric}",
+    "values": [{"period_end": "YYYYMMDD", "value": 0.0, "yoy_pct": 0.0}, ...],
+    "summary": "..."
+  }
+  ```
+
+priority: 50
+timeout_sec: 15
+fallback_skill: null                  # 财务查询失败就直接报错，不降级
+
+metrics:
+  - latency_ms
+  - cache_hit_rate
+  - summary_quality_score              # 后续可人工评分

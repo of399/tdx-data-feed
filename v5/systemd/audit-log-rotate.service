@@ -1,0 +1,17 @@
+[Unit]
+Description=Audit Log Rotation & TTL Cleanup
+Documentation=v5-implementation-plan.md §4.2 M3 W6
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/audit_log_rotate.py --keep-days 30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=audit-log-rotate
+User=jiuben
+Group=jiuben
+Environment="MATH_AUDIT_DIR=/home/jiuben/tdx-data-feed/v5/audit"
+
+[Install]
+WantedBy=multi-user.target

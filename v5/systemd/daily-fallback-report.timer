@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Fallback Report Timer (09:00 UTC every day)
+Documentation=man:systemd.timer
+
+[Timer]
+OnCalendar=*-*-* 09:00:00 UTC
+Persistent=true
+Unit=daily-fallback-report.service
+
+[Install]
+WantedBy=timers.target

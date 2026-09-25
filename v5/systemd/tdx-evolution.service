@@ -1,0 +1,22 @@
+[Unit]
+Description=tdx-evolution (vault evolution supervisor - M5 Phase 1)
+Documentation=file:///home/jiuben/tdx-data-feed/v5-implementation-plan.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/tdx_evolution.py
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tdx-evolution
+User=jiuben
+Environment="V5_DIR=/home/jiuben/tdx-data-feed/v5"
+Environment="VAULT_PATH=/home/jiuben/StockVault"
+Environment="EVOLUTION_INTERVAL_S=300"
+
+[Install]
+WantedBy=multi-user.target

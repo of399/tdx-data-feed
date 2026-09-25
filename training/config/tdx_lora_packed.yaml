@@ -1,0 +1,97 @@
+# tdx_lora_packed.yaml — qwen3-14b-tdx packing + torch.compile 备用配置
+# ======================================================================
+# ⚠️ 备用配置：仅在未来重训时启用，当前训练 PID 185745 不支持中途切换。
+#
+# 与现役 tdx_lora.yaml 的差异（仅 3 处）：
+#   1. packing: true                       → 多样本拼接，+20-40% 吞吐
+#   2. torch_compile: true                 → PyTorch 2.x 编译，+10-20%
+#   3. flash_attn: sdpa / fa3（试 fa3）    → 当前 sdpa fallback，新训练可试 fa3
+#
+# 收益估算（按现役节奏 28 秒/步）：
+#   - packing：28s → 18-22s/步（6,756 步省 10-15h）
+#   - torch.compile：再叠加 5-10%
+#   - 综合：50h → 32-38h
+#
+# 风险：
+#   - packing：需 LLaMA-Factory 支持且 loss mask 跨样本边界（已默认开启）
+#   - torch.compile：首次 step 编译 warm-up 慢 1-2 分钟，后续稳定
+#   - 双卡 16G 上若关 grad ckpt 可能 OOM，建议保留 grad_ckpt
+#
+# 启用方式：
+#   cp training/config/tdx_lora.yaml training/config/tdx_lora_packed.yaml
+#   # 修改上述 3 处
+#   llamafactory-cli train training/config/tdx_lora_packed.yaml
+
+# === 模型与数据（与现役一致）===========================================
+model_name_or_path: /home/jiuben/models/Qwen3-14B   # 本地 HF 权重路径（避免联网）
+adapter_name_or_path: null                  # 从零训练 LoRA
+finetuning_type: lora
+template: qwen
+trust_remote_code: true
+
+dataset_dir: /home/jiuben/tdx-data-feed/train/data    # 与现役一致（含 dataset_info.json）
+dataset: tdx_v4_train                       # 训练集映射名（v4_train.jsonl）
+eval_dataset: tdx_v4_val                    # 验证集
+test_dataset: tdx_v4_test                   # 测试集（仅评估用）
+split: split                                # 时序切分字段（防泄漏）
+max_samples: 80071                          # 全部 80,071 条
+
+# === LoRA 超参（与现役一致，rank=16）===================================
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+lora_rank: 16
+lora_alpha: 32                              # alpha = 2 * rank 常用
+lora_dropout: 0.05
+
+# === 训练超参（与现役一致）=============================================
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-packed
+overwrite_output_dir: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16             # effective batch 16
+num_train_epochs: 3.0
+learning_rate: 1.0e-4
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+weight_decay: 0.0
+max_grad_norm: 1.0
+seed: 42
+
+# === 序列与 packing（关键改动 1）=======================================
+cutoff_len: 512
+packing: true                               # ⭐ 多样本拼接 +20-40%
+packing_strategy: wrapped                   # wrapped / bfified 二选一
+neftune_noise_alpha: 0                     # 可选 5（regularize）
+
+# === 精度与显存优化（与现役一致）=======================================
+quantization_bit: 4                         # QLoRA 4bit
+quantization_type: nf4
+double_quantization: true                   # 双量化，省 0.4 bit/param
+bnb_4bit_compute_dtype: bfloat16
+flash_attn: fa2                             # ⭐ 关键改动 3：试 fa3（不可用则 sdpa fallback）
+torch_compile: true                         # ⭐ 关键改动 2：+10-20%
+gradient_checkpointing: true
+optim: paged_adamw_32bit                    # 8bit / paged 优化器
+
+# === 日志与 checkpoint=================================================
+logging_steps: 20
+save_steps: 200
+save_total_limit: 3
+save_strategy: steps
+evaluation_strategy: steps
+eval_steps: 200
+load_best_model_at_end: false               # 与现役一致（已注明不重读 yaml）
+
+# === 监控（systemd）====================================================
+report_to: none
+dataloader_num_workers: 4
+remove_unused_columns: false
+bf16: true                                  # bfloat16（兼容 RTX 5060 Ti sm_120）
+
+# === 训练监控（可对接 train_health.sh）==================================
+# 训练启动后，train_health.sh 每 5 分钟自动检查：
+#   - 进程存活（pgrep llamafactory-cli train）
+#   - loss 异常检测（recent5_mean > hist_mean + 2σ 报警）
+#   - 新 ckpt 自动写 DELIVERY.md
+
+# 预计时长（与现役对比）：
+#   现役（无 packing/compile）：50h
+#   本配置（packing + compile）：32-38h（节省 25-35%）

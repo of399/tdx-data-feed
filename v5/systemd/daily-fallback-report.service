@@ -1,0 +1,18 @@
+[Unit]
+Description=Daily Fallback Report Generator
+Documentation=man:systemd.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/daily_fallback_report.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fallback-daily-report
+User=jiuben
+Group=jiuben
+Environment="MATH_AUDIT_DIR=/home/jiuben/tdx-data-feed/v5/audit"
+Environment="REPORT_DIR=/home/jiuben/tdx-data-feed/v5/reports"
+
+[Install]
+WantedBy=multi-user.target

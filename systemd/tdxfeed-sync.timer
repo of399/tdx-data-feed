@@ -1,0 +1,15 @@
+[Unit]
+Description=每日 18:00 触发 tdxfeed sync（交易日历驱动）
+
+[Timer]
+# 交易日历通过 cli 内置交易日判定，跳过非交易日
+OnCalendar=Mon..Fri 18:00:00
+# 时区（按当前主机 CST）
+# Persistent=true：错过自动补跑
+Persistent=true
+# 触发后 5 分钟内不重复
+AccuracySec=60s
+Unit=tdxfeed-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Canary Automation (M3 W5)
+After=math-sympy-http.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/canary_automation.py
+WorkingDirectory=/home/jiuben/tdx-data-feed/v5
+User=jiuben
+
+[Install]
+WantedBy=multi-user.target

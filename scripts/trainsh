@@ -1,0 +1,147 @@
+#!/bin/bash
+# trainsh — 一键查训练进度（无需 login venv）
+# 安装：sudo cp /home/jiuben/tdx-data-feed/scripts/trainsh /usr/local/bin/trainsh
+# 用法：
+#   trainsh              # 进度概览（默认）
+#   trainsh -l           # tail train.log
+#   trainsh -g           # nvidia-smi
+#   trainsh -p           # 画 loss PNG
+#   trainsh -k           # 优雅 kill 训练
+#   trainsh -w [N]       # 实时刷新（默认 5s）
+#   trainsh -h           # 帮助
+
+set -euo pipefail
+
+JSONL="/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx/trainer_log.jsonl"
+LOG="/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx/train.log"
+OUT_DIR="/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx"
+VENV_PY="/home/jiuben/tdx-data-feed/venv/bin/python"
+
+usage() {
+    sed -n '2,12p' "$0"
+    exit 0
+}
+
+status() {
+    "$VENV_PY" << 'PYEOF'
+import json, os, sys
+from datetime import datetime
+
+JSONL = "/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx/trainer_log.jsonl"
+OUT_DIR = "/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx"
+
+# 找训练进程
+import subprocess
+ps = subprocess.run(["pgrep", "-f", "llamafactory-cli train tdx_lora.yaml"],
+                     capture_output=True, text=True)
+pid_line = ps.stdout.strip().split('\n')[0] if ps.stdout.strip() else "—"
+print(f"=== 训练状态 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ===")
+print(f"  PID:          {pid_line}")
+
+# 读 jsonl
+if not os.path.exists(JSONL):
+    print(f"  状态:         初始化中（trainer_log.jsonl 未生成）")
+    sys.exit(0)
+
+with open(JSONL) as f:
+    lines = [json.loads(l) for l in f if l.strip()]
+if not lines:
+    print(f"  状态:         初始化中")
+    sys.exit(0)
+
+last = lines[-1]
+pct = last["percentage"]
+cur = last["current_steps"]
+total = last["total_steps"]
+loss = last["loss"]
+lr = last["lr"]
+epoch = last["epoch"]
+rem_str = last.get("remaining_time", "?")
+
+# 计算 ETA
+try:
+    days, hms = rem_str.split(", ", 1) if ", " in rem_str else ("0", rem_str)
+    days = int(days.split(" ")[0])
+    h, m_, s = [float(x) for x in hms.split(":")]
+    eta_sec = days * 86400 + h * 3600 + m_ * 60 + s
+    eta = (datetime.now().timestamp() + eta_sec)
+    eta_str = datetime.fromtimestamp(eta).strftime("%Y-%m-%d %H:%M")
+except Exception:
+    eta_str = "?"
+
+print(f"  进度:         {cur} / {total} ({pct:.2f}%)")
+print(f"  epoch:        {epoch:.3f}")
+print(f"  loss:         {loss:.4f}")
+print(f"  lr:           {lr:.2e}")
+print(f"  剩余:         {rem_str}")
+print(f"  ETA:          ~{eta_str}")
+
+# 5 步 trend
+if len(lines) >= 5:
+    losses = [l_["loss"] for l_ in lines[-5:]]
+    trend = losses[-1] - losses[0]
+    arrow = "↓" if trend < 0 else ("↑" if trend > 0 else "→")
+    print(f"  5 步趋势:    {arrow} {trend:+.4f}  ({losses[0]:.4f} → {losses[-1]:.4f})")
+
+# checkpoint 数
+ckpts = sorted([d for d in os.listdir(OUT_DIR) if d.startswith("checkpoint-")])
+print(f"  checkpoints: {len(ckpts)} 个")
+if ckpts:
+    for c in ckpts[-3:]:
+        size = sum(os.path.getsize(os.path.join(OUT_DIR, c, f))
+                   for f in os.listdir(os.path.join(OUT_DIR, c))
+                   if os.path.isfile(os.path.join(OUT_DIR, c, f)))
+        print(f"    {c}  ({size / 1e6:.1f} MB)")
+PYEOF
+}
+
+gpu() {
+    nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu \
+        --format=csv 2>&1 | head -3
+}
+
+plot() {
+    "$VENV_PY" /home/jiuben/tdx-data-feed/scripts/plot_loss.py 2>&1
+}
+
+kill_train() {
+    local pid
+    pid=$(pgrep -f "llamafactory-cli train tdx_lora.yaml" | head -1)
+    if [ -z "$pid" ]; then
+        echo "✗ 没有训练进程在跑"
+        exit 1
+    fi
+    echo "优雅 kill PID $pid (TERM → 等 15s → KILL)"
+    kill -TERM "$pid"
+    sleep 15
+    if ps -p "$pid" > /dev/null 2>&1; then
+        pkill -KILL -f "llamafactory-cli train tdx_lora.yaml"
+        pkill -KILL -f "torchrun.*tdx_lora"
+        pkill -KILL -f "llamafactory.launcher"
+        echo "✓ 强 KILL 完成"
+    else
+        echo "✓ SIGTERM 优雅退出"
+    fi
+}
+
+watch() {
+    local interval=${1:-5}
+    while true; do
+        clear
+        status
+        echo ""
+        echo "(刷新 ${interval}s, Ctrl-C 退出)"
+        sleep "$interval"
+    done
+}
+
+case "${1:-status}" in
+    -h|--help|help) usage ;;
+    -l|--log) tail -f "$LOG" ;;
+    -g|--gpu) gpu ;;
+    -p|--plot) plot ;;
+    -k|--kill) kill_train ;;
+    -w|--watch) watch "${2:-5}" ;;
+    status|"") status ;;
+    *) echo "未知参数: $1"; usage ;;
+esac
