@@ -1,0 +1,11 @@
+{
+  "v6_enriched_alpaca": {
+    "file_name": "v6_train_enriched_llmf.jsonl",
+    "formatting": "alpaca",
+    "columns": {
+      "prompt": "instruction",
+      "query": "input",
+      "response": "output"
+    }
+  }
+}
