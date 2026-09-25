@@ -1,0 +1,4 @@
+{% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}{% set system_message = messages[0]['content'] %}{% else %}{% set loop_messages = messages %}{% endif %}{% if system_message is defined %}{{ 'System: ' + system_message + '<|im_end|>' + '
+' }}{% endif %}{% for message in loop_messages %}{% set content = message['content'] %}{% if message['role'] == 'user' %}{{ 'Human: ' + content + '<|im_end|>' + '
+Assistant:' }}{% elif message['role'] == 'assistant' %}{{ content + '<|im_end|>' + '
+' }}{% endif %}{% endfor %}
