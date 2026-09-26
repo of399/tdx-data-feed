@@ -15,11 +15,12 @@ trigger 真值端到端验证 — 用 v6-final Q4_K_M gguf + scan_double 真值�
 
 输出: v5/audit/trigger_e2e_v6.json
 """
-import json
-import time
-import random
 import csv
+import json
+import random
+import time
 from pathlib import Path
+
 from llama_cpp import Llama
 
 GGUF_PATH = "/home/jiuben/models/Qwen3-14B-tdx-v6-final-Q4_K_M.gguf"
