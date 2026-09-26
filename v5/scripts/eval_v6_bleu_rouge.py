@@ -13,14 +13,15 @@ v6 LoRA BLEU/ROUGE 统计评估 — 从 v6_train_enriched_llmf.jsonl 取 15 个�
 
 输出: v5/audit/eval_v6_bleu_rouge.json
 """
-import torch
 import json
-import time
 import random
+import time
 from pathlib import Path
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
 import sacrebleu
+import torch
 from rouge_score import rouge_scorer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 MODEL_PATH = "/home/jiuben/models/Qwen3-14B-tdx-v6-final"
 DATA_PATH = "v5/audit/v6_train_enriched_llmf.jsonl"
