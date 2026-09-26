@@ -1,0 +1,66 @@
+{
+  "summary": {
+    "model": "/home/jiuben/models/Qwen3-14B-tdx-v6-final-Q4_K_M.gguf",
+    "n_samples": 5,
+    "accuracy": 0.6,
+    "correct": 3,
+    "method": "trigger 真值端到端: 比对模型建议 vs scan_double 真值"
+  },
+  "details": [
+    {
+      "i": 1,
+      "symbol": "sh110044",
+      "name": "",
+      "range_pct": 1.219924164081351,
+      "actual_triggered": true,
+      "model_recommends_action": false,
+      "is_correct": false,
+      "gen_time": 31.92810869216919,
+      "response": "截至2020年8月11日，该股呈下跌态势，股价为248.17元；短期均线多头排列，股价位于MA5（269.3）下方；MACD指标死叉，绿柱缩短；RSI指标为54.0，处于中性区域。支撑位参考269.3元，压力位参考322.0元。建议关注短期回调机会。"
+    },
+    {
+      "i": 2,
+      "symbol": "sh113027",
+      "name": "",
+      "range_pct": 1.0743932338135238,
+      "actual_triggered": true,
+      "model_recommends_action": true,
+      "is_correct": true,
+      "gen_time": 48.592440128326416,
+      "response": "该股近20个交易日整体呈上涨态势，最新收盘价165.8元；短期均线状态为多头排列，股价位于短期均线上方。MACD指标金叉，红柱缩短，动能有所减弱；RSI指标为73.49，处于强势区域。支撑位参考162.0元，压力位参考172.69元。建议持股观察。"
+    },
+    {
+      "i": 3,
+      "symbol": "sh110072",
+      "name": "",
+      "range_pct": 1.4109997290707126,
+      "actual_triggered": true,
+      "model_recommends_action": true,
+      "is_correct": true,
+      "gen_time": 30.3635835647583,
+      "response": "该股近20个交易日呈上涨态势，最新收盘价72.47元；短期均线状态为多头排列，MACD金叉，RSI处于69.8，位于中性区域；支撑位参考72.47元，压力位参考88.99元。建议持股观察。"
+    },
+    {
+      "i": 4,
+      "symbol": "sh110060",
+      "name": "",
+      "range_pct": 1.0720990737849934,
+      "actual_triggered": true,
+      "model_recommends_action": true,
+      "is_correct": true,
+      "gen_time": 49.75293827056885,
+      "response": "该股近20个交易日整体呈上涨态势，最新收盘价229.8元；短期均线状态为多头排列，股价位于短期均线上方。MACD指标金叉，红柱缩短，动能有所减弱；RSI指标76，处于强势区。支撑位参考223.41元，压力位参考235.749元。建议持股观察。"
+    },
+    {
+      "i": 5,
+      "symbol": "sh113016",
+      "name": "",
+      "range_pct": 1.500868357068427,
+      "actual_triggered": true,
+      "model_recommends_action": false,
+      "is_correct": false,
+      "gen_time": 46.19408392906189,
+      "response": "截至2021年4月20日，该股呈上涨态势，股价达265.33元；短期均线多头排列，MACD金叉，RSI处于高位超买区间；支撑位参考265.33元，压力位参考279.88元。建议逢高减仓。"
+    }
+  ]
+}
