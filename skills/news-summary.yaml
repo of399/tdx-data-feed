@@ -10,13 +10,14 @@ description: |
   对实时性 / 准确度要求高，可独立迭代。
 
 llm:
-  model_id: qwen3-7b                  # 7B 足够做摘要
+  model_id: qwen3-7b                  # 仅作能力档位标注：SkillRuntime 不做按 skill 的模型路由
   base_model: Qwen/Qwen3-7B
   inference:
-    backend: vllm
+    backend: transformers             # 2026-09-26 修正：原值 vllm 已失效（vllm-venv 删除），
+                                      # runtime 实际走 transformers+peft，只读取 max_new_tokens
     dtype: bfloat16
     max_new_tokens: 384
-    temperature: 0.2                   # 略高于 0，允许摘要措辞变化
+    temperature: 0.2                   # 注：runtime 固定 do_sample=False，temperature 不生效
 
 tools:
   - mcp:tdx-vault.search               # 内部文档检索

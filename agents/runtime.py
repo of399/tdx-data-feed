@@ -481,10 +481,57 @@ class SkillRuntime:
         code = inputs.get("code")
         out = {"ok": True, "skill": skill["name"], "code": code, "tools_used": []}
 
-        # 1. 准备 input：调所需 MCP 工具
+        # 1. 准备 input：按 skill 语义调所需 MCP 工具
+        #
+        # 修复（2026-09-26）：此前无条件预读 K 线，并把 finance_data / news_items
+        # 一并填成 K 线 JSON —— 导致 financial-summary 拿到行情数据、news-summary
+        # 拿到 MA/MACD，两条意图的 prompt 上下文全是错的。现改为按 skill 分别取数。
         context_parts = []
-        # 预读 K 线（所有非 wrapper skill 都要）
-        if code:
+        extra_vars: dict[str, Any] = {}
+        name = skill["name"]
+
+        if name == "financial-summary":
+            try:
+                metric_map = {
+                    "revenue": "营业收入", "net_profit": "归母净利润", "roe": "净资产收益率",
+                    "gross_margin": "毛利率", "eps": "每股收益", "pe": "市盈率", "pb": "市净率",
+                }
+                raw_metric = inputs.get("metric", "")
+                m = metric_map.get(raw_metric, raw_metric or "归母净利润")
+                periods = int(inputs.get("periods", 8))
+                resp = self.call_mcp("tdx-parquet-reader", "read_finance",
+                                     {"code": code, "metric": m, "periods": periods})
+                rows = resp.get("data", []) if isinstance(resp, dict) else []
+                extra_vars["finance_data"] = (
+                    json.dumps(rows, ensure_ascii=False) if rows
+                    else f"（{code} 无 '{m}' 财务数据。请如实回复无数据，不要编造数值。）"
+                )
+                extra_vars["metric"] = m
+                out["tools_used"].append("tdx-parquet-reader.read_finance")
+            except Exception as e:
+                log.warning(f"financial-summary 取数失败：{e}")
+                extra_vars["finance_data"] = f"（财务数据读取失败：{e}）"
+
+        elif name == "news-summary":
+            try:
+                query = inputs.get("query") or f"{code} 最新 新闻 公告 政策"
+                hits = self.call_mcp("tdx-vault", "search",
+                                     {"query": query, "top_k": int(inputs.get("top_k", 8))})
+                docs = (hits or {}).get("results", []) if isinstance(hits, dict) else []
+                extra_vars["news_items"] = (
+                    json.dumps(
+                        [{"text": d.get("text", ""), "meta": d.get("meta", {})} for d in docs],
+                        ensure_ascii=False,
+                    ) if docs else
+                    "（StockVault 无相关文档，且外部新闻 API 尚未接入。请如实回复无新闻检索结果，不要编造新闻。）"
+                )
+                out["tools_used"].append("tdx-vault.search")
+            except Exception as e:
+                log.warning(f"news-summary 检索失败：{e}")
+                extra_vars["news_items"] = f"（vault 检索失败：{e}）"
+
+        elif code:
+            # K 线类 skill（kline-analysis 等）：预读 K 线 + MA20 + MACD
             try:
                 kline = self.call_mcp(
                     "tdx-parquet-reader", "read_daily_kline",
@@ -508,14 +555,15 @@ class SkillRuntime:
         try:
             prompt = tmpl.format(
                 instruction=inputs.get("query", f"分析 {code}"),
-                input="\n".join(context_parts),
+                input="\n".join(context_parts) or json.dumps(extra_vars, ensure_ascii=False),
                 lookback=inputs.get("lookback", 20),
                 kline_json=context_parts[0] if context_parts else "",
                 code=code or "",
-                metric=inputs.get("metric", ""),
+                metric=extra_vars.get("metric", inputs.get("metric", "")),
                 periods=inputs.get("periods", 8),
-                finance_data=context_parts[0] if context_parts else "",
-                news_items="\n".join(context_parts),
+                finance_data=extra_vars.get(
+                    "finance_data", context_parts[0] if context_parts else ""),
+                news_items=extra_vars.get("news_items", "\n".join(context_parts)),
                 query=inputs.get("query", ""),
             )
         except KeyError as e:

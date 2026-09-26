@@ -61,6 +61,12 @@ build/
 .env.local
 secrets.yaml
 
+# 密钥（含 PushPlus 明文 token，禁止入版本库）
+.pushplus.env
+*.env.local
+scripts/.pushplus.env
+v5/scripts/.pushplus.env
+
 # 操作系统
 Thumbs.db
 
