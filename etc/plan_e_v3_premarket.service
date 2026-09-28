@@ -1,0 +1,11 @@
+[Unit]
+Description=Plan E v3 Premarket Top 5% Scoring
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=jiuben
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/scripts/v3_premarket_top.py
+StandardOutput=append:/home/jiuben/tdx-data-feed/data/plan_e/live_v3/premarket.log
+StandardError=append:/home/jiuben/tdx-data-feed/data/plan_e/live_v3/premarket.log

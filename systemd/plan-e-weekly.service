@@ -1,0 +1,16 @@
+[Unit]
+Description=方案 E 周报生成（每周日 20:00）
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/plan_e_journal.py --mode weekly
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/plan_e_weekly.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/plan_e_weekly.err
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=timers.target

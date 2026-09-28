@@ -1,0 +1,13 @@
+[Unit]
+Description=Canary 健康检查（每 5 分钟）
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/canary_health_check.py --quiet
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/canary.out
+StandardError=append:/home/jiuben/tdx-data-feed/logs/canary.err
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

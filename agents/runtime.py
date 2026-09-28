@@ -216,6 +216,14 @@ class SkillRuntime:
     # -----------------------------------------------------------------
     def _ensure_llm(self) -> bool:
         """加载 base + LoRA（仅在第一次需要 LLM 时调用）"""
+        import os
+        # Ollama/HTTP 后端：复用外部已启动的 Ollama 兼容服务（如本机 11434）
+        # 通过环境变量切换，不影响默认的本地 transformers+peft 路径
+        if os.getenv("TDX_LLM_BACKEND", "local").lower() == "ollama":
+            self.llm = "ollama"
+            self.ollama_url = os.getenv("TDX_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+            log.info(f"LLM 后端=ollama，复用 {self.ollama_url}（不本地加载权重）")
+            return True
         if self.llm is not None:
             return True
         try:
@@ -493,8 +501,8 @@ class SkillRuntime:
         if name == "financial-summary":
             try:
                 metric_map = {
-                    "revenue": "营业收入", "net_profit": "归母净利润", "roe": "净资产收益率",
-                    "gross_margin": "毛利率", "eps": "每股收益", "pe": "市盈率", "pb": "市净率",
+                    "revenue": "营业总收入", "net_profit": "归母净利润", "roe": "净资产收益率(ROE)",
+                    "gross_margin": "毛利率", "eps": "基本每股收益", "pe": "市盈率", "pb": "市净率",
                 }
                 raw_metric = inputs.get("metric", "")
                 m = metric_map.get(raw_metric, raw_metric or "归母净利润")
@@ -502,6 +510,11 @@ class SkillRuntime:
                 resp = self.call_mcp("tdx-parquet-reader", "read_finance",
                                      {"code": code, "metric": m, "periods": periods})
                 rows = resp.get("data", []) if isinstance(resp, dict) else []
+                # 精确优先：contains 会同时命中「营业收入」与「每股营业收入」，
+                # 优先保留 metric 完全等于 m 的记录，避免口径偏差
+                exact = [x for x in rows if x.get("metric") == m]
+                if exact:
+                    rows = exact
                 extra_vars["finance_data"] = (
                     json.dumps(rows, ensure_ascii=False) if rows
                     else f"（{code} 无 '{m}' 财务数据。请如实回复无数据，不要编造数值。）"
@@ -572,6 +585,24 @@ class SkillRuntime:
             prompt = f"### 指令:\n{inputs.get('query', f'分析 {code}')}\n\n### 输入:\n" + "\n".join(context_parts) + "\n\n### 回答:\n"
 
         # 3. 调 LLM 推理
+        if getattr(self, "llm", None) == "ollama":
+            try:
+                decoded = self._call_ollama(prompt, skill)
+                decoded, flagged = self._guard_hallucination(name, decoded, extra_vars)
+                out["llm_output"] = decoded
+                if flagged:
+                    out["hallucination_detected"] = True
+                m = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', decoded, re.S)
+                if m:
+                    with contextlib.suppress(Exception):
+                        out["parsed"] = json.loads(m.group(1))
+                return out
+            except Exception as e:
+                out["ok"] = False
+                out["error"] = f"Ollama LLM 调用失败：{e}"
+                log.warning(f"Ollama 失败，降级到 indicator-match: {e}")
+                fallback = skill.get("fallback_skill") or "indicator-match"
+                return self._execute_pure_tools(self.skills[fallback], inputs)
         try:
             enc = self.tok(prompt, return_tensors="pt", truncation=True, max_length=2048).to(self.llm.device)
             with torch.no_grad():
@@ -582,7 +613,10 @@ class SkillRuntime:
                     pad_token_id=self.tok.pad_token_id,
                 )
             decoded = self.tok.decode(gen[0, enc["input_ids"].shape[1]:], skip_special_tokens=True)
+            decoded, flagged = self._guard_hallucination(name, decoded, extra_vars)
             out["llm_output"] = decoded
+            if flagged:
+                out["hallucination_detected"] = True
             # 解析 alpaca JSON
             m = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', decoded, re.S)
             if m:
@@ -596,6 +630,41 @@ class SkillRuntime:
             log.warning(f"LLM 失败，降级到 indicator-match: {e}")
             fallback = skill.get("fallback_skill") or "indicator-match"
             return self._execute_pure_tools(self.skills[fallback], inputs)
+
+    def _guard_hallucination(self, name: str, text: str, extra_vars: dict) -> tuple[str, bool]:
+        """financial-summary / news-summary 的幻觉兜底：
+        若 LLM 输出包含行情/指标类字段，而输入数据本身不含这些字段，判定为编造，
+        强制改写为规范的『信息不足』说明，避免不实内容外泄。"""
+        if name not in ("financial-summary", "news-summary"):
+            return text, False
+        forbidden = [
+            "最新价", "涨跌幅", "均线", "MACD", "KDJ", "RSI",
+            "市盈率", "市净率", "总市值", "流通市值", "所属行业",
+            "所属概念", "机构持仓", "成交量", "换手率", "振幅",
+        ]
+        ctx = json.dumps(extra_vars, ensure_ascii=False)
+        hit = [w for w in forbidden if w in text and w not in ctx]
+        if hit:
+            kind = "财务" if name == "financial-summary" else "新闻"
+            return (
+                f"信息不足：输入中未提供任何{kind}相关字段"
+                f"（检测到输出含未在输入出现的内容：{', '.join(hit)}），"
+                f"不补充未提供的信息，无法生成{kind}摘要。",
+                True,
+            )
+        return text, False
+
+    def _call_ollama(self, prompt: str, skill: dict) -> str:
+        """通过 Ollama 兼容 /api/generate 端点调用外部 LLM 服务（复用已启动的 11434 等）"""
+        import requests
+        max_tokens = int(skill.get("llm", {}).get("inference", {}).get("max_new_tokens", 256))
+        resp = requests.post(
+            f"{self.ollama_url}/api/generate",
+            json={"prompt": prompt, "max_tokens": max_tokens, "stream": False},
+            timeout=180,
+        )
+        resp.raise_for_status()
+        return resp.json().get("response", "")
 
     def shutdown(self) -> None:
         for c in self.mcp_clients.values():

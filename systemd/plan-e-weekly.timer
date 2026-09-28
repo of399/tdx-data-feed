@@ -1,0 +1,12 @@
+[Unit]
+Description=每周日 20:00 跑方案 E 周报
+
+[Timer]
+# 每周日 20:00
+OnCalendar=Sun 20:00:00
+Persistent=true
+AccuracySec=60s
+Unit=plan-e-weekly.service
+
+[Install]
+WantedBy=timers.target

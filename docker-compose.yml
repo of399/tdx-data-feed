@@ -1,0 +1,382 @@
+# =============================================================================
+# tdx-data-feed 一键部署编排（v2: 含 3 个 exporter + Grafana 自动配置）
+# =============================================================================
+# 用法:
+#   cp .env.example .env
+#   docker compose build
+#   docker compose up -d
+#   docker compose logs -f tdx-app
+# =============================================================================
+
+name: tdx-data-feed
+
+x-common-env: &common-env
+  TZ: ${TZ:-Asia/Shanghai}
+  POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_DB: ${POSTGRES_DB:-tdx}
+  POSTGRES_USER: ${POSTGRES_USER:-tdx}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tdx_secure_pwd}
+  REDIS_HOST: ${REDIS_HOST:-redis}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_pwd}
+  OLLAMA_HOST: ${OLLAMA_HOST:-ollama}
+  OLLAMA_PORT: ${OLLAMA_PORT:-11434}
+
+services:
+  # =======================================================================
+  # 主应用服务
+  # =======================================================================
+  tdx-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        LLAMA_CPP_REF: ${LLAMA_CPP_REF:-master}
+    image: tdx-app:latest
+    container_name: tdx-app
+    restart: always
+    env_file: .env
+    environment:
+      <<: *common-env
+      TDX_OLLAMA_MODEL: ${TDX_OLLAMA_MODEL:-qwen3-14b-tdx-v7}
+      TDX_TOP_N: ${TDX_TOP_N:-30}
+      TDX_THRESHOLD: ${TDX_THRESHOLD:-0.7}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+    volumes:
+      - tdx_data:/opt/tdx-data-feed/data
+      - tdx_models:/opt/tdx-data-feed/models
+      - tdx_logs:/opt/tdx-data-feed/logs
+      - ./scripts:/opt/tdx-data-feed/scripts:ro
+      - ./Makefile:/opt/tdx-data-feed/Makefile:ro
+    ports:
+      - "${TDX_WEB_PORT:-8080}:8080"
+    depends_on:
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tdx-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${NVIDIA_GPU_COUNT:-all}
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    command: ["scheduler"]
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+
+  # =======================================================================
+  # Ollama 推理服务（GPU）
+  # =======================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: tdx-ollama
+    restart: always
+    env_file: .env
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-24h}
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-2}
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-1}
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "${OLLAMA_EXTERNAL_PORT:-11434}:11434"
+    networks: [tdx-net]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${NVIDIA_GPU_COUNT:-all}
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  # =======================================================================
+  # Ollama Exporter（Prometheus 指标导出）
+  # =======================================================================
+  ollama-exporter:
+    image: simonjj/ollama-exporter:0.4.0
+    container_name: tdx-ollama-exporter
+    restart: always
+    env_file: .env
+    environment:
+      OLLAMA_HOSTS: http://ollama:11434
+      PORT: 9835
+    ports:
+      - "${OLLAMA_EXPORTER_PORT:-9835}:9835"
+    networks: [tdx-net]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9835/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  # =======================================================================
+  # PostgreSQL 元数据
+  # =======================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: tdx-postgres
+    restart: always
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tdx}
+      POSTGRES_USER: ${POSTGRES_USER:-tdx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tdx_secure_pwd}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_EXTERNAL_PORT:-5432}:5432"
+    networks: [tdx-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tdx} -d ${POSTGRES_DB:-tdx}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  # =======================================================================
+  # PostgreSQL Exporter
+  # =======================================================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: tdx-postgres-exporter
+    restart: always
+    env_file: .env
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-tdx}:${POSTGRES_PASSWORD:-tdx_secure_pwd}@postgres:5432/${POSTGRES_DB:-tdx}?sslmode=disable"
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
+      PG_EXPORTER_EXCLUDE_DATABASES: "template0,template1"
+    ports:
+      - "${POSTGRES_EXPORTER_PORT:-9187}:9187"
+    networks: [tdx-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9187/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  # =======================================================================
+  # Redis 缓存 + 消息队列
+  # =======================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: tdx-redis
+    restart: always
+    env_file: .env
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    command:
+      - "redis-server"
+      - "--appendonly"
+      - "yes"
+      - "--requirepass"
+      - "${REDIS_PASSWORD:-redis_secure_pwd}"
+      - "--maxmemory"
+      - "${REDIS_MAXMEMORY:-2gb}"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_EXTERNAL_PORT:-6379}:6379"
+    networks: [tdx-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_secure_pwd}", "--no-auth-warning", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  # =======================================================================
+  # Redis Exporter
+  # =======================================================================
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.58.0
+    container_name: tdx-redis-exporter
+    restart: always
+    env_file: .env
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_pwd}
+    ports:
+      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+    networks: [tdx-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9121/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  # =======================================================================
+  # Node Exporter（主机指标）
+  # =======================================================================
+  node-exporter:
+    image: prom/node-exporter:v1.8.1
+    container_name: tdx-node-exporter
+    restart: always
+    command:
+      - "--path.rootfs=/host"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    volumes:
+      - "/:/host:ro,rslave"
+    ports:
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
+    networks: [tdx-net]
+    pid: host
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9100/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  # =======================================================================
+  # Prometheus 监控
+  # =======================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: tdx-prometheus
+    restart: always
+    env_file: .env
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_EXTERNAL_PORT:-9090}:9090"
+    networks: [tdx-net]
+    depends_on:
+      - tdx-app
+      - ollama
+      - postgres
+      - redis
+      - node-exporter
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  # =======================================================================
+  # Grafana 仪表板（自动加载配置 + 仪表板）
+  # =======================================================================
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: tdx-grafana
+    restart: always
+    env_file: .env
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-grafana_secure_pwd}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: "redis-datasource,postgres-datasource,grafana-piechart-panel"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_FEATURE_TOGGLES_ENABLE: "alerting,live"
+      GF_DEFAULT_APP: "dashboards"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_EXTERNAL_PORT:-3000}:3000"
+    networks: [tdx-net]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+# =============================================================================
+# 数据卷
+# =============================================================================
+volumes:
+  tdx_data:        {name: tdx_data,        driver: local}
+  tdx_models:      {name: tdx_models,      driver: local}
+  tdx_logs:        {name: tdx_logs,        driver: local}
+  ollama_data:     {name: ollama_data,     driver: local}
+  postgres_data:   {name: postgres_data,   driver: local}
+  redis_data:      {name: redis_data,      driver: local}
+  prometheus_data: {name: prometheus_data, driver: local}
+  grafana_data:    {name: grafana_data,    driver: local}
+
+# =============================================================================
+# 网络
+# =============================================================================
+networks:
+  tdx-net:
+    name: tdx-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

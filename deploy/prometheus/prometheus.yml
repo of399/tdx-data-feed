@@ -1,0 +1,107 @@
+# =============================================================================
+# Prometheus 采集配置 - tdx-data-feed
+# =============================================================================
+# 抓取间隔: 15s | 评估间隔: 15s | 保留: 15d
+# 监控目标: tdx-app / ollama / postgres / redis / node(主机) / 3 个 exporter
+# =============================================================================
+global:
+  scrape_interval:     15s
+  scrape_timeout:      10s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: tdx-data-feed
+    environment: production
+
+scrape_configs:
+  # -----------------------------------------------------------------------
+  # 1) tdx-app 主应用（自暴露 /metrics via prometheus-fastapi-instrumentator）
+  # -----------------------------------------------------------------------
+  - job_name: tdx-app
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ['tdx-app:8080']
+        labels:
+          service: tdx-app
+          tier: application
+          model: qwen3-14b-tdx-v7
+
+  # -----------------------------------------------------------------------
+  # 2) Ollama 推理服务
+  # -----------------------------------------------------------------------
+  - job_name: ollama
+    metrics_path: /metrics
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['ollama:11434']
+        labels:
+          service: ollama
+          tier: inference
+
+  # -----------------------------------------------------------------------
+  # 3) Ollama Exporter（Prometheus 专用导出器）
+  # -----------------------------------------------------------------------
+  - job_name: ollama-exporter
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ['ollama-exporter:9835']
+        labels:
+          service: ollama-exporter
+          tier: monitoring
+          exporter_version: v0.4.0
+
+  # -----------------------------------------------------------------------
+  # 4) PostgreSQL Exporter
+  # -----------------------------------------------------------------------
+  - job_name: postgres-exporter
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: postgres-exporter
+          tier: monitoring
+          db_engine: postgres-16
+
+  # -----------------------------------------------------------------------
+  # 5) Redis Exporter
+  # -----------------------------------------------------------------------
+  - job_name: redis-exporter
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: redis-exporter
+          tier: monitoring
+          db_engine: redis-7
+
+  # -----------------------------------------------------------------------
+  # 6) Node Exporter（主机指标）
+  # -----------------------------------------------------------------------
+  - job_name: node-exporter
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: node-exporter
+          tier: host
+
+  # -----------------------------------------------------------------------
+  # 7) Prometheus 自身指标
+  # -----------------------------------------------------------------------
+  - job_name: prometheus
+    metrics_path: /metrics
+    scrape_interval: 60s
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: prometheus
+          tier: monitoring

@@ -1,0 +1,19 @@
+[Unit]
+Description=方案 D 每日预测：收盘后跑全市场 18 维特征 + LightGBM 推理
+After=tdxfeed-sync.service
+Wants=tdxfeed-sync.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+# Top 50，阈值 0.7，并行 8 进程（避免内存爆）
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/predict.py --top 50 --threshold 0.7 --workers 8
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/predict.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/predict.err
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=timers.target

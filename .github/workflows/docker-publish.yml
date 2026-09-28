@@ -1,0 +1,193 @@
+# =============================================================================
+# tdx-data-feed Docker 镜像发布流水线
+# =============================================================================
+# 触发:
+#   - 推送到 main 分支 → 推送 latest + 主分支 sha 标签
+#   - 推送 v*.*.* 标签 → 推送语义化版本标签
+#   - PR / 手动触发 → 仅构建验证（不推送）
+# 目标仓库:
+#   - GitHub Container Registry: ghcr.io/jiuben/tdx-data-feed
+#   - Docker Hub（可选）: jiuben/tdx-data-feed
+# 缓存:
+#   - GitHub Actions cache + 多阶段构建缓存
+# =============================================================================
+name: docker-publish
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Custom tag (e.g. v1.0.0-rc1)'
+        required: false
+        default: ''
+
+# ---- 权限 ----
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+  id-token: write
+
+# ---- 防止重复并发 ----
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  REGISTRY_GHCR: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  BUILD_PLATFORM: linux/amd64
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Job 1: 仅构建（PR + dry-run 验证）
+  # -----------------------------------------------------------------------
+  build-only:
+    name: Build (no push)
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ env.BUILD_PLATFORM }}
+          push: false
+          load: true
+          tags: |
+            tdx-app:test
+            tdx-app:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          labels: |
+            org.opencontainers.image.title=tdx-data-feed
+            org.opencontainers.image.description=A股量化研究平台
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+
+  # -----------------------------------------------------------------------
+  # Job 2: 构建 + 推送（main + tag 触发）
+  # -----------------------------------------------------------------------
+  build-and-push:
+    name: Build & Push
+    runs-on: ubuntu-22.04
+    needs: build-only
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}
+          # 生成 5 种标签
+          tags: |
+            # 默认 latest（main 分支）
+            type=raw,value=latest,enable={{is_default_branch}}
+            # 分支名
+            type=ref,event=branch,enable={{is_default_branch}}
+            # 推送 tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            # 提交 SHA 短码
+            type=sha,prefix=sha-,enable={{is_default_branch}}
+            # 自定义 tag
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+          labels: |
+            org.opencontainers.image.title=tdx-data-feed
+            org.opencontainers.image.description=A股量化研究平台（数据/训练/预测/回测）
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ env.BUILD_PLATFORM }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+          build-args: |
+            LLAMA_CPP_REF=master
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true
+
+      - name: Upload Trivy results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: Summary
+        run: |
+          echo "## 🚀 Docker 镜像发布完成" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**镜像**: \`${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag**: \`${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest**: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 拉取命令" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

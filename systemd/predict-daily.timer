@@ -1,0 +1,14 @@
+[Unit]
+Description=每日 18:05 跑方案 D 预测（在 tdxfeed-sync 之后 5 分钟）
+
+[Timer]
+# 工作日 18:05 触发（在 tdxfeed-sync 18:00 之后 5 分钟，确保日 K 已更新）
+OnCalendar=Mon..Fri 18:05:00
+# Persistent=true：错过自动补跑（如系统宕机）
+Persistent=true
+# 触发后 1 分钟内不重复
+AccuracySec=60s
+Unit=predict-daily.service
+
+[Install]
+WantedBy=timers.target

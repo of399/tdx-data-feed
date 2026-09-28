@@ -1,0 +1,10 @@
+[Unit]
+Description=Plan E v3 Premarket Top 5% Timer (Weekdays 09:00)
+
+[Timer]
+OnCalendar=Mon-Fri 09:00:00
+Persistent=true
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

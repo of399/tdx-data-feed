@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 项目文档
+    url: https://github.com/jiuben/tdx-data-feed/blob/main/README.md
+    about: 系统总览、配置、故障排查
+  - name: 💬 社区讨论
+    url: https://github.com/jiuben/tdx-data-feed/discussions
+    about: 一般性问题、想法、建议
+  - name: 🔒 安全漏洞
+    url: mailto:security@jiuben.com
+    about: 安全相关问题请直接发邮件

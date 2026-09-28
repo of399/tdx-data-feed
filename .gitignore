@@ -9,6 +9,8 @@ __pycache__/
 venv/
 vllm-venv/                # 已删除 (2026-09-25)
 .env
+# 原始环境变量备份，禁止入版本库
+.env.original.*
 .venv
 env/
 
@@ -46,6 +48,12 @@ downloads/
 *.log
 *.tmp
 *.bak
+# 修复符号链接的冗余备份
+*.symfixed
+# 带日期后缀的污染备份
+*.1213
+# v1 污染版本备份
+*.v1polluted*
 *.failed.log
 
 # 输出目录

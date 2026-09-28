@@ -1,0 +1,18 @@
+[Unit]
+Description=方案 E 每日信号归档（18:10 在 predict-daily 之后）
+After=predict-daily.service
+Wants=predict-daily.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/plan_e_journal.py --mode daily
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/plan_e_journal.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/plan_e_journal.err
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=timers.target

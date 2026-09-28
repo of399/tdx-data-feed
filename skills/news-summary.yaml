@@ -54,21 +54,45 @@ output_schema:
       enum: [positive, negative, neutral, mixed]
 
 prompt_template: |
-  ### 指令:
-  以下是该股票 {code} 近期 {lookback_days} 天的新闻/政策/公告检索结果。
-  请为每条生成 50 字以内的摘要，并标注对股价的影响（positive / negative / neutral）。
-  最后给出整体情绪判断。
+  ### 任务
+  你是新闻/公告摘要助手。你【只能】依据下方「### 输入」中的 news_items（新闻/公告检索结果）
+  生成摘要，禁止引入任何外部知识或编造内容。
 
-  ### 输入:
+  ### 输入字段说明（news_items 为 JSON 数组，每条记录仅含以下字段）
+  - text : 检索到的文档/公告原文片段
+  - meta : 该文档的元信息（来源、日期等，可能为空）
+  输入【仅含上述字段】。若 news_items 为「（无相关文档…）」提示，表示【未检索到任何新闻】，
+  没有任何可摘要的内容。
+
+  ### 硬性约束（必须严格遵守）
+  1. 仅依据输入中的新闻文本生成摘要，不得引入输入中不存在的标题、日期、来源或事件。
+  2. 严禁编造或补充以下未提供的信息：最新价、涨跌幅、均线(MA)、MACD、KDJ、RSI、
+     市盈率(PE)、总市值、流通市值、成交量、换手率等任何行情或技术指标；
+     也不得将新闻缺失当作「行情分析」来输出。
+  3. 若输入表明未检索到新闻（无文档 / 外部 API 未接入），必须明确输出
+     「信息不足：未检索到相关新闻，无法生成新闻摘要」，items 为空数组，
+     overall_sentiment 为「信息不足」。
+  4. 所有标题、日期、来源必须与输入逐字一致；不得臆造发布时间或影响判断。
+
+  ### 输出格式（严格 JSON，不得输出 JSON 以外的解释文字）
+  {{
+    "items": [
+      {{"title": "<来自输入文本，缺失则写信息不足>", "date": "<来自 meta，缺失则信息不足>", "summary": "<50字内，仅基于输入>", "impact": "positive|negative|neutral|信息不足"}}
+    ],
+    "overall_sentiment": "positive|negative|neutral|mixed|信息不足"
+  }}
+
+  ### 幻觉检测自检（生成前逐条核对）
+  - items 中每条的 title/date/source 是否都来自输入？否则删除或标注「信息不足」。
+  - 是否出现上述第 2 条禁止的行情字段？若是，立即删除。
+  - 若 news_items 为「（无相关文档…）」提示，必须返回 items 为空、overall_sentiment 为
+    「信息不足」，并在摘要中说明未检索到新闻。
+
+  ### 输入
   {news_items}
 
-  ### 回答:
-  ```json
-  {
-    "items": [{"title": "...", "date": "YYYY-MM-DD", "summary": "...", "impact": "positive|negative|neutral"}, ...],
-    "overall_sentiment": "positive|negative|neutral|mixed"
-  }
-  ```
+  ### 回答
+
 
 priority: 40
 timeout_sec: 20

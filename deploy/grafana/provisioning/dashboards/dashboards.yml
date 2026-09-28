@@ -1,0 +1,15 @@
+# Grafana 自动仪表板加载配置
+
+apiVersion: 1
+
+providers:
+  - name: 'tdx-data-feed'
+    orgId: 1
+    folder: 'TDX'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

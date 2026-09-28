@@ -1,0 +1,12 @@
+[Unit]
+Description=每日 18:10 跑方案 E 信号归档（在 predict-daily 之后 5 分钟）
+
+[Timer]
+# 工作日 18:10 触发（在 predict-daily 18:05 之后 5 分钟）
+OnCalendar=Mon..Fri 18:10:00
+Persistent=true
+AccuracySec=60s
+Unit=plan-e-journal.service
+
+[Install]
+WantedBy=timers.target

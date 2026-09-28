@@ -1,0 +1,137 @@
+# =============================================================================
+# .dockerignore - 减小构建上下文 + 加速构建
+# =============================================================================
+# 标准模式: 大文件 / 版本控制 / 缓存 / 文档 / IDE
+# =============================================================================
+
+# ---- Git ----
+.git
+.gitignore
+.gitattributes
+.github
+.gitlab-ci.yml
+
+# ---- 大文件 / 模型（外部挂载，不进镜像）----
+*.gguf
+*.gguf.*.txt
+models/
+*-merged/
+*-merged-f16.gguf
+*-merged-safetensors
+Qwen3-14B/
+
+# ---- Python 缓存 + 虚拟环境 ----
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+.cache/
+
+# ---- 日志 ----
+logs/
+*.log
+nohup.out
+*.pid
+
+# ---- 训练输出（中间产物）----
+train/output/
+train/checkpoints/
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# ---- 文档 / 笔记（不进镜像）----
+*.md
+docs/
+CHANGELOG.md
+CONTRIBUTING.md
+SECURITY.md
+README.md
+DELIVERY.md
+PULL_REQUEST_TEMPLATE.md
+
+# ---- IDE / 编辑器 ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*~
+.cursor/
+
+# ---- OS ----
+.Trash-*
+.fseventsd
+.Spotlight-V100
+.Trashes
+
+# ---- Node（如果有前端构建）----
+node_modules/
+.next/
+.nuxt/
+dist/
+build/
+
+# ---- 测试 / fixtures ----
+tests/
+test/
+tests_data/
+*.test
+*.spec
+fixtures/
+
+# ---- 环境 / 密钥 ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+
+# ---- 临时 / 备份 ----
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*.orig
+*.rej
+
+# ---- 数据（运行时挂载）----
+data/parquet/daily/
+data/adj_factor/
+data/double_up/*.csv
+data/predictions/
+data/plan_e/
+
+# ---- 配置（可选，保留 docker 配置）----
+deploy/local/
+deploy/test/
+docker-compose.local.yml
+docker-compose.override.yml
+.dockerignore
+Dockerfile.dev
+Dockerfile.test
+
+# ---- 文档生成 ----
+.ruff_cache/
+.mypy_cache/
+.pyrightconfig.json
