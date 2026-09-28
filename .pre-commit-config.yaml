@@ -1,0 +1,25 @@
+# 见 https://pre-commit.com — tdx-data-feed
+# 目标：修复缺失配置导致的提交阻断，并提供基础防护
+#   - 文件卫生：尾随空白 / 文件结尾换行 / 行尾统一 LF
+#   - 配置合法性：YAML / TOML / JSON
+#   - 大文件防护：check-added-large-files（对齐 workspace 规则"大文件不提交 GGUF/parquet"）
+#   - 安全：detect-private-key（私钥泄露检测）
+# 说明：ruff 不在此处（避免既有代码 lint 债阻塞提交），沿用 make lint 入口。
+default_install_hook_types: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=10000"]
