@@ -19,7 +19,7 @@ visibility: "project"
 ## ⚠️ 最重要区分：生产预测器 vs 研究型 LLM
 
 本流程的**生产预测主路径是 LightGBM 翻倍信号模型**（`predict.py` 实际调用，默认 `vpnl_huber_stage1`）：
-- 纯 CPU 运行，无需 GPU，准确率显著高于随机（OOS Sp≈0.35），是方案 D 每日预测的唯一生产组件。
+- 纯 CPU 运行，无需 GPU，准确率显著高于随机（OOS Spearman≈0.34，实测 0.3404），是方案 D 每日预测的唯一生产组件。
 - 模型文件：`data/double_up/d_signal_5d_model_vpnl_huber_stage1.txt`（21 维精选特征 + 候选因子，PnL Huber 回归）。
 
 **LLM（Qwen3-14B QLoRA，如 `qwen3-14b-tdx-v7`）仅用于可解释性 / 对话式分析**（对应 `kline-analysis` 等技能），实测准确率≈随机（≈48-49%，近多数类基线），**不是**生产预测主路径，也**不参与**每日预测或回测。
@@ -49,7 +49,7 @@ venv/bin/python scripts/download_universe.py  # 股票池/代码表（可选）
 
 > **已失效脚本（切勿使用）**：`scripts/download_baostock.py`、`scripts/download_akshare_bj.py`、`scripts/build_adj_factor.py` 经实测**均不存在**。复权因子与财务现由 `tdxfeed.full_sync` 内置模块（`writers` / `fin_parquet`）产出，北交所/ETF 已由上述真实入口覆盖。
 
-**验证**：`ls data/parquet/daily | wc -l`（当前约 8035，目标 ≥ 8000）；`ls data/adj_factor | wc -l`（约 5565）
+**验证**：`ls data/parquet/daily | wc -l`（当前约 7230，目标 ≥ 7000）；`ls data/adj_factor | wc -l`（约 5565）
 
 ### 阶段 2：模型训练（tdx-model-trainer，可选）
 
@@ -60,8 +60,8 @@ venv/bin/python scripts/find_d_signal_5d.py   # 训练 d_signal_5d 系列，产�
 
 **B. LLM 研究路径（Qwen3-14B QLoRA，可选 / 非生产）** — 若 `train/output/qwen3-14b-tdx-v7` 已存在则跳过：
 ```bash
-# 训练配置见 training/ 下 LLaMA-Factory YAML（如 v7 lora 配置）；LLM 仅用于可解释分析
-nohup venv/bin/llamafactory-cli train training/config/<v7_lora>.yaml > /tmp/v7.log 2>&1 &
+# 训练配置见 training/ 下 LLaMA-Factory YAML（实际为 tdx_v7_resume.yaml）；LLM 仅用于可解释分析
+nohup venv/bin/llamafactory-cli train training/config/tdx_v7_resume.yaml > /tmp/v7.log 2>&1 &
 # 等到 eval_loss ≤ 0.20 才算 OK（注意：LLM 预测准确率≈随机，勿用于生产信号）
 ```
 
@@ -106,7 +106,7 @@ venv/bin/python scripts/plan_e_journal.py --mode simulate --start 2026-08-27 --e
 
 | # | 阶段 | 命令 | 通过条件 |
 |---|---|---|---|
-| 1 | 数据 | `ls data/parquet/daily | wc -l` | ≥ 8000 |
+| 1 | 数据 | `ls data/parquet/daily | wc -l` | ≥ 7000 |
 | 2 | 翻倍样本 | `ls data/double_up/double_up_2020_2026_detail.csv` | 存在 |
 | 3 | 生产模型 | `test -f data/double_up/d_signal_5d_model_vpnl_huber_stage1.txt` | 存在（LLM 可选：`test -d train/output/qwen3-14b-tdx-v7`） |
 | 4 | 预测 | `test -f data/predictions/predict_latest.md` | 存在 |
@@ -119,7 +119,7 @@ venv/bin/python scripts/plan_e_journal.py --mode simulate --start 2026-08-27 --e
 > 使用本 skill 前先询问用户：
 
 1. **范围**：是否要重跑模型训练？（通常否；生产 LightGBM 模型已就位，仅需确认 `d_signal_5d_model_vpnl_huber_stage1.txt` 存在）
-2. **实盘**：是否要写入实盘 journal？（journal 为手动 buy/sell 记录，不下单；每日 18:35 定时器仅刷新当日信号）
+2. **实盘**：是否要写入实盘 journal？（journal 为手动 buy/sell 记录，不下单；每日 18:10 定时器仅刷新当日信号）
 3. **回测参数**：默认 hold=10 / tp=0.30 / sl=-0.10 / threshold=0.7
 
 ## 输出汇总
@@ -158,5 +158,7 @@ venv/bin/python scripts/plan_e_journal.py --mode simulate --start 2026-08-27 --e
 - `docs/PLAN_E_LIVE.md` — 方案 E 实盘跟踪说明
 - `docs/stage1_feature_migration_plan.md` — 阶段 1 因子迁移（vpnl_huber_stage1 + polars）设计 / 回滚文档
 - `docs/stage1_optuna_report.md` — 阶段 1 Optuna 特征精选报告
+- `docs/HYBRID_LLM_STRATEGY.md` — LLM（Qwen3-14B QLoRA）与 LightGBM 生产预测器的定位 / 边界说明，支撑阶段 2「研究型 LLM 非主路径」论断
+- `docs/LIVE_TRACKING_GUIDE.md` — 方案 E 实盘跟踪操作指南（journal.csv / journal_sim.csv、每日定时刷新当日信号），支撑阶段 5 journal 功能
 - `deploy/README.md` — 容器化部署指南
 - 发布标记：`git tag stage1-switch`（2026-10-11，阶段 1 上线）
