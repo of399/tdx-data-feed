@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "settings": {
+    "commitMessage": "vault: {{date}} (auto)",
+    "autoCommit": false,
+    "autoPush": false,
+    "autoPull": false,
+    "disablePush": true,
+    "commitOnClose": true,
+    "syncMethod": "merge",
+    "refreshSourceControl": true,
+    "differentInterval": 10
+  }
+}

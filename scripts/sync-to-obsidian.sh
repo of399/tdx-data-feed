@@ -3,7 +3,7 @@
 # 同步 tdx-data-feed 文档到 Obsidian Vault
 # 用法: bash sync-to-obsidian.sh [--dry-run] [--watch]
 
-set -e
+set -e -o pipefail   # 补 pipefail 防管道吞错（保留 -e）
 
 # ============== 配置 ==============
 SRC="/home/jiuben/tdx-data-feed"
@@ -45,6 +45,8 @@ copy_doc() {
     local src=$1
     local dst=$2
     local title=$3
+    local doc_type=$4
+    local related_strategy=$5
 
     if [ "$DRY_RUN" = "1" ]; then
         log "复制: $src → $dst"
@@ -72,6 +74,8 @@ source: $src
 source_hash: $src_hash
 synced_at: $today
 line_count: $line_count
+doc_type: ${doc_type:-}
+related_strategy: ${related_strategy:-}
 tags:
   - tdx-data-feed
   - documentation
@@ -92,6 +96,64 @@ FRONTMATTER
     echo "$content" >> "$dst"
 
     ok "已同步: $(basename $dst) ($line_count 行)"
+}
+
+# ============== 报告归档 / MOC ==============
+
+archive_report() {
+    local src=$1
+    local name=$2
+    [ -f "$src" ] || return 0
+    if [ "$DRY_RUN" = "1" ]; then log "归档报告: $name"; return 0; fi
+    mkdir -p "$VAULT/08-报告/archive"
+    local h=$(sha256sum "$src" | cut -c1-12)
+    local dest="$VAULT/08-报告/archive/${name}_${h}.md"
+    if [ ! -f "$dest" ]; then
+        cp "$src" "$dest"
+        ok "已归档报告: $(basename "$dest")"
+    fi
+}
+
+generate_moc() {
+    local dst="$VAULT/00-知识库入口/索引-MOC.md"
+    if [ "$DRY_RUN" = "1" ]; then log "生成 MOC 索引: $dst"; return 0; fi
+    mkdir -p "$VAULT/00-知识库入口"
+    cat > "$dst" <<'MOC'
+---
+title: 文档索引（自动生成 MOC）
+tags:
+  - tdx-data-feed
+  - moc
+generated_by: sync-to-obsidian.sh
+---
+
+# tdx-data-feed 文档索引（自动生成）
+
+> 由 `scripts/sync-to-obsidian.sh` 每次同步自动生成。所有同步文档均带 `#tdx-data-feed` 标签。
+
+## 一、按同步时间（最新在前）
+```dataview
+TABLE source AS 源文件, synced_at AS 同步时间, source_hash AS 哈希, line_count AS 行数
+FROM #tdx-data-feed AND -#moc
+SORT synced_at DESC
+```
+
+## 二、按源文件查漂移（对比 source_hash 与源文件当前 sha256）
+```dataview
+TABLE source AS 源文件, source_hash AS 同步时哈希, synced_at AS 同步时间
+FROM #tdx-data-feed AND -#moc
+SORT source ASC
+```
+
+## 三、按类型（doc_type）
+```dataview
+TABLE doc_type AS 类型, source AS 源文件
+FROM #tdx-data-feed AND -#moc
+WHERE doc_type
+SORT doc_type ASC
+```
+MOC
+    ok "已生成 MOC 索引: $(basename "$dst")"
 }
 
 # ============== 主流程 ==============
@@ -154,16 +216,19 @@ copy_doc "$SRC/Makefile" \
 # 5. 策略与方案
 copy_doc "$SRC/docs/PLAN_E.md" \
     "$VAULT/04-策略与方案/PLAN_E-翻倍当日跟随策略.md" \
-    "方案 E：翻倍当日跟随策略"
+    "方案 E：翻倍当日跟随策略" \
+    "策略" "plan_e"
 
 copy_doc "$SRC/docs/PLAN_E_LIVE.md" \
     "$VAULT/04-策略与方案/PLAN_E_LIVE-实盘启动指南.md" \
-    "方案 E：实盘启动指南"
+    "方案 E：实盘启动指南" \
+    "策略" "plan_e"
 
 # 6. 数据与配置
 copy_doc "$SRC/docs/tdx-data-feed-数据字典.md" \
     "$VAULT/05-数据与配置/数据字典.md" \
-    "数据字典"
+    "数据字典" \
+    "数据" ""
 
 copy_doc "$SRC/docs/volume-单位治理计划书.md" \
     "$VAULT/05-数据与配置/volume-单位治理.md" \
@@ -171,6 +236,48 @@ copy_doc "$SRC/docs/volume-单位治理计划书.md" \
 
 # 7. 运维（已在 00 同步）
 # SECURITY.md 已同步到 00-知识库入口/
+
+# 8. 评测 / 回测报告（#5 / #6 流水线产出，动态同步最新一份）
+echo ""
+echo "📊 评测 / 回测报告（最新）"
+mkdir -p "$VAULT/08-报告"
+LATEST_F5="$(ls -t "$SRC/training/eval/compare_"*.json 2>/dev/null | head -1)"
+if [ -n "$LATEST_F5" ]; then
+  F5_MD="${LATEST_F5%.json}.md"
+  if [ ! -f "$F5_MD" ]; then
+    F5_MD="$(mktemp -t f5_report_XXXX.md)"
+    python3 - "$LATEST_F5" "$F5_MD" <<'PY' || F5_MD=""
+import sys, json, datetime
+try:
+    src, dst = sys.argv[1], sys.argv[2]
+    d = json.load(open(src, encoding="utf-8"))
+    a, b = d.get("a", {}), d.get("b", {})
+    L = [f"# #5 评测对比报告（派生自 {src.split('/')[-1]}）", "",
+         f"> 生成时间：{datetime.datetime.now():%Y-%m-%d %H:%M:%S} ｜ 来源：training/eval", "",
+         f"| 指标 | {a.get('name','A')} | {b.get('name','B')} | Δ |",
+         "| --- | --- | --- | --- |",
+         f"| 方向准确率 | {a.get('direction_accuracy',0):.4f} | {b.get('direction_accuracy',0):.4f} | {d.get('delta_dir_acc',0):+.4f} |",
+         f"| 格式遵循率 | {a.get('format_compliance_rate',0):.4f} | {b.get('format_compliance_rate',0):.4f} | {d.get('delta_fmt',0):+.4f} |",
+         f"| 解析失败率 | {a.get('parse_fail_rate',0):.4f} | {b.get('parse_fail_rate',0):.4f} | — |",
+         f"| 样本数 | {a.get('n_samples',0)} | {b.get('n_samples',0)} | — |"]
+    open(dst, "w", encoding="utf-8").write("\n".join(L) + "\n")
+except Exception:
+    pass
+PY
+  fi
+  if [ -n "$F5_MD" ] && [ -f "$F5_MD" ]; then
+    copy_doc "$F5_MD" "$VAULT/08-报告/05-评测对比报告.md" "方案E 评测对比报告"
+  fi
+fi
+LATEST_F6="$(ls -t "$SRC/data/plan_e/llm_signal_compare_"*.md 2>/dev/null | head -1)"
+if [ -n "$LATEST_F6" ]; then
+  copy_doc "$LATEST_F6" "$VAULT/08-报告/06-方案E回测对比报告.md" "方案E 回测对比报告"
+fi
+
+# 9. 报告历史归档（避免回测演进记录丢失）+ 自动 MOC 索引（配合 Dataview）
+archive_report "$VAULT/08-报告/05-评测对比报告.md" "05-评测对比报告"
+archive_report "$VAULT/08-报告/06-方案E回测对比报告.md" "06-方案E回测对比报告"
+generate_moc
 
 echo ""
 ok "同步完成！"

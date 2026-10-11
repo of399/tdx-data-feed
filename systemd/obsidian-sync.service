@@ -1,0 +1,13 @@
+[Unit]
+Description=tdx-data-feed: 同步文档到 Obsidian Vault
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/bash /home/jiuben/tdx-data-feed/scripts/sync-to-obsidian.sh
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/obsidian-sync.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/obsidian-sync.err
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

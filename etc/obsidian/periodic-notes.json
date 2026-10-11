@@ -1,0 +1,21 @@
+{
+  "version": "0.0.17",
+  "settings": {
+    "daily": {
+      "format": "YYYY-MM-DD",
+      "folder": "10-研究日志/daily",
+      "template": "templates/Daily-Note.md"
+    },
+    "weekly": {
+      "format": "YYYY-[W]WW",
+      "folder": "10-研究日志/weekly",
+      "template": ""
+    },
+    "monthly": {
+      "format": "YYYY-MM",
+      "folder": "10-研究日志/monthly",
+      "template": ""
+    },
+    "newFileLocation": "folder"
+  }
+}

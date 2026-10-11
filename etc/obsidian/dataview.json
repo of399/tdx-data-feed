@@ -1,0 +1,13 @@
+{
+  "version": "0.5.0",
+  "settings": {
+    "enableJs": false,
+    "warnOnJs": true,
+    "dataviewJsKeyword": "dataviewjs",
+    "commandTimeout": 10000,
+    "refreshEnabled": true,
+    "refreshInterval": 2000,
+    "defaultPageSize": 50,
+    "tableId": ""
+  }
+}
