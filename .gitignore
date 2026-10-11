@@ -96,3 +96,22 @@ double_up/double_up_*.csv
 double_up/double_up_*.txt
 v5/cache/
 v5/workbench/workbench.db*
+
+# ===== 审计/产物大文件（不进 git，避免仓库膨胀；磁盘文件保留，仅停止跟踪）=====
+v5/audit/*.parquet
+v5/audit/*.csv
+v5/audit/v6_enriched_lora/
+v5/reports/suggestion-*.md
+
+# ===== 个人自用:.codebuddy 共享子树放开(skills/agents/rules);memory/、automations/ 等本地私密保持忽略 =====
+# 否定须位于 .codebuddy/ 之后;按 gitignore 规则:父目录被忽略时,须先反忽略父目录,才能对其子目录做选择性反忽略
+!.codebuddy/
+!.codebuddy/skills/
+!.codebuddy/skills/**
+!.codebuddy/agents/
+!.codebuddy/agents/**
+!.codebuddy/rules/
+!.codebuddy/rules/**
+# 重新忽略本地私密子树,防止泄露
+.codebuddy/memory/
+.codebuddy/automations/
