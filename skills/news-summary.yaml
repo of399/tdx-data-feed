@@ -12,6 +12,7 @@ description: |
 llm:
   model_id: qwen3-7b                  # 仅作能力档位标注：SkillRuntime 不做按 skill 的模型路由
   base_model: Qwen/Qwen3-7B
+  # 注：生产预测走 LightGBM predict.py；本 skill 为 LLM 新闻摘要（可选增强），非主路径
   inference:
     backend: transformers             # 2026-09-26 修正：原值 vllm 已失效（vllm-venv 删除），
                                       # runtime 实际走 transformers+peft，只读取 max_new_tokens
