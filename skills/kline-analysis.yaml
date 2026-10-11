@@ -11,9 +11,10 @@ description: |
 llm:
   model_id: qwen3-14b-tdx
   base_model: Qwen/Qwen3-14B
-  adapter_path: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx/checkpoint-final
+  adapter_path: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v7  # 须与当前激活的 LoRA 版本一致（train/output/qwen3-14b-tdx-v*），默认 v7
+  # 注：生产预测走 LightGBM predict.py；本 skill 为 LLM K线分析（可解释/对话式，准确率≈随机，非主路径）
   inference:
-    backend: transformers + peft    # 或 vllm（待验证）
+    backend: transformers + peft
     dtype: bfloat16
     device_map: auto
     max_new_tokens: 256
