@@ -9,7 +9,7 @@ description: |
   纯 pandas 计算，不调 LLM（节省 GPU / 延迟）。
 
 llm:
-  model_id: none                       # 纯工具，不调 LLM
+  model_id: none                       # 纯工具，不调 LLM（生产 LightGBM 预测/回测的 CPU 计算依赖，无模型）
   inference: null
 
 tools:
