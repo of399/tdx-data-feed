@@ -5,9 +5,10 @@
 ========================================
 
 【背景】
-  方案 D 用 LightGBM 在"翻倍前 5 日"窗口识别翻倍信号，
-  Test AUC 0.8144，阈值 0.7 精度 83.15%。
-  本脚本用于生产化：每日拉一遍全市场 → 18 维特征 → 预测概率 → Top 排序
+  方案 D 用 LightGBM 在"翻倍前 5 日"窗口识别翻倍信号。
+  本脚本用于生产化：每日拉一遍全市场 → 动态特征 → 预测 → Top 排序。
+  支持多模型(--model):默认 vpnl_huber(Huber PnL 回归,直击信号→PnL 价值瓶颈);
+  回滚用 --model prod(18维分类)。回归模型输出预期 PnL,按 Top-N 排序。
 
 【输入数据】
   - data/parquet/daily/{sh|sz|bj}{code}.parquet     日 K（含 open/high/low/close/volume/amount/turnover）
@@ -86,6 +87,28 @@ MODEL_FILE = ROOT / 'data' / 'double_up' / 'd_signal_5d_model.txt'
 OUTPUT_DIR = ROOT / 'data' / 'predictions'
 UNIVERSE_FILE = ROOT / 'data' / 'all_a_stocks.json'
 
+# ============== 多模型注册表(信号突破:分类 → PnL 回归)==============
+# kind: cls=分类器(输出概率,阈值过滤); reg=回归器(输出预期 PnL,Top-N 排序)
+# 评估见 scripts/eval_signal_forward.py / eval_signal_honest.py(时序前向,去泄漏)
+MODEL_REGISTRY = {
+    "prod":           (MODEL_FILE, "cls"),                                                       # 当前生产(18维分类,回滚用)
+    "v9":             (ROOT / "data" / "double_up" / "d_signal_5d_model_v9.txt", "cls"),          # 26维分类
+    "v10_dart":       (ROOT / "data" / "double_up" / "d_signal_5d_model_v10.txt", "cls"),         # DART 随机化分类
+    "vpnl":           (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl.txt", "reg"),        # PnL 回归
+    "vpnl_asym":      (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_asym.txt", "reg"),    # PnL 回归(非对称)
+    "vpnl_huber":     (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber.txt", "reg"),   # 原部署默认(回滚用)
+    "vpnl_huber_ind": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_industry.txt", "reg"),
+    "vpnl_huber_mkt": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_market.txt", "reg"),  # 需当日市场特征
+    "vpnl_huber_stage1": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_stage1.txt", "reg"),  # ★ Step 7 新模型(21维精选+候选因子)
+}
+DEFAULT_MODEL = "vpnl_huber_stage1"  # ★ 上线:Stage1 Huber PnL 回归(21维精选+候选因子,需 --features polars)
+ACTIVE_MODEL_PATH = MODEL_REGISTRY[DEFAULT_MODEL][0]
+ACTIVE_IS_REG = MODEL_REGISTRY[DEFAULT_MODEL][1] == "reg"
+# Step 7：特征管线模式（legacy=26 基础维; polars=26 基础维+9 候选因子，新模型 vpnl_huber_stage1 必需）
+ACTIVE_FEATURE_MODE = "polars"  # 随 DEFAULT_MODEL=stage1 对齐（legacy 26 基础维+候选因子）
+# 新模型必需的 polars 候选因子列（legacy 26 维不产出这些 → 缺列会 KeyError）
+_CANDIDATE_FACTOR_COLS = {"ret_skew_20", "vol_term", "vp_corr_20", "amihud_20"}
+
 # ============== 18 维特征定义（顺序与训练一致）==============
 FEATURE_COLS = [
     'limit',          # 涨停限制
@@ -111,16 +134,12 @@ FEATURE_COLS = [
 
 # ============== 特征计算 ==============
 
-def get_limit(code: str) -> float:
-    """根据代码判断涨停限制"""
-    code = str(code).zfill(6)
-    if code.startswith('bj'):
-        return 0.30
-    if code.startswith('300') or code.startswith('301'):  # 创业板
-        return 0.20
-    if code.startswith('688'):  # 科创板
-        return 0.20
-    return 0.10
+# 涨停限制与 18/26 维特征：单一数据源见 tdxfeed/features_5d（向后兼容 v8 18 维与 v9+ 26 维）
+# compute_features() 始终返回 26 维（含 8 维扩展），main() 按 model.feature_name() 取子集
+from _common import compute_window_features, compute_window_features_extended, get_limit  # noqa: E402
+# Step 7：polars 候选因子路径（新模型 vpnl_huber_stage1 必需）
+import polars as pl  # noqa: E402
+from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
 
 
 def is_st(name: str) -> int:
@@ -130,33 +149,152 @@ def is_st(name: str) -> int:
     return 1 if ('ST' in name or '*ST' in name) else 0
 
 
+# 进程内 parquet 缓存：避免同进程内重复读取（多进程模式各 worker 独立，无跨进程共享）。
+# 注意：键为 code_clean，存 pristine 原始 DataFrame；每次使用 .copy()，防止原地修改污染缓存。
+_PARQUET_CACHE: dict[str, pd.DataFrame] = {}
+
+# 板块分配（与 build_market_features.py 一致）
+_BOARD_SET = ["sh_main", "sh_kechuang", "sz_main", "sz_chinext", "bj"]
+
+
+def _assign_board(code: str) -> str:
+    if not isinstance(code, str):
+        return "other"
+    if code.startswith("bj"):
+        return "bj"
+    if code.startswith("sz300") or code.startswith("sz301"):
+        return "sz_chinext"
+    if code.startswith("sz000") or code.startswith("sz001") or code.startswith("sz002"):
+        return "sz_main"
+    if code.startswith("sh688") or code.startswith("sh689"):
+        return "sh_kechuang"
+    if code.startswith("sh600") or code.startswith("sh601") or code.startswith("sh603") or code.startswith("sh605"):
+        return "sh_main"
+    return "other"
+
+
+_MARKET_CACHE: pd.DataFrame | None = None
+_INDUSTRY_FEATURES_CACHE: pd.DataFrame | None = None
+_INDUSTRY_MAPPING_CACHE: dict[str, str] = {}
+
+
+def _get_market_features() -> pd.DataFrame:
+    """懒加载 market_features.csv(全市场代理特征,按 signal_date 查)。"""
+    global _MARKET_CACHE
+    if _MARKET_CACHE is None:
+        mkt_csv = ROOT / "data" / "double_up" / "market_features.csv"
+        if mkt_csv.exists():
+            df = pd.read_csv(mkt_csv)
+            df["signal_date"] = pd.to_datetime(df["signal_date"]).dt.strftime("%Y-%m-%d")
+            _MARKET_CACHE = df
+    return _MARKET_CACHE
+
+
+def _get_industry_features() -> pd.DataFrame:
+    """懒加载 industry_features.csv(akshare 申万行业聚合,按 date × industry_code)。"""
+    global _INDUSTRY_FEATURES_CACHE
+    if _INDUSTRY_FEATURES_CACHE is None:
+        ind_csv = ROOT / "data" / "industry" / "industry_features.csv"
+        if ind_csv.exists():
+            df = pd.read_csv(ind_csv)
+            df["signal_date"] = pd.to_datetime(df["signal_date"]).dt.strftime("%Y-%m-%d")
+            # industry_code 可能是 float, 转 str
+            df["industry_code"] = df["industry_code"].astype(str).str.replace(r"\.0$", "", regex=True)
+            df.loc[df["industry_code"].isin(["nan", "-1.0"]), "industry_code"] = "UNMAPPED"
+            _INDUSTRY_FEATURES_CACHE = df
+    return _INDUSTRY_FEATURES_CACHE
+
+
+def _get_industry_mapping() -> dict[str, str]:
+    """懒加载 akshare 申万 code → industry_code。"""
+    global _INDUSTRY_MAPPING_CACHE
+    if not _INDUSTRY_MAPPING_CACHE:
+        m = ROOT / "data" / "industry" / "sw_stock_industry.csv"
+        if m.exists():
+            df = pd.read_csv(m, usecols=["code", "industry_code"])
+            df["industry_code"] = df["industry_code"].astype(str).str.replace(r"\.0$", "", regex=True)
+            df.loc[df["industry_code"].isin(["nan", "-1.0"]), "industry_code"] = "UNMAPPED"
+            _INDUSTRY_MAPPING_CACHE = dict(zip(df["code"], df["industry_code"]))
+    return _INDUSTRY_MAPPING_CACHE
+
+
+_INDUSTRY_FEATURE_NAMES = ["ind_ret_5d_avg", "ind_amt_avg_5d", "ind_pct_t1_avg",
+                           "ind_volatility_avg", "ind_stock_count"]
+
+
+def _enrich_industry_features(feats: dict, signal_date: str) -> dict:
+    """加 6 维 akshare 申万行业特征(Task D 真实版):含 ret_minus_ind_5d 计算。"""
+    code = feats["code"]
+    mapping = _get_industry_mapping()
+    industry_code = str(mapping.get(code, "UNMAPPED"))
+
+    date_norm = signal_date[:10] if isinstance(signal_date, str) else signal_date.strftime("%Y-%m-%d")
+    ind_feats = _get_industry_features()
+    if ind_feats is not None:
+        row = ind_feats[(ind_feats["signal_date"] == date_norm) & (ind_feats["industry_code"] == industry_code)]
+        if not row.empty:
+            for c in _INDUSTRY_FEATURE_NAMES:
+                feats[c] = float(row[c].iloc[0])
+            feats["ret_minus_ind_5d"] = float(feats.get("ret_5d", 0.0)) - float(row["ind_ret_5d_avg"].iloc[0])
+        else:
+            for c in _INDUSTRY_FEATURE_NAMES:
+                feats[c] = 0.0
+            feats["ret_minus_ind_5d"] = 0.0
+    else:
+        for c in _INDUSTRY_FEATURE_NAMES:
+            feats[c] = 0.0
+        feats["ret_minus_ind_5d"] = 0.0
+    return feats
+
+
+def _enrich_market_features(feats: dict, signal_date: str) -> dict:
+    """加 5 维板块 one-hot + 4 维市场代理特征(Task D 行业代理)。"""
+    code = feats["code"]
+    board = _assign_board(code)
+    for b in _BOARD_SET:
+        feats[f"board_{b}"] = 1.0 if board == b else 0.0
+    mkt = _get_market_features()
+    date_norm = signal_date[:10] if isinstance(signal_date, str) else signal_date.strftime("%Y-%m-%d")
+    if mkt is not None:
+        row = mkt[mkt["signal_date"] == date_norm]
+        if not row.empty:
+            for c in ["mkt_ret_5d_avg", "mkt_amt_avg_5d", "mkt_pct_t1_avg", "stock_count_active"]:
+                feats[c] = float(row[c].iloc[0])
+        else:
+            for c in ["mkt_ret_5d_avg", "mkt_amt_avg_5d", "mkt_pct_t1_avg", "stock_count_active"]:
+                feats[c] = 0.0
+    else:
+        for c in ["mkt_ret_5d_avg", "mkt_amt_avg_5d", "mkt_pct_t1_avg", "stock_count_active"]:
+            feats[c] = 0.0
+    return feats
+
+
+def _compute_candidate_polars(df_raw: pd.DataFrame, code: str) -> dict | None:
+    """用 polars/candidates 路径计算 9 个候选因子（新模型 vpnl_huber_stage1 必需）。"""
+    cols = [c for c in ("date", "open", "high", "low", "close", "volume", "amount")
+            if c in df_raw.columns]
+    if len(cols) < 5:
+        return None
+    try:
+        df_pl = pl.from_pandas(df_raw[cols].reset_index(drop=True))
+        return compute_candidate_features(df_pl, code)
+    except Exception:
+        return None
+
+
 def compute_features(code: str) -> dict:
     """
-    对单只股计算 18 维特征
-    返回 None 表示无法计算（数据不足等）
+    对单只股计算特征（口径与训练侧完全一致，见 tdxfeed/features_5d）。
+
+    返回 26 维(技术面扩展) + 5 维板块 + 4 维市场代理 = 35 维(若模型需要)。
+    任意模型期望的特征子集都会被自动选取。
+
+    返回 None 表示无法计算（数据不足等）。
     """
     code = str(code).zfill(6)
     code_clean = code.lstrip('bj')
 
-    # 找 parquet 文件
-    for prefix in ['', 'sh', 'sz', 'bj']:
-        fp = PARQUET_DIR / f"{prefix}{code_clean if prefix else code_clean}.parquet"
-        if not fp.exists():
-            continue
-        # 也支持 sh600xxx 这种格式
-        for cand in [
-            f"{code_clean}.parquet",
-            f"sh{code_clean}.parquet",
-            f"sz{code_clean}.parquet",
-            f"bj{code_clean}.parquet",
-        ]:
-            f = PARQUET_DIR / cand
-            if f.exists():
-                fp = f
-                break
-        break
-
-    # 实际找文件
+    # 找 parquet 文件（sh/sz/bj 前缀统一候选，去重避免重复查找）
     fp = None
     for cand in [
         f"{code_clean}.parquet",
@@ -172,124 +310,77 @@ def compute_features(code: str) -> dict:
         return None
 
     try:
-        df = pd.read_parquet(fp)
+        if code_clean in _PARQUET_CACHE:
+            raw = _PARQUET_CACHE[code_clean]
+            df_raw = raw.copy()
+        else:
+            raw = pd.read_parquet(fp)
+            _PARQUET_CACHE[code_clean] = raw
+            df_raw = raw.copy()
     except Exception:
         return None
 
-    if len(df) < 30:
+    if len(df_raw) < 30:
         return None
 
-    # 合并 adj_factor（如果 df 已经有这列，先删掉避免冲突）
-    if 'adj_factor' in df.columns:
-        df = df.drop(columns=['adj_factor'])
-    if 'qfq_close' in df.columns:
-        df = df.drop(columns=['qfq_close'])
-
+    # 计算 T-1 日的 adj_factor（仅用于 meta 展示 qfq_close；特征用 raw close）
+    adj_factor_value = 1.0
     adj_fp = ADJ_DIR / f"{code_clean}.parquet"
     if adj_fp.exists():
-        adj_df = pd.read_parquet(adj_fp)
-        df['date'] = pd.to_datetime(df['date'])
-        adj_df['date'] = pd.to_datetime(adj_df['date'])
-        df = df.merge(adj_df[['date', 'adj_factor']], on='date', how='left')
-        df['adj_factor'] = df['adj_factor'].ffill().fillna(1.0)
-        df['qfq_close'] = df['close'] * df['adj_factor']
-    else:
-        df['adj_factor'] = 1.0
-        df['qfq_close'] = df['close']
+        try:
+            adj_df = pd.read_parquet(adj_fp)
+            adj_df['date'] = pd.to_datetime(adj_df['date'])
+            tmp = df_raw[['date', 'close']].copy()
+            tmp['date'] = pd.to_datetime(tmp['date'])
+            merged = tmp.merge(adj_df[['date', 'adj_factor']], on='date', how='left')
+            adj_factor_value = float(merged['adj_factor'].ffill().fillna(1.0).iloc[-1])
+        except Exception:
+            adj_factor_value = 1.0
 
-    df = df.tail(30).copy().reset_index(drop=True)
+    # 26 维特征（始终计算扩展集，main() 按 model.feature_name() 取子集，向后兼容 v8/v9+）
+    feats = compute_window_features_extended(df_raw, code)
+    if feats is None:
+        return None
 
-    limit = get_limit(code)
-    close = df['qfq_close'].values
-    high = df['high'].values * df['adj_factor'].values
-    low = df['low'].values * df['adj_factor'].values
+    # Step 7：特征管线分支（--features）
+    #   legacy（默认）：仅 26 基础维，向后兼容 v8/v9+/vpnl_huber 等旧模型（位级一致、is_st 由名称判定）
+    #   polars：在 26 基础维之上追加 9 候选因子（含新模型 vpnl_huber_stage1 必需的 4 个：
+    #           ret_skew_20/vol_term/vp_corr_20/amihud_20），由 factors_candidates(polars) 计算。
+    #   设计取舍：17 个基础维沿用已验证的 legacy features_5d（最大化一致性与安全），仅新候选因子
+    #   走 polars 路径，满足「新管线产出 21 列」且零破坏现有模型（模型按 feature_name 取子集，多余列自动忽略）。
+    if ACTIVE_FEATURE_MODE == "polars":
+        cand = _compute_candidate_polars(df_raw, code)
+        if cand is None:
+            return None  # 候选因子缺失 → 新模型会 KeyError，跳过该股
+        feats.update(cand)
 
-    # 复权 pct_change
-    pct = np.zeros(len(close))
-    for i in range(1, len(close)):
-        pct[i] = close[i] / close[i-1] - 1 if close[i-1] > 0 else 0
-
-    last_close = close[-1]
-    last5 = close[-5:]
-    last3 = close[-3:]
-
-    feats = {}
-
-    # 1. limit
-    feats['limit'] = limit
-
-    # 2. prev_close
-    feats['prev_close'] = float(last_close)
-
-    # 3-4. ret_5d / ret_3d
-    feats['ret_5d'] = float(close[-1] / close[-6] - 1) if close[-6] > 0 else 0
-    feats['ret_3d'] = float(close[-1] / close[-4] - 1) if close[-4] > 0 else 0
-
-    # 5. max_5d_pct
-    feats['max_5d_pct'] = float(pct[-5:].max())
-
-    # 6-7. limit_up_5d / limit_up_t1
-    feats['limit_up_5d'] = int(sum(pct[-5:] >= limit - 0.001))
-    feats['limit_up_t1'] = int(pct[-1] >= limit - 0.001)
-
-    # 9. pct_t1
-    feats['pct_t1'] = float(pct[-1])
-
-    # 10. avg_amount_5d
-    if 'amount' in df.columns:
-        feats['avg_amount_5d'] = float(df['amount'].iloc[-5:].mean())
-    else:
-        feats['avg_amount_5d'] = float((df['volume'].iloc[-5:] * df['close'].iloc[-5:]).mean())
-
-    # 11. vol_ratio_t1
-    vol_5d_mean = float(df['volume'].iloc[-5:].mean())
-    feats['vol_ratio_t1'] = float(df['volume'].iloc[-1] / vol_5d_mean) if vol_5d_mean > 0 else 0
-
-    # 12. volatility_5d
-    feats['volatility_5d'] = float(pct[-5:].std())
-
-    # 13. close_pos_5d
-    mn, mx = last5.min(), last5.max()
-    feats['close_pos_5d'] = float((last_close - mn) / (mx - mn)) if mx > mn else 0.5
-
-    # 14. max_drawdown_5d
-    running_max = np.maximum.accumulate(last5)
-    dd = last5 / running_max - 1
-    feats['max_drawdown_5d'] = float(dd.min())
-
-    # 15. turnover_proxy
-    if 'turnover' in df.columns:
-        feats['turnover_proxy'] = float(df['turnover'].iloc[-1])
-    else:
-        # 估算：volume / 总股本（无法准确，置 1）
-        feats['turnover_proxy'] = 1.0
-
-    # 16. is_st（需要股票名称，先从 all_a_stocks 查）
-    feats['is_st'] = 0  # 默认非 ST（生产环境可加 name 字段）
-
-    # 17. is_new：上市 < 60 日
-    # 这里用简化：df 行数 < 30 → 当作新股
-    feats['is_new'] = 1 if len(df) < 30 else 0
-
-    # 18. is_bj
-    feats['is_bj'] = 1 if code.startswith('bj') else 0
-
-    # 19. is_gem
-    feats['is_gem'] = 1 if (code.startswith('300') or code.startswith('301') or code.startswith('688')) else 0
-
-    # 添加元信息
+    # meta 字段（仅展示用，非特征）
+    last_date = df_raw['date'].iloc[-1]
+    last_close = float(df_raw['close'].iloc[-1])
+    last_volume = float(df_raw['volume'].iloc[-1])
     meta = {
         'code': code,
-        'date': str(df['date'].iloc[-1])[:10],
-        'close': float(df['close'].iloc[-1]),
-        'qfq_close': float(last_close),
-        'volume': float(df['volume'].iloc[-1]),
+        'date': str(last_date)[:10],
+        'close': last_close,
+        'qfq_close': last_close * adj_factor_value,
+        'volume': last_volume,
     }
-    return {**meta, **feats}
+    result = {**meta, **feats}
+    # Task D 行业代理(代码前缀):5 板块 + 4 市场
+    result = _enrich_market_features(result, str(last_date)[:10])
+    # Task D 行业(真实 akshare 申万):6 行业特征
+    result = _enrich_industry_features(result, str(last_date)[:10])
+    return result
 
 
 def load_single_stock(code: str) -> tuple:
     return code, compute_features(code)
+
+
+def _init_feature_mode(mode: str) -> None:
+    """在每个 worker 进程内显式设置特征管线模式（不依赖 fork 继承全局变量）。"""
+    global ACTIVE_FEATURE_MODE
+    ACTIVE_FEATURE_MODE = mode
 
 
 def load_all_stocks(codes: list, max_workers: int = 8) -> pd.DataFrame:
@@ -297,7 +388,9 @@ def load_all_stocks(codes: list, max_workers: int = 8) -> pd.DataFrame:
     print(f"  并行加载 {len(codes)} 只股票...", file=sys.stderr)
     rows = []
     failed = 0
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with ProcessPoolExecutor(max_workers=max_workers,
+                             initializer=_init_feature_mode,
+                             initargs=(ACTIVE_FEATURE_MODE,)) as executor:
         futures = {executor.submit(load_single_stock, code): code for code in codes}
         for i, fut in enumerate(as_completed(futures)):
             code, data = fut.result()
@@ -332,6 +425,108 @@ def load_universe() -> list:
     return sorted(codes)
 
 
+def run_predict(args):
+    """核心预测逻辑：返回 (feat_df, high_score)。CLI 与 Web UI 共用。
+
+    回归模型(reg):输出为预期 PnL(非概率),高分=正期望(PnL>0),Top-N 排序见 head。
+    """
+    if not ACTIVE_MODEL_PATH.exists():
+        raise FileNotFoundError(f"❌ 模型不存在: {ACTIVE_MODEL_PATH}")
+    model = lgb.Booster(model_file=str(ACTIVE_MODEL_PATH))
+    feature_cols = model.feature_name()
+    if model.num_feature() != len(FEATURE_COLS):
+        print(f"  ℹ 模型 {model.num_feature()} 维 vs 脚本默认 {len(FEATURE_COLS)} 维 → 动态按模型取 {len(feature_cols)} 列")
+    if args.codes:
+        codes = [c.strip().zfill(6) for c in args.codes.split(',')]
+    else:
+        codes = load_universe()
+        if not args.no_skip_bj:
+            codes = [c for c in codes if not c.startswith('920')]
+    feat_df = load_all_stocks(codes, args.workers)
+    if feat_df.empty:
+        return None, None
+    if not args.no_skip_st:
+        feat_df = feat_df[feat_df['is_st'] == 0]
+    if not args.no_skip_new:
+        feat_df = feat_df[feat_df['is_new'] == 0]
+    X = feat_df[feature_cols].fillna(0)
+    feat_df['prob'] = model.predict(X)
+    feat_df = feat_df.sort_values('prob', ascending=False).reset_index(drop=True)
+    feat_df['rank'] = feat_df.index + 1
+    if ACTIVE_IS_REG:
+        # 回归:预期 PnL,高分=正期望(PnL>0)
+        high_score = feat_df[feat_df['prob'] > 0].copy()
+    else:
+        high_score = feat_df[feat_df['prob'] >= args.threshold].copy()
+    return feat_df, high_score
+
+
+def launch_web(args):
+    """gradio Web UI：输入代码/全市场，输出 Top 概率表与高分统计。"""
+    import gradio as gr
+
+    _model = None
+
+    def get_model():
+        nonlocal _model
+        if _model is None:
+            if not ACTIVE_MODEL_PATH.exists():
+                raise RuntimeError(f"模型不存在: {ACTIVE_MODEL_PATH}")
+            _model = lgb.Booster(model_file=str(ACTIVE_MODEL_PATH))
+        return _model
+
+    def predict(codes_text, threshold, top_n, skip_bj, skip_st, skip_new):
+        a = argparse.Namespace(
+            codes=(codes_text.strip() or None),
+            threshold=float(threshold),
+            top=int(top_n),
+            workers=8,
+            no_skip_bj=(not skip_bj),
+            no_skip_st=(not skip_st),
+            no_skip_new=(not skip_new),
+            # Step 7 修复：Web 命名空间补充 date 默认值（与 main 约定一致：None=今天）。
+            # run_predict 当前不读 args.date，但补全可避免任何路径缺失属性导致 AttributeError。
+            date=None,
+        )
+        try:
+            feat_df, high = run_predict(a)
+        except Exception as e:
+            return [], f"❌ 错误: {e}"
+        if feat_df is None:
+            return [], "❌ 无可用数据"
+        show = feat_df.head(int(top_n))[
+            ['rank', 'code', 'prob', 'close', 'qfq_close', 'pct_t1', 'ret_5d', 'vol_ratio_t1', 'limit']
+        ].copy()
+        show['prob'] = show['prob'].map(lambda x: f"{x:.4f}")
+        show['pct_t1'] = (show['pct_t1'] * 100).map(lambda x: f"{x:+.2f}%")
+        show['ret_5d'] = (show['ret_5d'] * 100).map(lambda x: f"{x:+.2f}%")
+        metric_name = "平均预期PnL" if ACTIVE_IS_REG else "平均概率"
+        tag = ("正期望" if ACTIVE_IS_REG else f"阈值{threshold}+")
+        summary = (f"✅ 共 {len(feat_df)} 只 | {tag} 高分 {len(high)} 只 | "
+                   f"{metric_name} {feat_df['prob'].mean():.4f}")
+        return show.values.tolist(), summary
+
+    with gr.Blocks(title="方案D 翻倍潜力预测") as demo:
+        gr.Markdown("# 方案 D 每日翻倍潜力预测 (LightGBM)\n"
+                    "输入代码（逗号分隔，留空=全市场）并点击「预测」。")
+        with gr.Row():
+            codes_tb = gr.Textbox(label="股票代码（逗号分隔，留空=全市场）",
+                                  placeholder="600519,000001,300750", scale=3)
+            threshold = gr.Number(value=0.7, label="高分阈值", scale=1)
+            top_n = gr.Number(value=20, label="Top N", scale=1)
+        with gr.Row():
+            skip_bj = gr.Checkbox(value=True, label="跳过北交所")
+            skip_st = gr.Checkbox(value=True, label="跳过 ST")
+            skip_new = gr.Checkbox(value=True, label="跳过新股")
+            btn = gr.Button("预测", variant="primary")
+        summary = gr.Textbox(label="统计", interactive=False)
+        out = gr.Dataframe(label="Top 结果", interactive=False)
+        btn.click(fn=predict,
+                  inputs=[codes_tb, threshold, top_n, skip_bj, skip_st, skip_new],
+                  outputs=[out, summary])
+    demo.launch(server_name="0.0.0.0", server_port=args.port, share=args.share)
+
+
 def main():
     parser = argparse.ArgumentParser(description='方案 D 每日翻倍潜力预测')
     parser.add_argument('--date', help='基准日（YYYY-MM-DD），默认今天')
@@ -342,25 +537,61 @@ def main():
     parser.add_argument('--no-skip-bj', action='store_true', help='不跳过北交所')
     parser.add_argument('--no-skip-st', action='store_true', help='不跳过 ST')
     parser.add_argument('--no-skip-new', action='store_true', help='不跳过新股')
+    parser.add_argument('--no-gem', action='store_true', help='禁用 is_gem 特征(强制置 0),避免重训前 OOD 偏差（短期止血，重训后可移除）')
+    parser.add_argument('--web', action='store_true', help='启动 Web UI (gradio)，交互式选股预测')
+    parser.add_argument('--port', type=int, default=7860, help='Web UI 端口')
+    parser.add_argument('--share', action='store_true', help='gradio share 公网隧道')
+    parser.add_argument('--no-freshness-check', action='store_true', help='跳过数据新鲜度校验')
+    parser.add_argument('--model', default=None,
+                        help='模型选择: prod/v9/v10_dart/vpnl/vpnl_asym/vpnl_huber/'
+                             'vpnl_huber_ind/vpnl_huber_mkt/vpnl_huber_stage1(默认 vpnl_huber_stage1)')
+    parser.add_argument('--features', default='polars', choices=['legacy', 'polars'],
+                        help='特征管线: legacy(26 基础维) / polars(26 基础维+9 候选因子,默认,'
+                             'vpnl_huber_stage1 必需)')
     args = parser.parse_args()
+
+    # 解析多模型选择(部署 vpnl_huber:PnL 回归;回滚用 --model prod)
+    model_name = args.model or DEFAULT_MODEL
+    if model_name not in MODEL_REGISTRY:
+        sys.exit(f"❌ 未知模型: {model_name}; 可选: {', '.join(MODEL_REGISTRY)}")
+    global ACTIVE_MODEL_PATH, ACTIVE_IS_REG, ACTIVE_FEATURE_MODE
+    ACTIVE_MODEL_PATH = MODEL_REGISTRY[model_name][0]
+    ACTIVE_IS_REG = MODEL_REGISTRY[model_name][1] == "reg"
+    ACTIVE_FEATURE_MODE = args.features
+
+    if not args.no_freshness_check:
+        from tdxfeed.freshness import require_fresh
+        require_fresh(max_age_days=2)
+
+    if args.web:
+        launch_web(args)
+        return
 
     print(f"=== 方案 D 预测 ===")
     print(f"  时间: {datetime.now().isoformat(timespec='seconds')}")
     print(f"  阈值: {args.threshold}")
     print(f"  Top:  {args.top}")
 
-    if not MODEL_FILE.exists():
-        sys.exit(f"❌ 模型不存在: {MODEL_FILE}")
+    if not ACTIVE_MODEL_PATH.exists():
+        sys.exit(f"❌ 模型不存在: {ACTIVE_MODEL_PATH}")
 
     # 加载模型
-    print(f"  加载模型: {MODEL_FILE}")
-    model = lgb.Booster(model_file=str(MODEL_FILE))
+    print(f"  加载模型[{model_name}]: {ACTIVE_MODEL_PATH}")
+    print(f"    类型: {'回归(PnL 预期)' if ACTIVE_IS_REG else '分类(概率)'}")
+    model = lgb.Booster(model_file=str(ACTIVE_MODEL_PATH))
     print(f"    期望特征数: {model.num_feature()}")
     print(f"    树数: {model.num_trees()}")
 
-    if model.num_feature() != len(FEATURE_COLS):
-        print(f"  ⚠ 特征数不匹配！模型 {model.num_feature()} vs 脚本 {len(FEATURE_COLS)}")
-        print(f"    请检查 FEATURE_COLS 顺序")
+    # 动态特征列:从模型读,确保与训练时顺序一致 (向后兼容 v8 18 维 / v9+ 26 维)
+    feature_cols = model.feature_name()
+    # Step 7 守卫：新模型(vpnl_huber_stage1)需要 polars 候选因子列，若用 legacy 管线会 KeyError
+    if ACTIVE_FEATURE_MODE != "polars" and _CANDIDATE_FACTOR_COLS & set(feature_cols):
+        sys.exit("❌ 该模型需要 polars 候选因子列(%s)，请加 --features polars"
+                 % ", ".join(sorted(_CANDIDATE_FACTOR_COLS & set(feature_cols))))
+    if len(feature_cols) > 18:
+        print(f"    [扩展模式] {len(feature_cols)} 维特征(18 基础 + {len(feature_cols)-18} 工程化)")
+    else:
+        print(f"    [基础模式] {len(feature_cols)} 维特征")
 
     # 股票代码
     if args.codes:
@@ -391,21 +622,37 @@ def main():
         feat_df = feat_df[feat_df['is_new'] == 0]
         print(f"    过滤新股: {before} → {len(feat_df)}")
 
+    # 短期止血：禁用 is_gem 特征（强制置 0，匹配旧模型训练分布 is_gem=0 常量）
+    if args.no_gem:
+        gem_count = int((feat_df['is_gem'] == 1).sum())
+        feat_df['is_gem'] = 0
+        print(f"    --no-gem: 已将 {gem_count} 只创业板/科创板的 is_gem 强制置 0（重训后建议改用 --no-skip-gem 过滤）")
+
     # 预测
     print(f"\n[2/3] 预测概率...")
-    X = feat_df[FEATURE_COLS].fillna(0)
+    X = feat_df[feature_cols].fillna(0)
     feat_df['prob'] = model.predict(X)
 
     feat_df = feat_df.sort_values('prob', ascending=False).reset_index(drop=True)
     feat_df['rank'] = feat_df.index + 1
 
-    high_score = feat_df[feat_df['prob'] >= args.threshold].copy()
+    if ACTIVE_IS_REG:
+        # 回归:预期 PnL,高分=正期望(PnL>0)
+        high_score = feat_df[feat_df['prob'] > 0].copy()
+    else:
+        high_score = feat_df[feat_df['prob'] >= args.threshold].copy()
 
     # 统计
-    print(f"    Top {args.top} 概率: {feat_df.head(args.top)['prob'].min():.4f} ~ {feat_df['prob'].max():.4f}")
-    print(f"    阈值 {args.threshold} 以上: {len(high_score)} 只")
-    print(f"    平均概率: {feat_df['prob'].mean():.4f}")
-    print(f"    中位数概率: {feat_df['prob'].median():.4f}")
+    if ACTIVE_IS_REG:
+        print(f"    Top {args.top} 预期PnL: {feat_df.head(args.top)['prob'].min():.4f} ~ {feat_df['prob'].max():.4f}")
+        print(f"    正期望(PnL>0): {len(high_score)} 只")
+        print(f"    平均预期PnL: {feat_df['prob'].mean():.4f}")
+        print(f"    中位预期PnL: {feat_df['prob'].median():.4f}")
+    else:
+        print(f"    Top {args.top} 概率: {feat_df.head(args.top)['prob'].min():.4f} ~ {feat_df['prob'].max():.4f}")
+        print(f"    阈值 {args.threshold} 以上: {len(high_score)} 只")
+        print(f"    平均概率: {feat_df['prob'].mean():.4f}")
+        print(f"    中位数概率: {feat_df['prob'].median():.4f}")
 
     # 保存
     print(f"\n[3/3] 输出结果...")
@@ -437,18 +684,28 @@ def main():
         f.write(f"- **阈值**: {args.threshold}\n")
         f.write(f"- **高分股**: {len(high_score)} 只\n\n")
 
-        f.write(f"## 📊 统计\n\n")
-        f.write(f"| 指标 | 值 |\n|---|---|\n")
-        f.write(f"| 平均概率 | {feat_df['prob'].mean():.4f} |\n")
-        f.write(f"| 中位概率 | {feat_df['prob'].median():.4f} |\n")
-        f.write(f"| 最高概率 | {feat_df['prob'].max():.4f} |\n")
-        f.write(f"| ≥ 0.9 | {len(feat_df[feat_df['prob']>=0.9])} 只 |\n")
-        f.write(f"| ≥ 0.8 | {len(feat_df[feat_df['prob']>=0.8])} 只 |\n")
-        f.write(f"| ≥ 0.7 | {len(feat_df[feat_df['prob']>=0.7])} 只 |\n")
-        f.write(f"| ≥ 0.6 | {len(feat_df[feat_df['prob']>=0.6])} 只 |\n\n")
+        score_label = "预期PnL" if ACTIVE_IS_REG else "概率"
+        if ACTIVE_IS_REG:
+            f.write(f"## 📊 统计(回归:输出为预期 PnL)\n\n")
+            f.write(f"| 指标 | 值 |\n|---|---|\n")
+            f.write(f"| 平均预期PnL | {feat_df['prob'].mean():.4f} |\n")
+            f.write(f"| 中位预期PnL | {feat_df['prob'].median():.4f} |\n")
+            f.write(f"| 最高预期PnL | {feat_df['prob'].max():.4f} |\n")
+            f.write(f"| 正期望(PnL>0) | {len(feat_df[feat_df['prob']>0])} 只 |\n")
+            f.write(f"| 负期望 | {len(feat_df[feat_df['prob']<=0])} 只 |\n\n")
+        else:
+            f.write(f"## 📊 统计\n\n")
+            f.write(f"| 指标 | 值 |\n|---|---|\n")
+            f.write(f"| 平均概率 | {feat_df['prob'].mean():.4f} |\n")
+            f.write(f"| 中位概率 | {feat_df['prob'].median():.4f} |\n")
+            f.write(f"| 最高概率 | {feat_df['prob'].max():.4f} |\n")
+            f.write(f"| ≥ 0.9 | {len(feat_df[feat_df['prob']>=0.9])} 只 |\n")
+            f.write(f"| ≥ 0.8 | {len(feat_df[feat_df['prob']>=0.8])} 只 |\n")
+            f.write(f"| ≥ 0.7 | {len(feat_df[feat_df['prob']>=0.7])} 只 |\n")
+            f.write(f"| ≥ 0.6 | {len(feat_df[feat_df['prob']>=0.6])} 只 |\n\n")
 
         f.write(f"## 🎯 Top {args.top} 高分股\n\n")
-        f.write(f"| Rank | 代码 | 概率 | 收盘 | 前复权 | T-1 涨幅 | 5 日涨幅 | 量比 | 涨停限制 |\n")
+        f.write(f"| Rank | 代码 | {score_label} | 收盘 | 前复权 | T-1 涨幅 | 5 日涨幅 | 量比 | 涨停限制 |\n")
         f.write(f"|---:|:---:|---:|---:|---:|---:|---:|---:|---:|\n")
         for _, r in feat_df.head(args.top).iterrows():
             f.write(f"| {r['rank']} | {r['code']} | **{r['prob']:.4f}** | "
@@ -457,17 +714,26 @@ def main():
                     f"{r['vol_ratio_t1']:.2f} | {r['limit']*100:.0f}% |\n")
 
         if len(high_score) > 0:
-            f.write(f"\n## 🚨 阈值 {args.threshold}+ 高分明细\n\n")
-            f.write(f"| 代码 | 概率 | 收盘 | T-1 涨幅 |\n")
+            if ACTIVE_IS_REG:
+                f.write(f"\n## 🚨 正期望(PnL>0)候选明细({len(high_score)} 只)\n\n")
+            else:
+                f.write(f"\n## 🚨 阈值 {args.threshold}+ 高分明细\n\n")
+            f.write(f"| 代码 | {score_label} | 收盘 | T-1 涨幅 |\n")
             f.write(f"|:---:|---:|---:|---:|\n")
             for _, r in high_score.iterrows():
                 f.write(f"| {r['code']} | {r['prob']:.4f} | "
                         f"{r['close']:.2f} | {r['pct_t1']*100:+.2f}% |\n")
 
         f.write(f"\n## 使用建议\n\n")
-        f.write(f"- **阈值 0.7+**：高置信度，可直接进入候选池（结合题材/新闻人工复核）\n")
-        f.write(f"- **阈值 0.6-0.7**：中等置信度，建议观察 1-2 日\n")
-        f.write(f"- **阈值 < 0.6**：仅作参考，不建议行动\n\n")
+        if ACTIVE_IS_REG:
+            f.write(f"- 本模型为**回归器**,输出为未来 10 日预期 PnL(TP+30%/SL-10%/双边成本),非概率。\n")
+            f.write(f"- **预期 PnL 越高越优先**;正期望({score_label}>0)共 {len(high_score)} 只,进入候选池。\n")
+            f.write(f"- 建议按 Top {args.top} 排序结合题材/新闻人工复核,严格止损(-10%)。\n\n")
+        else:
+            f.write(f"- **阈值 0.7+**：高置信度，可直接进入候选池（结合题材/新闻人工复核）\n")
+            f.write(f"- **阈值 0.6-0.7**：中等置信度，建议观察 1-2 日\n")
+            f.write(f"- **阈值 < 0.6**：仅作参考，不建议行动\n\n")
+        f.write(f"生成工具: `scripts/predict.py --model {model_name}`\n")
         f.write(f"---\n\n")
         f.write(f"生成工具: `scripts/predict.py`\n")
     print(f"    ✓ 报告: {fp_md.name}")
