@@ -1,0 +1,50 @@
+# tdx_v8_resume.yaml — 基于 v7 checkpoint-500 续训（综合量价特征集 + 可判定任务）
+# 用法：venv/bin/llamafactory-cli train /home/jiuben/tdx-data-feed/training/config/tdx_v8_resume.yaml
+#
+# 相对 tdx_v7_resume.yaml 的关键改动：
+#   adapter_name_or_path -> v7/checkpoint-500（与 v7-resume 同起点，保证可比）
+#   dataset              -> tdx_v8_train（综合量价特征 + 可判定任务标签）
+#   eval_dataset         -> tdx_v8_val（新任务 val，监控过拟合）
+#   cutoff_len           -> 1536（新 input 紧凑 K线 + 指标快照，实测 max=1361 token）
+#   output_dir           -> qwen3-14b-tdx-v8-resume（独立目录，不覆盖 v7/v7-resume）
+# 不变：lora_rank=8/alpha=16/7模块、lr=5e-5、ep=1.0、cosine、warmup=0.03（续训保守）
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v7/checkpoint-500
+dataset: tdx_v8_train
+eval_dataset: tdx_v8_val
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+template: qwen
+enable_thinking: false  # 关闭 thinking，修正训练/推理不一致（v8 首训几乎全预测"跌"）
+finetuning_type: lora
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+cutoff_len: 1280
+learning_rate: 5.0e-5
+num_train_epochs: 1.0
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+logging_steps: 20
+save_steps: 200
+save_total_limit: 3
+save_strategy: steps
+eval_strategy: steps
+eval_steps: 200
+per_device_eval_batch_size: 1
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v8-resume
+overwrite_output_dir: true
+bf16: true
+fp16: false
+flash_attn: sdpa  # 环境无 fa2 预编译 wheel(py3.14 无 cp314 wheel + 无 nvcc)，llamafactory 自动回退 SDPA
+do_train: true
+packing: true
+torch_compile: false

@@ -1,0 +1,23 @@
+{
+  "timestamp": "20261007_092555",
+  "a": {
+    "name": "v4-new(merged,4bit,2gpu)",
+    "model_dir": "/home/jiuben/models/Qwen3-14B-tdx-v4-merged",
+    "direction_accuracy": 0.7,
+    "format_compliance_rate": 1.0,
+    "parse_fail_rate": 0.0,
+    "n_samples": 40,
+    "elapsed_sec": 190.49877858161926
+  },
+  "b": {
+    "name": "v7r(merged,4bit,2gpu)",
+    "model_dir": "/home/jiuben/models/Qwen3-14B-v7r-merged",
+    "direction_accuracy": 0.55,
+    "format_compliance_rate": 1.0,
+    "parse_fail_rate": 0.0,
+    "n_samples": 40,
+    "elapsed_sec": 176.30710649490356
+  },
+  "delta_dir_acc": 0.1499999999999999,
+  "delta_fmt": 0.0
+}

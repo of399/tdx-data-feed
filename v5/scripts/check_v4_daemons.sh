@@ -1,6 +1,7 @@
 #!/bin/bash
 # v4 批量分析明日检查脚本
 # 早上跑一下就看到两个 daemon 进度 + vault 状态
+set -uo pipefail   # 捕获管道失败（如 grep 无匹配返回 1），但不开 -e（状态报告器需跑完）
 
 echo "===== v4 批量分析状态报告 ====="
 echo "  时间: $(date)"

@@ -1,5 +1,6 @@
 #!/bin/bash
 # pushplus_e2e.sh - 用 systemctl stop 替代 kill（避免自动重启）
+set -uo pipefail   # 防管道吞错；不开 -e（诊断脚本需跑完）
 echo "Step 1: sudo systemctl stop math-sympy-http.service"
 sudo systemctl stop math-sympy-http.service
 sleep 5

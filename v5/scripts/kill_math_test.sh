@@ -1,3 +1,4 @@
+set -uo pipefail   # 防管道吞错（如 journalctl|grep 无匹配）；不开 -e（诊断脚本需跑完）
 PID=$(pgrep -f math_sympy_http)
 echo "Step 1: kill PID=$PID"
 sudo kill -9 $PID

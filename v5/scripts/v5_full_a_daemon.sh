@@ -2,7 +2,7 @@
 # v5_full_a_daemon.sh - 启动 v5 模型跑全 A 股再分析
 # v6 部署后启动（避免 GPU 冲突）
 
-set -e
+set -e -o pipefail   # 补 pipefail 防管道吞错（保留 -e）
 
 cd /home/jiuben/tdx-data-feed
 LOG=/tmp/v5-full-A.log

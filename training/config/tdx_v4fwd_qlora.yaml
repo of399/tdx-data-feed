@@ -1,0 +1,61 @@
+# tdx_v4fwd_qlora.yaml — 方案A 实证：前瞻5日收益三分类重打标签后的 QLoRA 重训（canonical 终训）
+# 与 tdx_v4_qlora_real.yaml 的唯一差异：
+#   - dataset=tdx_v4fwd_train / eval_dataset=tdx_v4fwd_val_small（前瞻标签版 + 小验证集）
+#   - output_dir 改为 qwen3-14b-tdx-v4fwd-qlora
+# 其余超参（max_steps=500 / rank8 / 4bit / bf16 / SDPA）与 v4 完全一致，
+# 以便把「任何改进」归因于「标签契约改变」而非训练预算差异。
+#
+# 低成本约定（解决 eval 成本黑洞）：
+#   - eval_steps=500：仅训练末评估 1 次（原 100 → 5 次 → 1 次）。
+#   - predict_with_generate=false：loss-only 评估，不做生成式解码（8007 条生成评估是 7h 主因）。
+#   - eval_dataset=tdx_v4fwd_val_small：~800 条分层小验证集（由 scripts/build_small_val.py 生成）。
+#   重标签 / 快速实验请用 tdx_v4fwd_qlora_fast.yaml（evaluation_strategy: "no"）。
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: null
+dataset: tdx_v4fwd_train
+eval_dataset: tdx_v4fwd_val_small
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+template: qwen
+finetuning_type: lora
+
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+
+cutoff_len: 512
+packing: false
+
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v4fwd-qlora
+overwrite_output_dir: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+per_device_eval_batch_size: 4
+max_steps: 500
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+max_grad_norm: 1.0
+weight_decay: 0.0
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+seed: 42
+
+bf16: true
+fp16: false
+flash_attn: sdpa
+
+logging_steps: 5
+# 低成本终训：仅训练末评估 1 次（原 100 → 5 次 → 1 次），且 loss-only 不生成解码
+eval_strategy: steps
+eval_steps: 500
+predict_with_generate: false
+save_strategy: steps
+save_steps: 100
+save_total_limit: 2
+do_train: true
+report_to: none

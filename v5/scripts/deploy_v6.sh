@@ -1,7 +1,7 @@
 #!/bin/bash
 # deploy_v6.sh - v6 LoRA → merged → GGUF → Ollama（v5 后用）
 # 与 deploy_v5.sh 几乎相同，仅路径换 v6
-set -e
+set -euo pipefail
 
 V6_DIR="/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v6-gpu1"
 # 按 mtime 倒序选最新 ckpt

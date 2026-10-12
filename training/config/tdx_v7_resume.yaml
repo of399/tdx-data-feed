@@ -1,0 +1,53 @@
+# tdx_v7_resume.yaml — 基于 v7 checkpoint-500 续训（修复兼容版）
+# 用法：venv/bin/llamafactory-cli train /home/jiuben/tdx-data-feed/training/config/tdx_v7_resume.yaml
+#
+# 修复来源 tdx_lora_resume_fast.yaml（其指向的 v4 base checkpoint-4200 与 v4 数据集均不存在）。
+# 关键改动（必须对齐 v7 adapter_config.json，否则加载即崩 size mismatch）：
+#   adapter_name_or_path -> v7/checkpoint-500
+#   dataset              -> tdx_v7_train（现有 17840 样本）
+#   eval_dataset         -> tdx_v5_val（v7 无独立 val，用 v5 val 监控过拟合）
+#   lora_rank            -> 8   （原 16，与 v7 一致）
+#   lora_alpha           -> 16  （原 32，与 v7 一致）
+#   lora_target          -> 7 个具体模块（原 all，与 v7 一致）
+#   learning_rate        -> 5.0e-5（保守续训，防灾难性遗忘；原 1e-4）
+#   num_train_epochs     -> 1.0（原 1.2）
+#   output_dir           -> qwen3-14b-tdx-v7-resume（独立目录，不覆盖 v7）
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v7/checkpoint-500
+dataset: tdx_v7_train
+eval_dataset: tdx_v5_val
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+template: qwen
+finetuning_type: lora
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+cutoff_len: 512
+learning_rate: 5.0e-5
+num_train_epochs: 1.0
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+logging_steps: 20
+save_steps: 200
+save_total_limit: 3
+save_strategy: steps
+eval_strategy: steps
+eval_steps: 200
+per_device_eval_batch_size: 1
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v7-resume
+overwrite_output_dir: true
+bf16: true
+fp16: false
+flash_attn: sdpa  # 环境无 fa2 预编译 wheel(py3.14 无 cp314 wheel + 无 nvcc)，llamafactory 自动回退 SDPA，结果与 fa2 一致
+do_train: true
+packing: true
+torch_compile: true

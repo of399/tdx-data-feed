@@ -57,23 +57,41 @@ class EvalMetrics:
 
 
 # === 模型加载 ===============================================================
-def load_model(ckpt_path: Path, base_model: str = BASE_MODEL_HF):
-    """加载 base + LoRA adapter（peft + transformers）"""
+def load_model(ckpt_path: Path, base_model: str = BASE_MODEL_HF, quantize_4bit: bool = False):
+    """加载 base + LoRA adapter（peft + transformers）
+
+    quantize_4bit=True 时用 4-bit(nf4) 基模，可在单卡 16GB 上放下 14B 并加速；
+    默认 False 保持原 bf16 行为（需 >=32GB 或显存更大的卡）。
+    """
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     import torch
     from peft import PeftModel
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-    print(f"[load] base={base_model} adapter={ckpt_path}")
+    print(f"[load] base={base_model} adapter={ckpt_path} quantize_4bit={quantize_4bit}")
     tok = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
-    base = AutoModelForCausalLM.from_pretrained(
-        base_model,
-        torch_dtype=torch.bfloat16,
-        device_map="auto",
-        trust_remote_code=True,
-    )
+    if quantize_4bit:
+        bnb = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
+        base = AutoModelForCausalLM.from_pretrained(
+            base_model,
+            quantization_config=bnb,
+            device_map="auto",
+            trust_remote_code=True,
+        )
+    else:
+        base = AutoModelForCausalLM.from_pretrained(
+            base_model,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            trust_remote_code=True,
+        )
     model = PeftModel.from_pretrained(base, str(ckpt_path), torch_dtype=torch.bfloat16)
     model.eval()
     return tok, model
@@ -86,13 +104,19 @@ ALPACA_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.S)
 
 
 def parse_output(text: str) -> dict:
-    """从模型输出解析方向/幅度/置信度。失败返回 parsed_ok=False"""
+    """从模型输出解析方向/幅度/置信度。失败返回 parsed_ok=False。
+    兼容两种格式：
+      - 结构化：「方向：涨」「涨跌幅：x%」（含 JSON 围栏）
+      - 自由文本：v4 技术面叙述「整体呈上涨态势…」（无标签，按关键词识别）
+    """
     result = {"parsed_ok": False, "direction": None, "pct": None, "raw": text}
-    # 1) alpaca JSON 围栏
-    m = ALPACA_FENCE_RE.search(text)
-    m.group(1) if m else text
-    # 2) 方向
-    md = DIRECTION_RE.search(text)
+    if not text:
+        return result
+    # 去掉 <think>...</think> 思考链，仅对最终回答做解析（避免推理过程干扰）
+    ans = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+    work = ans if ans else text
+    # 1) 方向：严格结构优先（方向：涨 / 涨跌幅：x%）
+    md = DIRECTION_RE.search(work)
     if md:
         d = md.group(1).lower()
         if d in ("涨", "上涨", "up"):
@@ -102,25 +126,43 @@ def parse_output(text: str) -> dict:
         else:
             result["direction"] = 0
         result["parsed_ok"] = True
-    # 3) 幅度
-    mp = PCT_RE.search(text)
+    else:
+        # 2) 自由文本回退：按优先级识别方向（兼容 v4 叙述格式）
+        if re.search(r"上涨|看涨|看多|走强|上行|偏多|低吸|做多", work):
+            result["direction"] = 1
+            result["parsed_ok"] = True
+        elif re.search(r"下跌|看跌|看空|走弱|下行|偏空|高抛|做空", work):
+            result["direction"] = -1
+            result["parsed_ok"] = True
+        elif re.search(r"震荡|横盘|盘整|观望|中性", work):
+            result["direction"] = 0
+            result["parsed_ok"] = True
+    # 3) 幅度：严格结构
+    mp = PCT_RE.search(work)
     if mp:
         result["pct"] = float(mp.group(1))
     return result
 
 
 def infer_batch(tok, model, samples: list, max_new_tokens: int = 256):
-    """批量推理（auto batching 处理变长 input）"""
+    """批量推理（auto batching 处理变长 input）
+    必须与训练模板一致：训练用 LLaMA-Factory `template: qwen`（即 Qwen3 chat 模板）。
+    若用裸 Alpaca 字符串，模型会把输入 JSON 当作前缀补全、不按指令作答。
+    末尾追加 <no_think> 关闭 Qwen3 长链推理，直接给出技术分析（提速且方向词仍在回答前部）。
+    """
     import torch
+    tok.padding_side = "left"  # 生成时需 left-padding，避免右 padding 干扰
     prompts = []
     for s in samples:
-        # alpaca 风格 prompt 模板（与训练保持一致）
+        content = s["instruction"]
+        if s.get("input"):
+            content = content + "\n" + s["input"]
+        content = content + "\n<no_think>"
+        messages = [{"role": "user", "content": content}]
         prompts.append(
-            f"### 指令:\n{s['instruction']}\n\n"
-            f"### 输入:\n{s.get('input', '')}\n\n"
-            f"### 回答:\n"
+            tok.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
         )
-    enc = tok(prompts, padding=True, truncation=True, max_length=1024, return_tensors="pt").to(model.device)
+    enc = tok(prompts, padding=True, truncation=True, max_length=1536, return_tensors="pt").to(model.device)
     with torch.no_grad():
         out = model.generate(
             **enc,
@@ -164,7 +206,7 @@ def eval_direction(tok, model, samples: list, batch_size: int = 8) -> tuple[floa
     arr_r = np.array([r if r is not None else 0 for r in reals])
     valid = np.array([p is not None and r is not None for p, r in zip(preds, reals, strict=False)])
     if valid.sum() == 0:
-        return 0.0, parsed_records
+        return 0.0, parsed_records, 1.0
     acc = (arr_p[valid] == arr_r[valid]).mean()
     parse_fail = 1.0 - parsed_records.count if False else (sum(1 for r in parsed_records if not r["parsed_ok"]) / len(parsed_records))
     return float(acc), parsed_records, parse_fail
@@ -243,6 +285,8 @@ def main():
                         help=f"LoRA checkpoint 路径（默认：{DEFAULT_CKPT}）")
     parser.add_argument("--base", type=str, default=BASE_MODEL_HF,
                         help="HF base model id 或本地路径")
+    parser.add_argument("--quantize-4bit", action="store_true",
+                        help="用 4-bit(nf4) 基模加载，使其在单卡 16GB 可运行（默认 bf16 需大显存）")
     parser.add_argument("--limit", type=int, default=0,
                         help="抽样 N 条（0=全部）")
     parser.add_argument("--batch-size", type=int, default=8)
@@ -278,7 +322,7 @@ def main():
     # 2. 加载模型
     print("\n[2] 加载 base + LoRA adapter ...")
     t0 = time.time()
-    tok, model = load_model(Path(args.ckpt), args.base)
+    tok, model = load_model(Path(args.ckpt), args.base, args.quantize_4bit)
     print(f"    加载耗时 {time.time() - t0:.1f}s")
 
     # 3. 方向准确率 + 格式遵循率

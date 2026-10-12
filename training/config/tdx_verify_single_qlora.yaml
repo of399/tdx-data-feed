@@ -1,0 +1,62 @@
+# tdx_verify_single_qlora.yaml — 单卡 QLoRA 实测验证配置（有界）
+# 用法（单卡，限定 GPU0）：
+#   CUDA_VISIBLE_DEVICES=0 venv/bin/llamafactory-cli train training/config/tdx_verify_single_qlora.yaml
+#
+# 目的：验证单卡 16GB 下 QLoRA 可行性，采集显存/时长/损失/梯度/评估。
+# 有界：max_steps=40（约 40 个优化步），eval 在 step20，save 在 step20。
+# 复现：seed=42；输出独立目录 qwen3-14b-tdx-verify-single，不覆盖现役 v7r。
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: null                  # 从零 QLoRA
+dataset: tdx_v7_train
+eval_dataset: tdx_v5_val
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+template: qwen
+finetuning_type: lora
+
+# === 量化（QLoRA 4-bit）===================================================
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+# 注意：本版本 compute_dtype 由 bf16 自动推导(init=False)，勿手动指定
+
+# === LoRA 超参 =============================================================
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+
+# === 序列 =================================================================
+cutoff_len: 512
+packing: false
+
+# === 训练超参（有界）=======================================================
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-verify-single
+overwrite_output_dir: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8              # effective batch = 8
+per_device_eval_batch_size: 1
+max_steps: 40
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.1                           # 步数少，提高 warmup 占比
+max_grad_norm: 1.0
+weight_decay: 0.0
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+seed: 42
+
+# === 精度与注意力 ===========================================================
+bf16: true
+fp16: false
+flash_attn: sdpa                            # 无 fa2 预编译，回退 SDPA
+
+# === 日志 / 评估 / 保存 =====================================================
+logging_steps: 1                            # 每步记录 loss/grad_norm/lr
+eval_strategy: steps
+eval_steps: 20
+save_strategy: steps
+save_steps: 20
+save_total_limit: 1
+do_train: true
+report_to: none

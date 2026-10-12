@@ -2,7 +2,7 @@
 # test_pushplus_e2e.sh · PushPlus 端到端测试脚本
 # 验证：kill math-sympy-http → prometheus up{}==0 → alertmanager → pushplus_bridge → 微信
 
-set +e
+set -uo pipefail   # 加 pipefail 防管道吞错；保持非 -e（测试脚本需跑完）
 
 echo "═══════════════════════════════════════════════════════════"
 echo "PushPlus 端到端测试"

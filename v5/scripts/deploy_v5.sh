@@ -1,6 +1,6 @@
 #!/bin/bash
 # deploy_v5.sh - v5 LoRA → merged → GGUF → Ollama
-set -e
+set -euo pipefail
 
 V5_DIR="/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v5-simple"
 # 按 mtime 倒序选最新 ckpt（fast 训练残留 Sep 22 mtime 更早，不会被选中）

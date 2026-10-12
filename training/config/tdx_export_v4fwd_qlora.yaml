@@ -1,0 +1,7 @@
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v4fwd-qlora
+template: qwen
+finetuning_type: lora
+export_dir: /home/jiuben/models/Qwen3-14B-tdx-v4fwd-merged
+export_device: cpu
+export_legacy_format: false

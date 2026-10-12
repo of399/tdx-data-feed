@@ -1,0 +1,11 @@
+{
+  "name": "v7r",
+  "model_dir": "/home/jiuben/models/Qwen3-14B-v7r-merged",
+  "direction_accuracy": 0.5851037240689827,
+  "format_compliance_rate": 0.9992507492507493,
+  "parse_fail_rate": 0.0007492507492507493,
+  "n_samples": 8008,
+  "elapsed_sec": 41169.3056704998,
+  "max_new_tokens": 128,
+  "quantize_4bit": true
+}

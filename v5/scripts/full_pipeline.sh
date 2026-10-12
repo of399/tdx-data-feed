@@ -1,6 +1,6 @@
 #!/bin/bash
 # full_pipeline.sh - v5 → 部署 → 评估 → v6 → 部署 → v5 全 A 一键流水线
-set -e
+set -e -o pipefail   # 补 pipefail 防管道吞错（保留 -e）
 cd /home/jiuben/tdx-data-feed
 PIPE_LOG=/tmp/pipeline.log
 echo "=== 全流水线启动: $(date) ===" | tee $PIPE_LOG

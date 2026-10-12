@@ -1,0 +1,45 @@
+# tdx_verify_lora_nq.yaml — 单卡 LoRA（不量化）边界测试
+# 目的：验证"14B bf16 基模(≈28GB) > 单卡 16GB"的硬件边界，预期 OOM。
+# 与 QLoRA 的唯一区别：移除了 quantization_bit/type/double_quantization 三行。
+# 用法（单卡 GPU0，有界 2 步，预期在模型加载阶段 OOM）：
+#   CUDA_VISIBLE_DEVICES=0 venv/bin/llamafactory-cli train training/config/tdx_verify_lora_nq.yaml
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: null                  # 从零 LoRA（不量化）
+dataset: tdx_v7_train
+eval_dataset: tdx_v5_val
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+template: qwen
+finetuning_type: lora
+
+# 注意：此处刻意【不】写量化三行，基模以 bf16 全精度加载（≈28GB）。
+
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+
+cutoff_len: 512
+packing: false
+
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-verify-lora-nq
+overwrite_output_dir: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+max_steps: 2                              # 有界：预期在加载阶段即 OOM，不会真正训练
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+max_grad_norm: 1.0
+weight_decay: 0.0
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+seed: 42
+
+bf16: true
+fp16: false
+flash_attn: sdpa
+
+logging_steps: 1
+do_train: true
+report_to: none

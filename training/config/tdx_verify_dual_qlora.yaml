@@ -1,0 +1,56 @@
+# tdx_verify_dual_qlora.yaml — 双卡 QLoRA 分布式实测（有界）
+# 目的：验证 2×RTX 5060 Ti 16GB 下多卡训练路径（torchrun DDP，无需 deepspeed）。
+# 与单卡验证配置的区别：去掉 CUDA_VISIBLE_DEVICES 限制，由 torchrun 接管双卡；
+#   有界 max_steps=8、eval/save 在 step8。
+# 用法（双卡）：
+#   venv/bin/torchrun --nproc_per_node=2 -m llamafactory.train training/config/tdx_verify_dual_qlora.yaml
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: null                  # 从零 QLoRA
+dataset: tdx_v7_train
+eval_dataset: tdx_v5_val
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+template: qwen
+finetuning_type: lora
+
+# === 量化（QLoRA 4-bit）===================================================
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+
+cutoff_len: 512
+packing: false
+
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-verify-dual
+overwrite_output_dir: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+per_device_eval_batch_size: 1
+max_steps: 8
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+max_grad_norm: 1.0
+weight_decay: 0.0
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+seed: 42
+
+bf16: true
+fp16: false
+flash_attn: sdpa
+
+logging_steps: 1
+eval_strategy: steps
+eval_steps: 8
+save_strategy: steps
+save_steps: 8
+save_total_limit: 1
+ddp_find_unused_parameters: false
+do_train: true
+report_to: none

@@ -1,0 +1,15 @@
+# tdx_export_v4_qlora.yaml — 合并 v4 QLoRA 适配器为完整 HF 模型（F8）
+# 目的：将 tdx_v4_qlora 训练产出的 LoRA 适配器合并进 Qwen3-14B 基座，生成可独立加载的 HF 模型。
+# 用法（前台运行，避免会话回收静默中断）：
+#   venv/bin/llamafactory-cli export training/config/tdx_export_v4_qlora.yaml
+# 输出：models/Qwen3-14B-tdx-v4-merged（HF 格式，供后续转 GGUF / Ollama 部署）
+# 约定：参照 tdx_export_verify.yaml（F8 已闭环）；export_device=cpu 防 GPU OOM。
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v4-qlora
+template: qwen
+finetuning_type: lora
+
+export_dir: /home/jiuben/models/Qwen3-14B-tdx-v4-merged
+export_device: cpu
+export_legacy_format: false

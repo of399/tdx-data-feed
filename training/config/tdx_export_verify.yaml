@@ -1,0 +1,13 @@
+# tdx_export_verify.yaml — 合并 verify-single 的 LoRA adapter 为 HF 模型
+# 目的：验证导出/合并链路（LLaMA-Factory export）。
+# 用法：venv/bin/llamafactory-cli export training/config/tdx_export_verify.yaml
+# 输出：train/output/qwen3-14b-tdx-verify-single-merged（HF 格式，供后续转 GGUF）
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-verify-single/checkpoint-40
+template: qwen
+finetuning_type: lora
+
+export_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-verify-single-merged
+export_device: cpu
+export_legacy_format: false

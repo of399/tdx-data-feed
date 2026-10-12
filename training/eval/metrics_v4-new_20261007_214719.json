@@ -1,0 +1,11 @@
+{
+  "name": "v4-new",
+  "model_dir": "/home/jiuben/models/Qwen3-14B-tdx-v4-merged",
+  "direction_accuracy": 0.6068931068931069,
+  "format_compliance_rate": 1.0,
+  "parse_fail_rate": 0.0,
+  "n_samples": 8008,
+  "elapsed_sec": 42705.88467216492,
+  "max_new_tokens": 128,
+  "quantize_4bit": true
+}

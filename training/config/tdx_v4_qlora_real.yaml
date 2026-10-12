@@ -1,0 +1,65 @@
+# tdx_v4_qlora_real.yaml — 单卡 4-bit QLoRA 真实微调（基于 v4 数据，F3 配置放大数据规模）
+# 用法（单卡 GPU0）：
+#   CUDA_VISIBLE_DEVICES=0 venv/bin/llamafactory-cli train training/config/tdx_v4_qlora_real.yaml
+#
+# 目的：按对比方案结论，以 4-bit QLoRA 作为单卡首选，跑一次真实（非有界）微调。
+# 与 F3（tdx_verify_single_qlora.yaml）的唯一差异：
+#   - dataset=tdx_v4_train / eval_dataset=tdx_v4_val（F3 用 v7_train/v5_val）
+#   - max_steps 由 40 提升至 500（真实训练，约 4000 样本≈6% 数据）
+#   - eval/save 步长由 20 调大到 100，降低开销；logging_steps=5
+# 其余超参与 F3 完全一致（已实测单卡 16GB 可行：峰值 9.06 GB）。
+
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: null                  # 从零 QLoRA
+dataset: tdx_v4_train
+eval_dataset: tdx_v4_val
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+template: qwen
+finetuning_type: lora
+
+# === 量化（QLoRA 4-bit）===================================================
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+# 注意：本版本 compute_dtype 由 bf16 自动推导(init=False)，勿手动指定
+
+# === LoRA 超参（与 F3 一致）================================================
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+
+# === 序列 =================================================================
+cutoff_len: 512
+packing: false
+
+# === 训练超参（真实规模）====================================================
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v4-qlora
+overwrite_output_dir: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8              # effective batch = 8（与 F3 一致）
+per_device_eval_batch_size: 1
+max_steps: 500
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+max_grad_norm: 1.0
+weight_decay: 0.0
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+seed: 42
+
+# === 精度与注意力 ===========================================================
+bf16: true
+fp16: false
+flash_attn: sdpa                            # 无 fa2 预编译，回退 SDPA
+
+# === 日志 / 评估 / 保存 =====================================================
+logging_steps: 5
+eval_strategy: steps
+eval_steps: 100
+save_strategy: steps
+save_steps: 100
+save_total_limit: 2
+do_train: true
+report_to: none

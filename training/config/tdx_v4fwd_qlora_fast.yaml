@@ -1,0 +1,52 @@
+# tdx_v4fwd_qlora_fast.yaml — 方案A 实证：重打标签 / 快速实验用的「低成本」配置
+# 与 tdx_v4fwd_qlora.yaml 的唯一差异：关闭 periodic eval（evaluation_strategy: "no"）。
+# 用途：仅重训权重、做标签契约归因实验时，省掉 8007 条生成式评估（7h 主因），训练从 ~7h 降到 ~2h。
+# 注意：eval 只监控、不改权重，关 eval 不影响「标签契约改变」的归因结论。
+# 终训（需监控收敛）请用 tdx_v4fwd_qlora.yaml。
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: null
+dataset: tdx_v4fwd_train
+eval_dataset: tdx_v4fwd_val_small   # 保留字段但 evaluation_strategy=no 时不被使用
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+template: qwen
+finetuning_type: lora
+
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+
+cutoff_len: 512
+packing: false
+
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v4fwd-qlora
+overwrite_output_dir: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+per_device_eval_batch_size: 1
+max_steps: 500
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+max_grad_norm: 1.0
+weight_decay: 0.0
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+seed: 42
+
+bf16: true
+fp16: false
+flash_attn: sdpa
+
+logging_steps: 5
+evaluation_strategy: "no"   # 低成本关键：关闭全部 periodic eval（8007 条生成式评估是 7h 主因）
+eval_steps: 100             # evaluation_strategy=no 时无效，保留以便快速切回 steps
+save_strategy: steps
+save_steps: 100
+save_total_limit: 2
+do_train: true
+report_to: none

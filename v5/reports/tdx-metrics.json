@@ -1,16 +1,16 @@
 {
-  "ts": "2026-09-28T03:55:06.558887+00:00",
+  "ts": "2026-10-12T04:00:01.768253+00:00",
   "hostname": "jiuben-System-Product-Name",
   "load": {
-    "load_1min": 1.42,
-    "load_5min": 1.08,
-    "load_15min": 0.91
+    "load_1min": 1.0,
+    "load_5min": 1.09,
+    "load_15min": 1.26
   },
   "disk": {
     "total_gb": 1831.7,
-    "used_gb": 708.8,
-    "free_gb": 1029.7,
-    "used_pct": 38.7
+    "used_gb": 978.0,
+    "free_gb": 760.5,
+    "used_pct": 53.4
   },
   "gpu": {
     "available": true,
@@ -18,10 +18,10 @@
       {
         "index": 0,
         "name": "NVIDIA GeForce RTX 5060 Ti",
-        "util_pct": 6.0,
-        "mem_used_mb": 910.0,
+        "util_pct": 7.0,
+        "mem_used_mb": 1570.0,
         "mem_total_mb": 16311.0,
-        "temp_c": 33.0
+        "temp_c": 47.0
       },
       {
         "index": 1,
@@ -29,7 +29,7 @@
         "util_pct": 0.0,
         "mem_used_mb": 13.0,
         "mem_total_mb": 16311.0,
-        "temp_c": 31.0
+        "temp_c": 38.0
       }
     ]
   },
@@ -38,24 +38,24 @@
       "name": "math-sympy-http",
       "url": "http://127.0.0.1:8002/health",
       "status": "online",
-      "elapsed_ms": 1.9
+      "elapsed_ms": 2.3
     },
     {
       "name": "ollama",
       "url": "http://127.0.0.1:11434/api/tags",
       "status": "online",
-      "elapsed_ms": 0.8
+      "elapsed_ms": 1.5
     },
     {
       "name": "workbench",
       "url": "http://127.0.0.1:8010/health",
       "status": "online",
-      "elapsed_ms": 6.2
+      "elapsed_ms": 5.3
     }
   ],
   "audit_log": {
     "exists": true,
-    "size_mb": 0.28,
+    "size_mb": 0.3,
     "warning": false
   },
   "alerts": []
