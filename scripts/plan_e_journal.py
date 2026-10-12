@@ -13,7 +13,8 @@
 
 【目录结构】
   data/plan_e/live/
-  ├── journal.csv                 # 所有历史交易
+  ├── journal.csv                 # 实盘交易日志（仅实盘：手动 buy/sell，source=real）
+  ├── journal_sim.csv             # 模拟交易日志（--mode simulate 独立写入，与实盘完全分离）
   ├── positions.json              # 当前持仓
   ├── daily_signals/              # 每日信号归档
   │   ├── signals_20260928.json
@@ -36,8 +37,11 @@
   # 1. 每日定时跑（systemd timer）
   venv/bin/python scripts/plan_e_journal.py --mode daily
 
-  # 2. 模拟模式（用历史 2026-08-27 ~ 2026-09-27 回测一个月）
+  # 2. 模拟模式（用历史 2026-08-27 ~ 2026-09-27 回测一个月，写入独立的 journal_sim.csv）
   venv/bin/python scripts/plan_e_journal.py --mode simulate --start 2026-08-27 --end 2026-09-27 --capital 100000
+
+  # 7. 清理实盘 journal.csv 中残留的模拟记录（如历史遗留污染）
+  venv/bin/python scripts/plan_e_journal.py --mode purge-sim
 
   # 3. 手动买入（实盘）
   venv/bin/python scripts/plan_e_journal.py --mode buy --code 600519 --price 10.50 --qty 10000
@@ -52,7 +56,8 @@
   venv/bin/python scripts/plan_e_journal.py --mode weekly
 
 【输出】
-  - journal.csv：完整交易流水（包含模拟 + 真实）
+  - journal.csv：实盘交易流水（仅 source=real 的买/卖，与模拟完全分离）
+  - journal_sim.csv：模拟交易流水（--mode simulate 专用，不会污染实盘）
   - positions.json：当前持仓 + 当日信号
   - weekly_reports/week_YYYYMMDD.md：周报
 
@@ -75,12 +80,23 @@ import pandas as pd
 warnings.filterwarnings('ignore')
 
 ROOT = Path(__file__).parent.parent
+
+# 仓库根目录加入 sys.path，使 `import tdxfeed` 在直接运行脚本时可用。
+# tdxfeed 未以可编辑方式安装；predict.py/plan_e_backtest.py 借 _common 间接引导，
+# 本脚本未导入 _common，需显式引导，否则 ModuleNotFoundError: No module named 'tdxfeed'。
+sys.path.insert(0, str(ROOT))
+
 LIVE_DIR = ROOT / 'data' / 'plan_e' / 'live'
-JOURNAL_FILE = LIVE_DIR / 'journal.csv'
+JOURNAL_FILE = LIVE_DIR / 'journal.csv'          # 实盘交易日志（仅实盘，手动 buy/sell）
+SIM_JOURNAL_FILE = LIVE_DIR / 'journal_sim.csv'   # 模拟交易独立日志（与实盘完全分离）
 POSITIONS_FILE = LIVE_DIR / 'positions.json'
 SIGNALS_DIR = LIVE_DIR / 'daily_signals'
 WEEKLY_DIR = LIVE_DIR / 'weekly_reports'
 PNL_FILE = LIVE_DIR / 'pnl_summary.csv'
+
+# journal 来源标记：实盘=real（写入 journal.csv），模拟=sim（写入 journal_sim.csv）
+SOURCE_REAL = 'real'
+SOURCE_SIM = 'sim'
 
 # 默认参数
 INITIAL_CAPITAL = 100000       # 初始资金 10 万
@@ -116,14 +132,28 @@ def save_positions(pos: dict):
 # ============== journal ==============
 
 def append_journal(records: list):
-    """追加记录到 journal.csv"""
+    """追加记录到 journal.csv（实盘日志），统一标记 source=real"""
     if not records:
         return
     df = pd.DataFrame(records)
+    if 'source' not in df.columns:
+        df['source'] = SOURCE_REAL
     if JOURNAL_FILE.exists():
         old = pd.read_csv(JOURNAL_FILE)
         df = pd.concat([old, df], ignore_index=True)
     df.to_csv(JOURNAL_FILE, index=False, encoding='utf-8-sig')
+
+
+def append_sim_journal(records: list):
+    """追加模拟交易记录到独立的 journal_sim.csv（与实盘 journal.csv 完全分离）"""
+    if not records:
+        return
+    df = pd.DataFrame(records)
+    df['source'] = SOURCE_SIM
+    if SIM_JOURNAL_FILE.exists():
+        old = pd.read_csv(SIM_JOURNAL_FILE)
+        df = pd.concat([old, df], ignore_index=True)
+    df.to_csv(SIM_JOURNAL_FILE, index=False, encoding='utf-8-sig')
 
 
 # ============== 当日信号 ==============
@@ -372,9 +402,9 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
             except Exception:
                 pass
 
-    # 保存
+    # 保存（模拟交易写入独立的 journal_sim.csv，与实盘 journal.csv 完全分离）
     ensure_dirs()
-    append_journal(journal_records)
+    append_sim_journal(journal_records)
 
     # 汇总
     df_j = pd.DataFrame(journal_records)
@@ -387,7 +417,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
     wins = sells[sells['pnl_pct'] > 0]
     print(f"  胜率: {(sells['pnl_pct']>0).mean()*100:.1f}%")
     print(f"  平均收益: {sells['pnl_pct'].mean()*100:+.2f}%")
-    print(f"  交易明细 → {JOURNAL_FILE}")
+    print(f"  交易明细 → {SIM_JOURNAL_FILE}（与实盘 journal.csv 分离）")
 
     return df_j
 
@@ -472,6 +502,7 @@ def mode_buy(code: str, price: float, qty: int):
         'hold_days': 0,
         'entry_date': datetime.now().strftime('%Y-%m-%d'),
         'signal_date': datetime.now().strftime('%Y-%m-%d'),
+        'source': SOURCE_REAL,
     }])
     print(f"✓ 买入 {code} {qty}@{price} 花费 {cost:,.0f}")
     print(f"  剩余现金: {pos['cash']:,.0f}")
@@ -509,6 +540,7 @@ def mode_sell(code: str, price: float, reason: str = 'MANUAL'):
         'hold_days': hold_days,
         'entry_date': entry_date,
         'signal_date': p['signal_date'],
+        'source': SOURCE_REAL,
     }])
     print(f"✓ 卖出 {code} {p['qty']}@{price} 收入 {proceeds:,.0f}")
     print(f"  本笔盈亏: {pnl:+,.0f} ({pnl_pct*100:+.2f}%)")
@@ -568,13 +600,42 @@ def mode_weekly():
     print(md[:500])
 
 
+def mode_purge_sim():
+    """清理实盘 journal.csv 中被模拟交易污染的记录，确保实盘与模拟完全分离。
+
+    判别逻辑（兼容历史遗留数据）：
+      - 含 `source` 列：删除 source != 'real' 的行（模拟交易统一标记 source='sim'）。
+      - 旧版无 `source` 列：实盘手动交易 reason='MANUAL'，模拟为 ENTRY/TP/SL/END，
+        故删除 reason != 'MANUAL' 的行。
+    仅作用于 data/plan_e/live/journal.csv，不动独立的 journal_sim.csv。
+    """
+    if not JOURNAL_FILE.exists():
+        print("❌ 无 journal.csv")
+        return
+    df = pd.read_csv(JOURNAL_FILE)
+    if 'source' in df.columns:
+        before = len(df)
+        df = df[df['source'] == SOURCE_REAL]
+        removed = before - len(df)
+    else:
+        # 遗留数据兜底：实盘手动 reason='MANUAL'
+        before = len(df)
+        df = df[df['reason'] == 'MANUAL']
+        removed = before - len(df)
+    if removed:
+        df.to_csv(JOURNAL_FILE, index=False, encoding='utf-8-sig')
+        print(f"✓ 已清理模拟污染记录 {removed} 行，保留实盘 {len(df)} 行 → {JOURNAL_FILE}")
+    else:
+        print(f"✓ journal.csv 无模拟污染记录（保留 {len(df)} 行）")
+
+
 # ============== Main ==============
 
 def main():
     parser = argparse.ArgumentParser(description='方案 E 实盘跟踪系统')
     parser.add_argument('--mode', required=True,
-                        choices=['daily', 'weekly', 'status', 'buy', 'sell', 'simulate'],
-                        help='运行模式')
+                        choices=['daily', 'weekly', 'status', 'buy', 'sell', 'simulate', 'purge-sim'],
+                        help='运行模式（purge-sim=清理 journal.csv 中的模拟污染记录）')
     parser.add_argument('--code', help='股票代码（buy/sell 用）')
     parser.add_argument('--price', type=float, help='价格（buy/sell 用）')
     parser.add_argument('--qty', type=int, help='数量（buy 用）')
@@ -583,7 +644,12 @@ def main():
     parser.add_argument('--end', help='模拟结束日期 (YYYY-MM-DD)')
     parser.add_argument('--capital', type=float, default=INITIAL_CAPITAL,
                         help=f'初始资金（默认 {INITIAL_CAPITAL}）')
+    parser.add_argument('--no-freshness-check', action='store_true', help='跳过数据新鲜度校验')
     args = parser.parse_args()
+
+    if not args.no_freshness_check:
+        from tdxfeed.freshness import require_fresh
+        require_fresh(max_age_days=2)
 
     if args.mode == 'daily':
         mode_daily()
@@ -606,6 +672,8 @@ def main():
             print("❌ simulate 需要 --start --end (YYYY-MM-DD)")
             sys.exit(1)
         simulate_one_month(args.start, args.end, args.capital)
+    elif args.mode == 'purge-sim':
+        mode_purge_sim()
 
 
 if __name__ == '__main__':

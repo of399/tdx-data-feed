@@ -277,7 +277,7 @@ deploy-v6:  ## 部署 v6 到 Ollama
 
 deploy-v7:  ## 部署 v7 到 Ollama
 	@echo "$(CYAN)▶ 部署 v7（需先训练）$(NC)"
-	bash $(SYSTEMD_DIR)/deploy_v7.sh 2>/dev/null || bash $(V5_SCRIPTS)/deploy_v5.sh  # fallback
+	bash $(V5_SCRIPTS)/deploy_v7.sh
 	@echo "$(GREEN)✓ v7 已部署: $(MODEL_V7):latest$(NC)"
 
 deploy-all: deploy-v5 deploy-v6 deploy-v7  ## 部署所有模型
