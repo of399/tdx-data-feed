@@ -2,14 +2,14 @@
 Description=tdx-data-feed: 源文档变更时触发 Obsidian 同步（替代 60s 轮询）
 
 [Path]
-# 监听源文档目录/文件的修改（PathModified 对新增/删除/改名/多数内容修改均触发）
-PathModified=/home/jiuben/tdx-data-feed/docs
-PathModified=/home/jiuben/tdx-data-feed/README.md
-PathModified=/home/jiuben/tdx-data-feed/DELIVERY.md
-PathModified=/home/jiuben/tdx-data-feed/CHANGELOG.md
-PathModified=/home/jiuben/tdx-data-feed/Makefile
-PathModified=/home/jiuben/tdx-data-feed/training/eval
-PathModified=/home/jiuben/tdx-data-feed/data/plan_e
+# 仅监听"人工编写的源文档"，解耦数据管线的产出目录（data/plan_e、training/eval
+# 由回测/日志脚本写入，若纳入监听会在写入时反复触发本服务，造成重启风暴）。
+# PathChanged：仅在文件内容真正变化时触发（比 PathModified 更不易误触发）。
+PathChanged=/home/jiuben/tdx-data-feed/docs
+PathChanged=/home/jiuben/tdx-data-feed/README.md
+PathChanged=/home/jiuben/tdx-data-feed/DELIVERY.md
+PathChanged=/home/jiuben/tdx-data-feed/CHANGELOG.md
+PathChanged=/home/jiuben/tdx-data-feed/Makefile
 Unit=obsidian-sync.service
 
 [Install]

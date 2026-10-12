@@ -27,6 +27,31 @@ for arg in "$@"; do
     esac
 done
 
+# ============== 单次运行守卫：文件锁 + 冷却 ==============
+# 防止 path 单元风暴 / 并发叠加（systemd 重启风暴二次防护）。
+# watch 模式由底部循环以"非 watch"方式逐次调用本脚本，此处跳过加锁，
+# 避免父进程长期持有 fd 导致子进程 flock 失败。
+if [ "$WATCH" != "1" ]; then
+    LOCK_FILE=/tmp/obsidian-sync.lock
+    exec 9>"$LOCK_FILE" 2>/dev/null || { echo "无法创建锁文件，退出"; exit 1; }
+    if ! flock -n 9; then
+        echo "已有同步在运行，跳过（避免并发/自激）"
+        exit 0
+    fi
+
+    # 冷却：距上次成功运行不足 30s 则跳过（吸收高频连续触发）
+    LAST_RUN_FILE=/tmp/obsidian-sync.lastrun
+    now_ts=$(date +%s)
+    if [ -f "$LAST_RUN_FILE" ]; then
+        last_ts=$(cat "$LAST_RUN_FILE" 2>/dev/null || echo 0)
+        if [ $((now_ts - last_ts)) -lt 30 ]; then
+            echo "冷却期内（<30s），跳过"
+            exit 0
+        fi
+    fi
+    echo "$now_ts" > "$LAST_RUN_FILE"
+fi
+
 log() {
     if [ "$DRY_RUN" = "1" ]; then
         echo -e "${YELLOW}[DRY-RUN]${NC} $@"
