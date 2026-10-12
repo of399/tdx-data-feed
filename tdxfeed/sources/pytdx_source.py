@@ -33,3 +33,33 @@ class PytdxSource(DataSource):
                 break
             start += 800
         return bars
+
+    def fetch_index_bars(self, market: int, code: str, count: int = 1023) -> list:
+        """通达信指数专用通道：get_index_bars（与个股 get_security_bars 区分）。
+
+        指数在 TDX 中需用 get_index_bars，且 vol 单位=手（与个股一致）。
+        market：沪市指数=1，深市指数=0（取自 symbols.INDICES）。
+        """
+        self.client.connect()
+        bars = []
+        start = 0
+        while True:
+            chunk = self.client.fetch_with_retry(
+                self.client.api.get_index_bars,
+                4, market, code, start, 800,
+            )
+            if not chunk or not chunk.get("bars"):
+                break
+            for b in chunk["bars"]:
+                dt = b.get("datetime", "")
+                if isinstance(dt, str):
+                    dt = dt[:8]
+                bars.append([
+                    self.normalize_date(dt),
+                    b["open"], b["high"], b["low"], b["close"],
+                    b["vol"], b["amount"],
+                ])
+            if len(chunk["bars"]) < 800:
+                break
+            start += 800
+        return bars

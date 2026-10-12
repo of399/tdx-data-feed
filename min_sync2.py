@@ -56,6 +56,42 @@ def market_60d(limit=None):
     print(f"[market-60d] 完成: ok={ok} fail={fail} skip={skip} 总耗时 {time.time()-t0:.0f}s", flush=True)
 
 
+def market_5d(limit=None):
+    """全市场近 ~1 月 5 分钟线（Sina scale=5，与 min15/min60 同源）。
+
+    说明：Eastmoney 历史 5 分钟接口当前不可用（RemoteDisconnected），
+    故采用 Sina 近期窗口（每只约 1023 根 5min 柱），与现有 min15/min60 生成口径一致。
+    支持断点续传（已存在且非空的 min5 文件跳过）。
+    """
+    symbols = []
+    for pref in ('sh', 'sz'):
+        d = os.path.join('/home/workbuddy/vipdoc', pref, 'lday')
+        if os.path.isdir(d):
+            symbols += [f[:-4] for f in os.listdir(d) if f.endswith('.day')]
+    symbols.sort()
+    if limit:
+        symbols = symbols[:limit]
+    print(f"[market-5d] 全市场 {len(symbols)} 只, Sina 5min", flush=True)
+    t0 = time.time()
+    ok = skip = fail = 0
+    for i, sym in enumerate(symbols):
+        out_path = os.path.join(OUT, 'min5', sym + '.parquet')
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            skip += 1
+            continue
+        rows = fetch_sina(sym, scale=5)
+        if rows:
+            save_rows_parquet(sym, rows, 5)
+            ok += 1
+        else:
+            fail += 1
+        if (i + 1) % 100 == 0 or i == len(symbols) - 1:
+            el = time.time() - t0
+            print(f"  [{i+1}/{len(symbols)}] ok={ok} fail={fail} skip={skip} 已用 {el:.0f}s", flush=True)
+        time.sleep(0.3)
+    print(f"[market-5d] 完成: ok={ok} fail={fail} skip={skip} 总耗时 {time.time()-t0:.0f}s", flush=True)
+
+
 def core_1y(limit=None):
     """核心300近1年（Sina 60min）"""
     symbols = get_core_symbols()
@@ -149,7 +185,7 @@ def core_full_em(period='5', start='2001-01-01', limit=None,
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('--mode', required=True, choices=['market-60d', 'core-1y', 'core-full-em'])
+    ap.add_argument('--mode', required=True, choices=['market-60d', 'core-1y', 'core-full-em', 'market-5d'])
     ap.add_argument('--period', default='5', choices=['5', '1'])
     ap.add_argument('--start', default='2001-01-01')
     ap.add_argument('--limit', type=int, default=None)
@@ -160,6 +196,8 @@ if __name__ == '__main__':
         market_60d(args.limit)
     elif args.mode == 'core-1y':
         core_1y(args.limit)
+    elif args.mode == 'market-5d':
+        market_5d(args.limit)
     else:
         result = core_full_em(args.period, args.start, args.limit,
                               args.consecutive_fail_max, args.max_total_minutes)

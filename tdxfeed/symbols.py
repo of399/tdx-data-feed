@@ -12,13 +12,27 @@ from __future__ import annotations
 import akshare as ak
 
 # 内置指数表：code -> (market, name)；沪市 market=1，深市 market=0
+# 覆盖主要宽基"大盘"指数（上证/上证50/沪深300/中证500/中证1000/科创50 + 深证/创业板）
 INDICES = {
     "000001": (1, "上证指数"),
-    "399001": (0, "深证成指"),
-    "399006": (0, "创业板指"),
+    "000016": (1, "上证50"),
     "000300": (1, "沪深300"),
     "000905": (1, "中证500"),
+    "000852": (1, "中证1000"),
+    "000688": (1, "科创50"),
+    "399001": (0, "深证成指"),
+    "399006": (0, "创业板指"),
 }
+
+def sym_of_index(code: str) -> str:
+    """6 位指数代码 → 市场前缀 symbol（sh/sz），与个股命名一致（如 sh000001）。
+
+    用于把指数写入 parquet/daily/{sh|sz}{code}.parquet，与个股（sz000001=平安银行）
+    互不冲突。market 取自 INDICES：沪市=1→sh，深市=0→sz。
+    """
+    mkt, _ = INDICES[code]
+    return ("sh" if mkt == 1 else "sz") + code
+
 
 # 各类别前缀集合（v2 完整版）
 SH_PREFIX = ("60", "68")                              # 沪 A 股

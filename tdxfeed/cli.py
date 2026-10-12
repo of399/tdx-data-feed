@@ -146,7 +146,7 @@ def cmd_vault_doc():
 | 字段 | 单位 | 说明 |
 |---|---|---|
 | date | YYYYMMDD | 交易日 |
-| open/high/low/close | 元 | 前复权价（qfq），后复权（hfq）阶段二补充 |
+| open/high/low/close | 元 | 未复权（raw）；前/后复权见 adj_factor/{{code}}.parquet |
 | volume | 手 | 1 手 = 100 股（.day 标准单位） |
 | amount | 元 | 成交额（腾讯源为 0，待 akshare 补齐） |
 | source | - | pytdx / akshare / tencent |
@@ -161,7 +161,7 @@ def cmd_vault_doc():
 ## 更新状态
 
 - 已同步标的：{len(state.data)}
-- 复权口径：前复权 qfq（当前）；后复权 hfq（阶段二）
+- 复权口径：日K 落盘为未复权（raw）；前/后复权见 adj_factor/{{code}}.parquet
 '''
     st_doc = f'''# 同步状态（自动生成）
 

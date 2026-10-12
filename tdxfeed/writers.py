@@ -124,14 +124,16 @@ class Writers:
             except Exception:
                 pass
             merged = pd.concat([old, new], ignore_index=True)
-            merged = merged.sort_values('date').reset_index(drop=True)
+            # 用稳定排序（mergesort）：new 追加在 old 之后，并列日期下
+            # keep='last' 才能可靠地让新数据覆盖旧数据（quicksort 不稳定会随机保留）。
+            merged = merged.sort_values('date', kind='mergesort').reset_index(drop=True)
             # amount 保护：同日取 max（旧 akshare 全历史有 amount，
             # 新 Sina 日K amount=0，避免 0 覆盖真值）
             merged['amount'] = merged.groupby('date')['amount'].transform('max')
             merged = merged.drop_duplicates(subset=['date'], keep='last')
-            merged = merged.sort_values('date').reset_index(drop=True)
+            merged = merged.sort_values('date', kind='mergesort').reset_index(drop=True)
         else:
-            merged = new.sort_values('date').reset_index(drop=True)
+            merged = new.sort_values('date', kind='mergesort').reset_index(drop=True)
         merged.to_parquet(p, index=False)
 
         rows = merged.values.tolist()
