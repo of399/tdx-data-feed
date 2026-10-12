@@ -109,12 +109,13 @@ python scripts/plan_e_v3_live_track.py --mode premarket
 ### 2.5 自动化调度（本地 · systemd）
 
 ```bash
-cp systemd/*.{service,timer} ~/.config/systemd/user/
+cp systemd/*.{service,timer,path} ~/.config/systemd/user/
 sudo loginctl enable-linger $USER
 systemctl --user daemon-reload
 for t in tdxfeed-sync predict-daily plan-e-journal plan-e-weekly canary-health; do
   systemctl --user enable --now $t.timer
 done
+systemctl --user enable --now obsidian-sync.path
 systemctl --user list-timers --all
 ```
 
@@ -285,7 +286,7 @@ python scripts/plan_e_journal.py --mode daily
 
 # === 3. 启用调度 ===
 cp systemd/*.{service,timer} ~/.config/systemd/user/
-systemctl --user enable --now tdxfeed-sync.timer predict-daily.timer plan-e-journal.timer plan-e-weekly.timer canary-health.timer
+systemctl --user enable --now tdxfeed-sync.timer predict-daily.timer plan-e-journal.timer plan-e-weekly.timer canary-health.timer obsidian-sync.path
 
 # === 4. 本地 LLM 调用 ===
 curl -s http://localhost:11434/api/generate -d '{"model":"qwen3-14b-tdx-v7","prompt":"分析今日候选","stream":false,"options":{"stop":[],"repeat_penalty":1.0}}'

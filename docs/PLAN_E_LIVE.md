@@ -97,7 +97,7 @@ venv/bin/python scripts/plan_e_journal.py --mode sell \
     --code 600519 --price 11.20 --reason TIME
 ```
 
-### 3.6 周报（每周日 20:00）
+### 3.6 周报（每周五 20:00）
 
 ```bash
 # 生成周报

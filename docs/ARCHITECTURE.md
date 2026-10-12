@@ -360,7 +360,7 @@ v2 信号更紧，单笔质量更高；适合**小资金高频次**而非大资�
 | tdxfeed-sync.timer | Mon..Fri 18:00 | 拉行情 |
 | predict-daily.timer | Mon..Fri 18:05 | 方案 D 预测 |
 | plan-e-journal.timer | Mon..Fri 18:10 | 方案 E 信号 |
-| plan-e-weekly.timer | Sun 20:00 | 方案 E 周报 |
+| plan-e-weekly.timer | Fri 20:00 | 方案 E 周报 |
 
 ### 权衡
 
@@ -565,7 +565,7 @@ http://localhost:11434/api/generate
                           ↓
                      buy/sell CLI → journal.csv + positions.json
                           ↓
-每周日 20:00 (systemd) → plan-e-weekly → 周报 week_*.md
+每周五 20:00 (systemd) → plan-e-weekly → 周报 week_*.md
 
 每 5 分钟 (systemd) → canary-health → canary.log + stderr 异常告警
 ```

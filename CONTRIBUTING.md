@@ -66,11 +66,12 @@ bash v5/scripts/deploy_v5.sh
 bash v5/scripts/deploy_v6.sh
 
 # 8. 启用 systemd 自动化
-cp systemd/*.service systemd/*.timer ~/.config/systemd/user/
+cp systemd/*.{service,timer,path} ~/.config/systemd/user/
 systemctl --user daemon-reload
-for t in predict-daily plan-e-journal plan-e-weekly canary-health; do
-    systemctl --user enable $t.timer
+for t in tdxfeed-sync predict-daily plan-e-journal plan-e-weekly canary-health; do
+    systemctl --user enable --now $t.timer
 done
+systemctl --user enable --now obsidian-sync.path
 
 # 9. 验证
 make help    # 查看 Makefile 目标

@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### Fixed · 修复
+
+- 自动化调度：`make timer-enable` 现在一并安装并启用 `obsidian-sync.path`（此前 `timer-install` 仅复制 `*.service`/`*.timer`，导致该 path 单元无法被 make 覆盖，只能手动启用）
+- 调度口径统一：`plan-e-weekly.timer` 由 `Sun 20:00`（周日）更正为 `Fri 20:00`（周五），与 README / 项目规则 / HYBRID 文档一致；`plan-e-weekly.service` 描述同步更正
+- `timer-status` / `status` 的过滤条件增加 `obsidian`，便于查看 path 单元状态
+- 文档同步：ARCHITECTURE / PLAN_E_LIVE / CONTRIBUTING / HYBRID_LLM_STRATEGY 中周报调度统一为周五 20:00，并补充 `obsidian-sync.path` 安装说明
+
 ### Planned · 计划中
 
 - v8 LoRA fusion（rank 对齐后）
@@ -58,12 +65,13 @@
 - `scripts/canary_health_check.py`（6KB）— 6 项健康检查
 - `scripts/sync-to-obsidian.sh`（4KB）— 文档同步工具
 
-**⏰ 自动化调度（5 个 systemd timer）**
+**⏰ 自动化调度（5 个 systemd timer + 1 个 path 单元）**
 - `canary-health.timer` — 每 5 分钟
 - `tdxfeed-sync.timer` — 工作日 18:00
 - `predict-daily.timer` — 工作日 18:05
 - `plan-e-journal.timer` — 工作日 18:10
-- `plan-e-weekly.timer` — 周日 20:00
+- `plan-e-weekly.timer` — 周五 20:00
+- `obsidian-sync.path` — 源文档变更触发 Obsidian 同步（替代 60s 轮询）
 
 **🔄 CI/CD 与同步**
 - `.github/workflows/lint.yml` — ruff check

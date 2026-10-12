@@ -139,6 +139,15 @@ lint:  ## ruff check（不修改）
 lint-all:  ## ruff check 全部代码（含 scripts）
 	$(RUFF) check . --statistics --ignore=E501 || true
 
+lint-pipeline:  ## 检查 shell 脚本中未被 pipefail 保护的管道（防 `cmd|tail` 静默吞错）
+	@echo "$(CYAN)▶ 扫描未被 pipefail 保护的 | tail/head/grep/awk/sed 管道$(NC)"
+	@missing=0; for f in $$(find scripts v5/scripts systemd -name '*.sh' 2>/dev/null); do \
+	  if ! grep -qE 'pipefail' "$$f"; then \
+	    if grep -qE '\|\s*(tail|head|grep|awk|sed)\b' "$$f"; then \
+	      echo "  ⚠ 未受 pipefail 保护: $$f"; missing=1; fi; fi; \
+	done; \
+	if [ "$$missing" -eq 0 ]; then echo "$(GREEN)✓ 所有含管道的脚本均已启用 pipefail$(NC)"; else echo "$(YELLOW)⚠ 存在未保护脚本，请补齐 set -uo pipefail$(NC)"; fi
+
 fix:  ## ruff 自动 fix（safe）
 	$(RUFF) check v5/ --fix
 	@echo "$(GREEN)✓ safe auto-fix 完成$(NC)"
@@ -342,13 +351,13 @@ simulate:  ## 模拟交易（START=2026-08-27 END=2026-09-25 CAPITAL=100000）
 		--start $(START) --end $(END) --capital $(CAPITAL)
 
 # ============== 自动化调度 ==============
-timer-install:  ## 安装 systemd timer（复制到 user systemd）
-	@echo "$(CYAN)▶ 复制 timer/service 到 user systemd$(NC)"
+timer-install:  ## 安装 systemd timer/path（复制到 user systemd）
+	@echo "$(CYAN)▶ 复制 timer/service/path 到 user systemd$(NC)"
 	@mkdir -p $(USER_SYSTEMD)
-	@cp $(SYSTEMD_DIR)/*.service $(SYSTEMD_DIR)/*.timer $(USER_SYSTEMD)/
-	@echo "$(GREEN)✓ timer 已复制$(NC)"
+	@cp --remove-destination $(SYSTEMD_DIR)/*.service $(SYSTEMD_DIR)/*.timer $(SYSTEMD_DIR)/*.path $(USER_SYSTEMD)/
+	@echo "$(GREEN)✓ timer/path 已复制$(NC)"
 
-timer-enable: timer-install  ## 启用所有 timer
+timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@echo "$(CYAN)▶ 重载 systemd$(NC)"
 	systemctl --user daemon-reload
 	@echo "$(CYAN)▶ 启用 timer$(NC)"
@@ -356,20 +365,27 @@ timer-enable: timer-install  ## 启用所有 timer
 		systemctl --user enable $$t.timer 2>&1 | head -1; \
 		systemctl --user start $$t.timer; \
 	done
-	@echo "$(GREEN)✓ 所有 timer 已启用$(NC)"
+	@echo "$(CYAN)▶ 启用 path 单元（Obsidian 同步）$(NC)"
+	systemctl --user enable obsidian-sync.path 2>&1 | head -1
+	systemctl --user start obsidian-sync.path
+	@echo "$(GREEN)✓ 所有 timer/path 已启用$(NC)"
 	@echo ""
 	@$(MAKE) timer-status
 
-timer-disable:  ## 禁用所有 timer
+timer-disable:  ## 禁用所有 timer 与 path 单元
 	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-weekly canary-health; do \
 		systemctl --user disable $$t.timer; \
 		systemctl --user stop $$t.timer 2>/dev/null || true; \
 	done
-	@echo "$(GREEN)✓ 所有 timer 已禁用$(NC)"
+	systemctl --user disable obsidian-sync.path 2>/dev/null || true
+	systemctl --user stop obsidian-sync.path 2>/dev/null || true
+	@echo "$(GREEN)✓ 所有 timer/path 已禁用$(NC)"
 
-timer-status:  ## 查看所有 timer 状态
+timer-status:  ## 查看所有 timer/path 状态
 	@echo "$(CYAN)$(BOLD)=== tdx-data-feed Timers ===$(NC)"
 	systemctl --user list-timers --all | grep -E "tdxfeed|predict-daily|plan-e|canary" || echo "  (无 timer 运行)"
+	@echo "$(CYAN)$(BOLD)--- path 单元 ---$(NC)"
+	systemctl --user list-units --all --type=path | grep -E "tdxfeed|obsidian|plan-e" || echo "  (无 path 运行)"
 
 timer-logs:  ## 查看 timer 日志
 	@echo "$(CYAN)$(BOLD)=== 最近日志 ===$(NC)"
@@ -403,7 +419,7 @@ status:  ## 系统全状态（数据/模型/timer/canary）
 	@$(OLLAMA) list 2>/dev/null | grep tdx | awk '{printf "  %-30s %s\n", $$1, $$3}'
 	@echo ""
 	@echo "$(YELLOW)$(BOLD)⏰ Timer:$(NC)"
-	@systemctl --user list-timers --all 2>/dev/null | grep -E "tdxfeed|predict-daily|plan-e|canary" | awk '{printf "  %-30s %s %s\n", $$NF, $$1, $$2}'
+	@systemctl --user list-timers --all 2>/dev/null | grep -E "tdxfeed|predict-daily|plan-e|canary|obsidian" | awk '{printf "  %-30s %s %s\n", $$NF, $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)$(BOLD)🏥 Canary:$(NC)"
 	@tail -1 $(LOGS)/canary.log 2>/dev/null || echo "  (无 canary 日志)"
