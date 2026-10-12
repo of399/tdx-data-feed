@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""下载 ETF / 可转债 日 K 到 data/parquet/daily/{sh|sz}{code}.parquet。
+"""下载 ETF 日 K 到 data/parquet/daily/{sh|sz}{code}.parquet。
 
 【v2 治理产物】（2026-09-27）
-补齐 ETF + 可转债日 K，弥补原始 `group()` 只识别 stock 的空白。
+补齐 ETF 日 K，弥补原始 `group()` 只识别 stock 的空白。
+
+【债券下线】（2026-09-28）项目政策：不再保留债券数据，可转债下载已弃用。
 
 数据源优先级：Sina（含 ETF/转债）→ akshare(Eastmoney) → Tencent
 列与沪深北交所日 K 完全一致：date, open, high, low, close, volume, amount
@@ -13,11 +15,8 @@ v2 写入：date 强制 date32（复用 Writers.merge_write 的归一化）
     # 全量 ETF + 可转债（约 1500+ 只）
     venv/bin/python scripts/download_etf_bond.py
 
-    # 仅 ETF
+    # 仅 ETF（默认）
     venv/bin/python scripts/download_etf_bond.py --only etf
-
-    # 仅可转债
-    venv/bin/python scripts/download_etf_bond.py --only bond
 
     # 限速/限数
     venv/bin/python scripts/download_etf_bond.py --limit 100 --sleep 0.3
@@ -62,21 +61,16 @@ def list_etf_codes() -> list[str]:
 
 
 def list_bond_codes() -> list[str]:
-    """akshare 列出沪深可转债代码。"""
-    try:
-        df = ak.bond_zh_cov()
-        codes = df["债券代码"].astype(str).str.zfill(6).tolist()
-        return sorted(set(codes))
-    except Exception as e:
-        log.warning("akshare bond_zh_cov 失败: %s", e)
-        return []
+    """可转债下载已弃用（项目政策：不再保留债券数据）。始终返回空。"""
+    log.warning("可转债下载已弃用：项目政策不再保留债券数据，list_bond_codes 返回 []")
+    return []
 
 
 def sym_from_code(code: str) -> str | None:
     """6 位代码 → Sina 合法 symbol（含 sh/sz 前缀）。"""
     from tdxfeed.symbols import sym_of_sina, group
     g = group(code)
-    if g not in ("etf", "bond"):
+    if g != "etf":
         return None
     return sym_of_sina(code)
 
@@ -100,7 +94,7 @@ def fetch_one(symbol: str, code: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="下载 ETF / 可转债 日 K")
-    ap.add_argument("--only", choices=["etf", "bond", "all"], default="all")
+    ap.add_argument("--only", choices=["etf", "all"], default="etf")
     ap.add_argument("--limit", type=int, default=0, help="最多处理 N 只")
     ap.add_argument("--sleep", type=float, default=0.3, help="每只间隔秒")
     args = ap.parse_args()
@@ -109,9 +103,8 @@ def main() -> None:
     if args.only in ("etf", "all"):
         for c in list_etf_codes():
             targets.append(("etf", c))
-    if args.only in ("bond", "all"):
-        for c in list_bond_codes():
-            targets.append(("bond", c))
+    if args.only == "bond":
+        log.warning("可转债下载已弃用（项目政策：不再保留债券数据），跳过")
 
     log.warning("候选 %d 只 (etf+bond)", len(targets))
 

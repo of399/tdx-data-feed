@@ -36,18 +36,8 @@ START_DATE = pd.Timestamp('2020-01-01')
 WINDOW = 5
 RANDOM_SEED = 42
 
-LIMIT_MAP = {'main': 0.095, 'gem': 0.195, 'bse': 0.295}
-
-
-def get_limit(code: str) -> float:
-    short = code[2:]
-    if code.startswith('bj'):
-        return LIMIT_MAP['bse']
-    if code.startswith('sz'):
-        return LIMIT_MAP['gem'] if short.startswith('30') or short.startswith('20') else LIMIT_MAP['main']
-    if code.startswith('sh'):
-        return LIMIT_MAP['gem'] if short.startswith('688') else LIMIT_MAP['main']
-    return LIMIT_MAP['main']
+# 涨停限制与 18 维特征：单一数据源见 tdxfeed/features_5d（与 predict.py 共用）
+from _common import compute_window_features, get_limit  # noqa: E402
 
 
 def load_one(code: str) -> pd.DataFrame:
@@ -67,66 +57,35 @@ def load_one(code: str) -> pd.DataFrame:
 
 
 def extract_features(code: str, signal_date: pd.Timestamp, is_positive: bool):
-    """提取 T-1 日的特征（已知当日是 signal_date，看前一天到前 5 天的特征）"""
+    """提取 T-1 日的特征（已知当日是 signal_date，看前一天到前 5 天的特征）
+
+    18 维特征通过 tdxfeed.features_5d.compute_window_features 统一计算，
+    与 predict.py 共用同一函数与同一列顺序，避免训练/推理口径漂移。
+    """
     df = load_one(code)
     if len(df) == 0:
         return None
 
-    # 找到 signal_date 在 df 中的索引（信号日 = 翻倍起始日 = 第 1 日）
-    # 我们要看 signal_date 前 5 日的特征（在翻倍"之前"）
-    sig_idx = df.index[df['date'] == signal_date]
-    if len(sig_idx) == 0:
+    # 找到 signal_date 在 df 中的索引（信号日 = 翻倍起始日）
+    sig_idx_match = df.index[df['date'] == signal_date]
+    if len(sig_idx_match) == 0:
         return None
-    sig_i = sig_idx[0]
+    sig_i = int(sig_idx_match[0])
     if sig_i < 5:  # 需要至少 5 日历史
         return None
 
-    prev_5 = df.iloc[sig_i - 5: sig_i]  # T-5 ~ T-1
-    sig_day = df.iloc[sig_i - 1]  # T-1
+    # 调用单一数据源：T-1 = df.iloc[sig_i - 1]，前 5 日 = df.iloc[sig_i-5:sig_i]
+    feats = compute_window_features(df, code, sig_idx=sig_i - 1)
+    if feats is None:
+        return None
 
-    limit = get_limit(code)
-    pct = prev_5['close'].pct_change().fillna(0)
-
-    feats = {
+    # meta 字段（仅训练使用：code/signal_date/is_positive）
+    return {
         'code': code,
         'signal_date': signal_date,
         'is_positive': int(is_positive),
-        'limit': limit,
-        # 价格水平
-        'prev_close': float(sig_day['close']),
-        # 5 日累计涨幅
-        'ret_5d': float(prev_5['close'].iloc[-1] / prev_5['close'].iloc[0] - 1),
-        # 3 日累计涨幅
-        'ret_3d': float(prev_5['close'].iloc[-1] / prev_5['close'].iloc[-4] - 1) if len(prev_5) >= 4 else 0,
-        # 单日最大涨幅（T-5 ~ T-1）
-        'max_5d_pct': float(pct.max()),
-        # 5 日内涨停数
-        'limit_up_5d': int((pct >= limit - 0.001).sum()),
-        # T-1 是否涨停
-        'limit_up_t1': int(sig_day['close'] / sig_day['open'] - 1 >= limit - 0.001) if sig_day['open'] > 0 else 0,
-        # T-1 当日涨幅
-        'pct_t1': float(sig_day['close'] / sig_day['open'] - 1) if sig_day['open'] > 0 else 0,
-        # 5 日平均成交额
-        'avg_amount_5d': float(prev_5['amount'].mean()),
-        # T-1 / 5日均量比
-        'vol_ratio_t1': float(sig_day['amount'] / prev_5['amount'].mean()) if prev_5['amount'].mean() > 0 else 1.0,
-        # 5 日价格波动率
-        'volatility_5d': float(pct.std()),
-        # T-1 收盘价在 5 日 K 线中位置（0-1）
-        'close_pos_5d': float((sig_day['close'] - prev_5['low'].min()) / (prev_5['high'].max() - prev_5['low'].min())) if prev_5['high'].max() > prev_5['low'].min() else 0.5,
-        # 5 日最大单日跌幅（恐慌洗盘信号）
-        'max_drawdown_5d': float(pct.min()),
-        # T-1 换手代理（amount / total volume）
-        'turnover_proxy': float(sig_day['amount'] / sig_day['volume']) if sig_day['volume'] > 0 else 0,
-        # 是否 ST
-        'is_st': 0,  # 简化：先用 0
-        # 新股 (前 250 日内上市)
-        'is_new': int(sig_i < 250),
-        # 市场类型
-        'is_bj': int(code.startswith('bj')),
-        'is_gem': int(code.startswith('sz3') or code.startswith('sh688')),
+        **feats,
     }
-    return feats
 
 
 def build_dataset():

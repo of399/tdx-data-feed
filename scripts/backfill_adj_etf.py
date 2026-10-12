@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-ETF/可转债 adj_factor 抓取脚本（备用，当前 akshare 东财接口故障）
+ETF adj_factor 抓取脚本（备用，当前 akshare 东财接口故障）【债券已下线：不再保留债券数据】
 
 数据源：
   - ETF/REITs (5/56/58/15 等前缀)：akshare.fund_etf_hist_em(adjust='hfq')  vs  adjust=''
-  - 可转债 (11/12/123/128 等前缀)：理论上不除权除息，adj_factor 全部为 1.0
+  - 可转债 (11/12/123/128 等前缀)：【已弃用】项目政策不再保留债券数据，不再生成 CB adj_factor
 
 当前状态（2026-09-27）：akshare 东财接口持续 RemoteDisconnected
   - fund_etf_hist_em: ❌ Connection aborted
@@ -130,7 +130,7 @@ def main():
     if args.limit:
         codes = codes[:args.limit]
 
-    log(f'开始 ETF/CB adj 抓取, 共 {len(codes)} 只')
+    log(f'开始 ETF adj 抓取（可转债已弃用，项目政策不再保留债券数据）, 共 {len(codes)} 只')
 
     # 分类
     etfs, cbs, others = [], [], []
@@ -142,7 +142,7 @@ def main():
             cbs.append(c)
         else:
             others.append(c)
-    log(f'分类: ETF={len(etfs)}, 可转债={len(cbs)}, 其他={len(others)}')
+    log(f'分类: ETF={len(etfs)}, 可转债(已弃用)={len(cbs)}, 其他={len(others)}')
 
     if args.dry_run:
         log('dry-run 模式：仅验证 akshare 接口')
@@ -153,15 +153,11 @@ def main():
         return
 
     ok = fail = skip = 0
-    for i, c in enumerate(etfs + cbs):
+    for i, c in enumerate(etfs):
         if (OUT / f'{c}.parquet').exists():
             skip += 1
             continue
-        kind = 'ETF' if c in etfs else 'CB'
-        if kind == 'ETF':
-            rows = fetch_etf_adj(c)
-        else:
-            rows = fetch_cb_adj_dummy(c)
+        rows = fetch_etf_adj(c)
         if rows and save_one(c, rows):
             ok += 1
         else:
