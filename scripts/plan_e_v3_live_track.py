@@ -37,11 +37,8 @@
 """
 import argparse
 import json
-import os
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -168,6 +165,17 @@ def generate_daily_signals(today: pd.Timestamp, cfg: dict) -> pd.DataFrame:
     return candidates.sort_values('score', ascending=False)
 
 
+def load_signals(today: pd.Timestamp) -> pd.DataFrame:
+    """加载当日翻倍信号（由独立信号生成步骤写入 signals_YYYYMMDD.csv）。
+
+    缺失时返回空 DataFrame，避免 v3 信号生成步骤尚未接入时崩溃。
+    """
+    fp = LIVE_DIR / 'signals' / f'signals_{today:%Y%m%d}.csv'
+    if not fp.exists():
+        return pd.DataFrame()
+    return pd.read_csv(fp)
+
+
 def update_positions(positions: dict, signals: pd.DataFrame, today: pd.Timestamp,
                      cfg: dict) -> tuple[dict, list[dict]]:
     """根据当日信号 + 当前持仓，计算应执行的动作（不动手，只生成建议）"""
@@ -270,7 +278,7 @@ def generate_daily_report(today: pd.Timestamp, signals: pd.DataFrame,
     md.append('## 一、当日信号')
     md.append('')
     if not signals.empty:
-        md.append(f'当日 Top 5 候选:')
+        md.append('当日 Top 5 候选:')
         md.append('')
         md.append('| # | 代码 | 名称 | score | close |')
         md.append('|:---:|---|---|---:|---:|')
@@ -329,15 +337,18 @@ def log_anomaly(anomaly: dict):
 
 
 def cmd_daily(args):
+    today = pd.Timestamp.now()
+    cfg = load_config()
+    signals = load_signals(today)
 
     # 2. 更新持仓建议
-    print(f'\n[2/5] 计算建议动作...')
+    print('\n[2/5] 计算建议动作...')
     positions = load_positions()
     positions, actions = update_positions(positions, signals, today, cfg)
     print(f'  建议动作: {len(actions)}')
 
     # 3. 异常检测
-    print(f'\n[3/5] 异常检测...')
+    print('\n[3/5] 异常检测...')
     journal = load_journal()
     anomalies = check_anomalies(journal, positions, cfg)
     print(f'  检测到异常: {len(anomalies)}')
@@ -346,7 +357,7 @@ def cmd_daily(args):
         print(f'    - [{a["level"]}] {a["type"]}: {a["msg"]}')
 
     # 4. 生成日报
-    print(f'\n[4/5] 生成日报...')
+    print('\n[4/5] 生成日报...')
     daily_md = generate_daily_report(today, signals, positions, actions, anomalies, cfg)
     daily_fp = LIVE_DIR / 'daily_reports' / f'daily_{today.strftime("%Y%m%d")}.md'
     daily_fp.write_text(daily_md, encoding='utf-8')
@@ -355,7 +366,7 @@ def cmd_daily(args):
     # 5. 保存持仓
     save_positions(positions)
 
-    print(f'\n[5/5] 完成。')
+    print('\n[5/5] 完成。')
 
 
 def cmd_status(args):
@@ -412,9 +423,7 @@ def main():
     if args.mode == 'daily':
         args.mode = 'live'
         cmd_daily(args)
-    elif args.mode == 'simulate':
-        cmd_daily(args)
-    elif args.mode == 'live':
+    elif args.mode == 'simulate' or args.mode == 'live':
         cmd_daily(args)
     elif args.mode == 'status':
         cmd_status(args)
