@@ -35,15 +35,13 @@ seed: 42
 # 序列与 packing
 cutoff_len: 512
 packing: true
-packing_strategy: wrapped
 neftune_noise_alpha: 0
 
 # 精度与显存
 quantization_bit: 4
 quantization_type: nf4
 double_quantization: true
-bnb_4bit_compute_dtype: bfloat16
-flash_attn: fa2
+flash_attn: sdpa  # 本环境 py3.14 无 cp314 fa2 wheel，llamafactory 自动回退 SDPA，结果与 fa2 一致（同 v7）
 torch_compile: true
 gradient_checkpointing: true
 optim: paged_adamw_32bit
@@ -53,7 +51,7 @@ logging_steps: 20
 save_steps: 200
 save_total_limit: 3
 save_strategy: steps
-evaluation_strategy: steps
+eval_strategy: steps
 eval_steps: 200
 load_best_model_at_end: false
 

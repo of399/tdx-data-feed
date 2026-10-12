@@ -58,15 +58,13 @@ seed: 42
 # === 序列与 packing（关键改动 1）=======================================
 cutoff_len: 512
 packing: true                               # ⭐ 多样本拼接 +20-40%
-packing_strategy: wrapped                   # wrapped / bfified 二选一
 neftune_noise_alpha: 0                     # 可选 5（regularize）
 
 # === 精度与显存优化（与现役一致）=======================================
 quantization_bit: 4                         # QLoRA 4bit
 quantization_type: nf4
 double_quantization: true                   # 双量化，省 0.4 bit/param
-bnb_4bit_compute_dtype: bfloat16
-flash_attn: fa2                             # ⭐ 关键改动 3：试 fa3（不可用则 sdpa fallback）
+flash_attn: sdpa                            # 本环境 py3.14 无 cp314 fa2 wheel，回退 SDPA（同 verify/v5/v7）
 torch_compile: true                         # ⭐ 关键改动 2：+10-20%
 gradient_checkpointing: true
 optim: paged_adamw_32bit                    # 8bit / paged 优化器
@@ -76,7 +74,7 @@ logging_steps: 20
 save_steps: 200
 save_total_limit: 3
 save_strategy: steps
-evaluation_strategy: steps
+eval_strategy: steps
 eval_steps: 200
 load_best_model_at_end: false               # 与现役一致（已注明不重读 yaml）
 

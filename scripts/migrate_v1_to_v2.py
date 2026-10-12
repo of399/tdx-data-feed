@@ -1,207 +1,77 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""将 daily.parquet 从 v1（date 三态）迁移到 v2（date date32，列数不变）。
-
-v2 规则见 `.codebuddy/rules/tdx-data-schema-v2.md`。
-
-【重要】
-- **默认 dry-run**：仅打印计划，不修改文件；传 `--apply` 才真正写入
-- **强制备份**：写入前把原文件 rename 为 `.v1.bak.parquet`，保留 30 天
-- **列数严格不变**：daily 保持 7 列（不补 adj_factor）；adj_factor 保持 5 列
-- **数据完整**：迁移只换 date 列类型为 date32，不动 row 内容
+"""migrate_v1_to_v2.py — 将 daily parquet 的 date 列统一为 date32[day]（tdx-data-schema-v2 提案步骤 3）。
 
 用法:
-    # 1. 扫描现状（推荐先看 check_schema.py 输出）
-    venv/bin/python scripts/check_schema.py
+    venv/bin/python scripts/migrate_v1_to_v2.py              # dry-run（仅统计）
+    venv/bin/python scripts/migrate_v1_to_v2.py --apply       # 真实迁移
+    venv/bin/python scripts/migrate_v1_to_v2.py --apply --limit 10   # 仅迁移前 10 个（调试）
 
-    # 2. dry-run（默认；仅打印计划）
-    venv/bin/python scripts/migrate_v1_to_v2.py
-    venv/bin/python scripts/migrate_v1_to_v2.py --limit 10
+约束（不可破坏原则）:
+- 仅改变 date 列类型，不动字段名 / 字段顺序 / 行内容（v2 对 daily.date 的例外放行）。
+- 原文件备份为 <code>.v1.bak.parquet，不删除历史数据。
+- 仅迁移 date 类型非 date32[day] 的文件；已合规者跳过。
 
-    # 3. 实际执行（不可逆，先备份）
-    venv/bin/python scripts/migrate_v1_to_v2.py --apply --limit 100
-
-    # 4. 验证
-    venv/bin/python scripts/check_schema.py
+注意：按 v2 流程，真实切流前需经历 30 天双写共存期；本脚本仅完成类型归一，
+配合 full_sync 的 date→date32 写入实现"新数据合规 + 旧数据按需迁移"。
 """
 from __future__ import annotations
 
 import argparse
-import logging
-import shutil
-import sys
-import time
 from pathlib import Path
 
 import pandas as pd
-import pyarrow as pa
 import pyarrow.parquet as pq
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).resolve().parent.parent
 DAILY_DIR = ROOT / "data" / "parquet" / "daily"
-ADJ_DIR = ROOT / "data" / "adj_factor"
-
-DAILY_V2_COLS = ["date", "open", "high", "low", "close", "volume", "amount"]
-ADJ_V2_COLS = ["code", "date", "adj_factor", "qfq_close", "raw_close"]
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger("migrate_v2")
+EXPECTED_DATE_TYPE = "date32[day]"
 
 
-def _normalize_date_series(s: pd.Series) -> pd.Series:
-    """任意 date 类型 (int / timestamp / object) → datetime64[ns]（无时区）。"""
-    if s.dtype.kind in "iu":
-        return pd.to_datetime(
-            s.dropna().astype("Int64").astype(str),
-            format="%Y%m%d",
-            errors="coerce",
-        ).reindex(s.index)
-    if s.dtype.kind == "M":
-        if getattr(s.dt, "tz", None) is not None:
-            s = s.dt.tz_localize(None)
-        return s
-    return pd.to_datetime(s, errors="coerce")
-
-
-def migrate_daily_one(fp: Path, *, apply: bool) -> tuple[str, int]:
-    """迁移单个 daily parquet 到 v2。
-
-    返回 (status, n_rows)；status ∈ {noop / migrated / failed / skipped}.
-    """
-    try:
-        schema = pq.read_schema(fp)
-    except Exception as e:
-        return f"failed:{type(e).__name__}", 0
-
-    col_set = {f.name for f in schema}
-    if col_set != set(DAILY_V2_COLS):
-        return f"failed:cols={sorted(col_set)}", 0
-
-    date_field = next(f for f in schema if f.name == "date")
-    if str(date_field.type) == "date32[day]":
-        return "noop", pq.read_metadata(fp).num_rows
-
-    if not apply:
-        return "would-migrate", pq.read_metadata(fp).num_rows
-
-    df = pq.read_table(fp).to_pandas()
-    n_rows = len(df)
-    df["date"] = _normalize_date_series(df["date"])
-    df = df.dropna(subset=["date", "close"])
-    df = df.sort_values("date").reset_index(drop=True)
-
-    if list(df.columns) != DAILY_V2_COLS:
-        return f"failed:post_cols={list(df.columns)}", 0
-
-    date_py = df["date"].dt.date
-    date32_arr = pa.array(date_py, type=pa.date32())
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    date_idx = table.schema.get_field_index("date")
-    table = table.set_column(date_idx, "date", date32_arr)
-
-    backup = fp.with_suffix(".v1.bak.parquet")
-    if not backup.exists():
-        shutil.move(str(fp), str(backup))
-    else:
-        fp.unlink()
-
-    pq.write_table(table, fp, compression="snappy")
-    return "migrated", n_rows
-
-
-def migrate_adj_one(fp: Path, *, apply: bool) -> tuple[str, int]:
-    """迁移单个 adj_factor parquet 到 v2（date date32；列数/顺序不变）。"""
-    try:
-        schema = pq.read_schema(fp)
-    except Exception as e:
-        return f"failed:{type(e).__name__}", 0
-
-    col_set = {f.name for f in schema}
-    if col_set != set(ADJ_V2_COLS):
-        return f"failed:cols={sorted(col_set)}", 0
-
-    date_field = next(f for f in schema if f.name == "date")
-    if str(date_field.type) == "date32[day]":
-        return "noop", pq.read_metadata(fp).num_rows
-
-    if not apply:
-        return "would-migrate", pq.read_metadata(fp).num_rows
-
-    df = pq.read_table(fp).to_pandas()
-    n_rows = len(df)
-    df["date"] = _normalize_date_series(df["date"])
-    df = df.dropna(subset=["date", "adj_factor"])
-    df = df.sort_values("date").reset_index(drop=True)
-
-    if list(df.columns) != ADJ_V2_COLS:
-        return f"failed:post_cols={list(df.columns)}", 0
-
-    date_py = df["date"].dt.date
-    date32_arr = pa.array(date_py, type=pa.date32())
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    date_idx = table.schema.get_field_index("date")
-    table = table.set_column(date_idx, "date", date32_arr)
-
-    backup = fp.with_suffix(".v1.bak.parquet")
-    if not backup.exists():
-        shutil.move(str(fp), str(backup))
-    else:
-        fp.unlink()
-
-    pq.write_table(table, fp, compression="snappy")
-    return "migrated", n_rows
+def _norm_date(s: pd.Series) -> pd.Series:
+    """将三态 date（int64 YYYYMMDD / timestamp / date32）统一为 date。"""
+    if pd.api.types.is_integer_dtype(s):
+        return pd.to_datetime(s.astype(str), format="%Y%m%d").dt.date
+    return pd.to_datetime(s).dt.date
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="v1 → v2 schema 迁移 (daily.date / adj_factor.date → date32)")
-    parser.add_argument("--apply", action="store_true", help="实际写入；不加则 dry-run")
-    parser.add_argument("--limit", type=int, default=0, help="只处理前 N 个（试点用）")
-    parser.add_argument("--target", choices=["daily", "adj", "both"], default="both")
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser(description="daily parquet date 列统一为 date32[day]")
+    ap.add_argument("--apply", action="store_true", help="真正写入（默认 dry-run）")
+    ap.add_argument("--limit", type=int, default=0, help="仅处理前 N 个异常文件（调试）")
+    args = ap.parse_args()
 
-    mode = "APPLY" if args.apply else "DRY-RUN"
-    log.warning("=" * 60)
-    log.warning(f"v1 → v2 schema 迁移  模式: {mode}  target: {args.target}")
-    log.warning("=" * 60)
+    files = sorted(DAILY_DIR.glob("*.parquet"))
+    to_migrate: list[Path] = []
+    for p in files:
+        try:
+            schema = pq.read_schema(p)
+        except Exception:
+            continue
+        dt = next((f.type for f in schema if f.name == "date"), None)
+        if str(dt) != EXPECTED_DATE_TYPE:
+            to_migrate.append(p)
 
-    counters: dict[str, int] = {}
+    print(f"扫描 {len(files)} 个文件，需迁移（date≠{EXPECTED_DATE_TYPE}）: {len(to_migrate)}")
+    if not to_migrate:
+        print("✓ 无需迁移")
+        return
+    if args.limit:
+        to_migrate = to_migrate[: args.limit]
 
-    if args.target in ("daily", "both"):
-        files = sorted(DAILY_DIR.glob("*.parquet"))
-        if args.limit:
-            files = files[: args.limit]
-        log.info(f"daily 候选: {len(files)} files")
-        t0 = time.time()
-        for i, fp in enumerate(files, 1):
-            status, n = migrate_daily_one(fp, apply=args.apply)
-            counters[status] = counters.get(status, 0) + 1
-            if i % 500 == 0 or i == len(files):
-                elapsed = time.time() - t0
-                log.info(f"  daily [{i}/{len(files)}] elapsed={elapsed:.0f}s status={counters}")
-        log.info(f"daily 完成 counters={counters}")
+    for p in to_migrate:
+        df = pd.read_parquet(p)
+        df["date"] = _norm_date(df["date"])
+        if not args.apply:
+            print(f"  [DRY] 将迁移 {p.name} -> date32 ({len(df)} rows)")
+            continue
+        bak = p.with_suffix(".v1.bak.parquet")
+        if not bak.exists():
+            p.rename(bak)
+        df.to_parquet(p, index=False, engine="pyarrow")
+        print(f"  [OK] 迁移 {p.name} -> date32 ({len(df)} rows, 备份 {bak.name})")
 
-    if args.target in ("adj", "both"):
-        files = sorted(ADJ_DIR.glob("*.parquet"))
-        if args.limit:
-            files = files[: args.limit]
-        log.info(f"adj_factor 候选: {len(files)} files")
-        t0 = time.time()
-        adj_counters: dict[str, int] = {}
-        for i, fp in enumerate(files, 1):
-            status, n = migrate_adj_one(fp, apply=args.apply)
-            adj_counters[status] = adj_counters.get(status, 0) + 1
-            if i % 500 == 0 or i == len(files):
-                elapsed = time.time() - t0
-                log.info(f"  adj [{i}/{len(files)}] elapsed={elapsed:.0f}s status={adj_counters}")
-        log.info(f"adj 完成 counters={adj_counters}")
-
-    log.warning("=" * 60)
-    log.warning(f"{'实际写入完成' if args.apply else 'dry-run 完成（未修改任何文件）'}")
-    log.warning("=" * 60)
+    if not args.apply:
+        print("（dry-run 完成，未写入。加 --apply 执行真实迁移）")
 
 
 if __name__ == "__main__":

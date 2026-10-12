@@ -8,6 +8,8 @@ import os
 import struct
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 
 class Writers:
@@ -92,6 +94,28 @@ class Writers:
             return int(x.strftime('%Y%m%d'))
         return int(str(x).replace('-', '').replace(' ', '').replace(':', '')[:8])
 
+    @staticmethod
+    def _write_parquet_date32(p: str, df: pd.DataFrame) -> None:
+        """写 daily parquet，date 列强制 date32[day]（v2 schema）。
+
+        df['date'] 可为 int YYYYMMDD 或 datetime，统一解析为 date32[day]；其余列原样。
+        配合 scripts/migrate_v1_to_v2.py 实现「新数据合规 + 旧数据按需归一」，
+        且切换后增量合并不再回退为 int64（修复 writers 长期漂移根因）。
+        """
+        if pd.api.types.is_datetime64_any_dtype(df["date"]):
+            date_py = df["date"].dt.date
+        elif pd.api.types.is_integer_dtype(df["date"]):
+            date_py = pd.to_datetime(
+                df["date"].astype("int64").astype(str), format="%Y%m%d"
+            ).dt.date
+        else:
+            date_py = pd.to_datetime(df["date"], errors="coerce").dt.date
+        arr = pa.array(date_py, type=pa.date32())
+        table = pa.Table.from_pandas(df, preserve_index=False)
+        idx = table.schema.get_field_index("date")
+        table = table.set_column(idx, "date", arr)
+        pq.write_table(table, p, compression="snappy")
+
     def merge_write(self, symbol, new_bars, category='daily'):
         """增量合并写：新 bars 与已有 parquet 按 date 合并（新覆盖旧），
         防止 full_sync 的 1023 根覆盖/截断已回填的全历史。
@@ -134,7 +158,7 @@ class Writers:
             merged = merged.sort_values('date', kind='mergesort').reset_index(drop=True)
         else:
             merged = new.sort_values('date', kind='mergesort').reset_index(drop=True)
-        merged.to_parquet(p, index=False)
+        self._write_parquet_date32(p, merged)
 
         rows = merged.values.tolist()
         sat = []

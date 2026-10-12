@@ -43,7 +43,7 @@ fp16: false
 flash_attn: sdpa
 
 logging_steps: 5
-evaluation_strategy: "no"   # 低成本关键：关闭全部 periodic eval（8007 条生成式评估是 7h 主因）
+eval_strategy: "no"   # 低成本关键：关闭全部 periodic eval（8007 条生成式评估是 7h 主因）
 eval_steps: 100             # evaluation_strategy=no 时无效，保留以便快速切回 steps
 save_strategy: steps
 save_steps: 100

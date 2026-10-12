@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """扫描 daily / adj_factor parquet 的实际 schema 分布，输出 v2 合规率报告。
 
 用法:
@@ -16,9 +15,7 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import json
-import sys
 from collections import Counter
 from pathlib import Path
 
@@ -46,6 +43,8 @@ def scan_dir(paths: list[Path], expected_cols: set[str], expected_date_type: str
     row_under_200: list[str] = []
     read_fail: list[str] = []
     checked = 0
+    date_type_compliant = 0   # date 列为期望类型（date32[day]）
+    v2_full_compliant = 0     # 列集合正确 且 date 类型为 date32[day]
 
     for p in paths:
         try:
@@ -58,18 +57,27 @@ def scan_dir(paths: list[Path], expected_cols: set[str], expected_date_type: str
 
         # 列检查
         col_set = {f.name for f in schema}
-        if col_set != expected_cols:
+        col_ok = col_set == expected_cols
+        if not col_ok:
             col_anomaly.append(f"{p.name}: cols={sorted(col_set)}")
 
         # date 类型检查
+        date_ok = False
         try:
             date_field = next(f for f in schema if f.name == "date")
             date_type = str(date_field.type)
             type_counter[date_type] += 1
-            if date_type != expected_date_type:
+            if date_type == expected_date_type:
+                date_ok = True
+            else:
                 date_type_anomaly.append(f"{p.name}: date={date_type}")
         except StopIteration:
             date_type_anomaly.append(f"{p.name}: no 'date' field")
+
+        if date_ok:
+            date_type_compliant += 1
+        if col_ok and date_ok:
+            v2_full_compliant += 1
 
         # 行数检查
         if nrows < 200:
@@ -83,6 +91,10 @@ def scan_dir(paths: list[Path], expected_cols: set[str], expected_date_type: str
         "col_anomaly_count": len(col_anomaly),
         "date_type_distribution": dict(type_counter),
         "date_type_anomaly_count": len(date_type_anomaly),
+        "date_type_compliant_count": date_type_compliant,
+        "date_type_compliant_pct": round(100.0 * date_type_compliant / checked, 2) if checked else 0.0,
+        "v2_full_compliant_count": v2_full_compliant,
+        "v2_full_compliant_pct": round(100.0 * v2_full_compliant / checked, 2) if checked else 0.0,
         "rows_under_200": len(row_under_200),
         "compliant_pct": round(100.0 * checked / total, 2) if total else 0.0,
     }
@@ -133,8 +145,10 @@ def main() -> None:
         print(f"  列异常:       {rep['col_anomaly_count']}")
         print(f"  date 类型分布: {rep['date_type_distribution']}")
         print(f"  date 类型异常: {rep['date_type_anomaly_count']}")
+        print(f"  date 类型合规: {rep['date_type_compliant_count']}/{rep['read_ok']} ({rep['date_type_compliant_pct']}%)")
+        print(f"  v2 完整合规:   {rep['v2_full_compliant_count']}/{rep['read_ok']} ({rep['v2_full_compliant_pct']}%)")
         print(f"  rows<200:     {rep['rows_under_200']}")
-        print(f"  合规率:       {rep['compliant_pct']}%")
+        print(f"  读取成功率:    {rep['compliant_pct']}%")
         print()
 
 
