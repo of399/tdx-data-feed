@@ -102,6 +102,8 @@ v5/audit/*.parquet
 v5/audit/*.csv
 v5/audit/v6_enriched_lora/
 v5/reports/suggestion-*.md
+# 后台 health timer (tdx_monitor.py) 周期性重写，停止跟踪避免提交冲突
+v5/reports/tdx-metrics.json
 
 # ===== 个人自用:.codebuddy 仅放开共享子树(skills/agents/rules),其余(根目录私有文件、认证、缓存、memory/、automations/)一律忽略 =====
 # 忽略 .codebuddy 下所有直接子项（根目录私有文件 / 认证令牌 / 缓存 / memory / automations 等均不进版本库）
