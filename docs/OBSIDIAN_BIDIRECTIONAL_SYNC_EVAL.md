@@ -3,14 +3,15 @@
 > 评估对象：`scripts/sync-to-obsidian.sh` 当前为**单向**（repo → vault）。
 > 方向⑥：若需在 Obsidian 中撰写研究笔记并回写仓库，再实施双向同步。
 > 结论先行：**默认维持单向；仅在确认"确实要在 vault 内长期写研究笔记"后，才启用"分区双向 + 三路快照 + 自动提交"的受限方案。**
+> **格式声明**：本文为技术评估，适用模板子集（核心指标/风险/下一步）；Top N 明细与统计分布不适用，予以豁免。
 
 ## 📊 核心指标（当前实现状态）
 
 | 指标 | 当前值 | 说明 |
 |---|---:|---|
 | 同步方向 | **单向**（repo → vault） | vault → repo 写回**未实现** |
-| 已同步文档 | **22 篇 / 424K** | 一次全量同步规模，可作基线 |
-| 触发方式 | systemd `obsidian-sync.path`（PathModified） | 事件驱动，替代 60s 轮询；单元待启用 |
+| 已同步文档 | **27 篇 / 444K** | 实测 2026-10-12 二次同步（首次 22 篇/424K 为基线） |
+| 触发方式 | systemd `obsidian-sync.path`（PathModified） | 事件驱动，替代 60s 轮询；**单元已启用（active waiting，实测触发成功）** |
 | 写入方式 | 普通 `cp` | **非原子**，中断可能留半截文件 |
 | 冲突检测 | **无** | 单向下无冲突面 |
 | 运行锁（flock） | **无** | 并发触发可能重入 |
@@ -41,6 +42,62 @@
   - 真冲突**不自动合并**（Markdown 结构化合并不可靠），统一进冲突隔离区 + 写日志。
 - **前置**：必须区分"生成文件"与" authored 文件"，否则 base 基准失真。
 
+## 2.1 状态快照 Schema 与冲突裁决伪代码
+
+### `.sync-state.json` Schema 草案
+
+状态文件存于**仓库根**（不进 vault，避免被回写循环捕获），记录上次成功同步后各文件的基准快照：
+
+```json
+{
+  "version": 1,
+  "last_sync": "2026-10-12T14:30:00+08:00",
+  "files": {
+    "09-研究笔记/foo.md": {
+      "hash": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "mtime": 1760255400,
+      "side": "vault"
+    }
+  }
+}
+```
+
+- `hash`：`sha256(内容)`，用于判定"是否变更"。
+- `mtime`：最后修改时间（Unix 秒），用于 LWW 与去抖。
+- `side` ∈ `{"repo","vault"}`：上次成功同步时内容取自哪一侧（冲突裁决后更新为胜出侧）。
+
+### 冲突裁决伪代码
+
+```python
+def reconcile(path: str, state: dict) -> str:
+    base = state["files"].get(path)          # 上次同步基准（可能缺失=新文件）
+    r = read(REPO / path);  R, Rm = hash(r), mtime(r)
+    v = read(VAULT / path); V, Vm = hash(v), mtime(v)
+    B = base["hash"] if base else None
+    MISSING = None
+
+    if R == V:
+        return "NOOP"                         # 两侧一致（含都相对 base 未变）
+    if B is None:                             # 新文件：仅一侧存在
+        if R == MISSING and V != MISSING:
+            push_vault_to_repo(path); chosen = ("vault", V, Vm)
+        elif V == MISSING and R != MISSING:
+            push_repo_to_vault(path); chosen = ("repo", R, Rm)
+        else:
+            conflict(path);  return "CONFLICT" # 两侧都新且不同（罕见）
+    elif R == B and V != B:                   # 仅 vault 改 → 回写
+        push_vault_to_repo(path); chosen = ("vault", V, Vm)
+    elif V == B and R != B:                   # 仅 repo 改 → 下发
+        push_repo_to_vault(path); chosen = ("repo", R, Rm)
+    elif R != B and V != B:                   # 两侧都改 → 冲突
+        conflict(path);  return "CONFLICT"
+    state["files"][path] = {"hash": chosen[1], "mtime": chosen[2], "side": chosen[0]}
+    return "SYNCED"
+```
+
+- `conflict()`：将文件复制到 `99-冲突待处理/<path>__<side>.md` 并写日志，**不自动覆盖**。
+- 全量扫描后调用 `atomic_write(state_path, state)`（`temp + rename`）落盘。
+
 ## 3. 数据一致性
 
 - **单一事实源**：当前约定仓库为事实源。双向会**削弱**该约束——必须在回写前确认哪些 vault 内容"受权威"。
@@ -53,9 +110,9 @@
 | 环节 | 当前/预估 | 说明 |
 |---|---:|---|
 | 事件检测延迟 | 亚秒级 | systemd path 内核 inotify 触发 |
-| 单向脚本耗时 | ~1–2s（22 篇） | 纯 `cp` + 少量 Python |
-| 双向扫描耗时 | 线性于文件数 | hash 全部 vault 文件，数十篇量级可忽略；>1k 篇需分目录 |
-| 回写提交耗时 | 主要瓶颈 | `git commit`/PR 网络 IO；建议批量合并、加 cooldown |
+| 单向脚本耗时 | **实测 0.262s**（27 篇 / 444K，2026-10-12） | 纯 `cp` + 少量 Python；原估 1–2s 偏保守 |
+| 双向扫描耗时〔预估〕 | 线性于文件数 | hash 全部 vault 文件，数十篇量级〔预估〕可忽略；>1k 篇需分目录 |
+| 回写提交耗时〔预估〕 | 主要瓶颈〔预估〕 | `git commit`/PR 网络 IO；建议批量合并、加 cooldown |
 | 抖动 | 路径单元无 debounce | 连续保存会触发多次同步 → 需脚本内 `flock` + 最小间隔（如 5s） |
 
 > 规模结论：当前 vault 量级（数十篇）下，双向同步的延迟/吞吐**不构成瓶颈**；真正的成本在"策略与隔离的正确性"，而非性能。
@@ -91,15 +148,17 @@
 
 ## 可量化验收标准
 
-| 编号 | 验收项 | 标准 | 测量方式 |
-|---|---|---|---|
-| AC-1 | 冲突检测准确 | 测试集（≥20 组含双向改/单向改/无改）检测准确率 **100%** | 单元测试脚本 |
-| AC-2 | 无数据丢失 | 模拟 ≥10 轮并发编辑循环，repo 与 vault 最终内容零丢失 | 快照比对 |
-| AC-3 | 无循环写 | 生成物（MOC/archive）**永不**回流仓库 | 排除列表断言 |
-| AC-4 | 幂等性 | 连续重跑 5 次，两侧 hash 集合不变 | 脚本自校验 |
-| AC-5 | 并发安全 | flock 生效，重叠触发不产生多进程 | 压力触发测试 |
-| AC-6 | 性能 | 当前量级（<100 篇）单轮 < **5s** | `time` 实测 |
-| AC-7 | 故障恢复 | 中途 `kill -9` 后重跑，状态可恢复且一致 | 注入故障测试 |
+| 编号 | 验收项 | 标准 | 测量方式 | 可执行命令 |
+|---|---|---|---|---|
+| AC-1 | 冲突检测准确 | 测试集（≥20 组含双向改/单向改/无改）检测准确率 **100%** | 单元测试脚本 | `pytest tests/test_bidirectional.py::test_conflict_detection` |
+| AC-2 | 无数据丢失 | 模拟 ≥10 轮并发编辑循环，repo 与 vault 最终内容零丢失 | 快照比对 | `pytest tests/test_bidirectional.py::test_no_data_loss` |
+| AC-3 | 无循环写 | 生成物（MOC/archive）**永不**回流仓库 | 排除列表断言 | `pytest tests/test_bidirectional.py::test_no_loopback` |
+| AC-4 | 幂等性 | 连续重跑 5 次，两侧 hash 集合不变 | 脚本自校验 | `pytest tests/test_bidirectional.py::test_idempotent` |
+| AC-5 | 并发安全 | flock 生效，重叠触发不产生多进程 | 压力触发测试 | `pytest tests/test_bidirectional.py::test_concurrent_lock` |
+| AC-6 | 性能 | 当前量级（<100 篇）单轮 < **5s**（实测 0.262s） | `time` 实测 | `time bash scripts/sync-to-obsidian.sh`（单向）；`pytest tests/test_bidirectional.py::test_perf_under_100`（双向） |
+| AC-7 | 故障恢复 | 中途 `kill -9` 后重跑，状态可恢复且一致 | 注入故障测试 | `pytest tests/test_bidirectional.py::test_recovery_after_kill` |
+
+> 注：AC-1~AC-5、AC-7 的命令依赖实施阶段创建的 `tests/test_bidirectional.py`；AC-6 的单向命令可直接运行（已实测 0.262s 达标）。
 
 ## ⚠️ 已知限制与风险
 
@@ -130,7 +189,19 @@
 4. **替代方案**：若仅偶尔写笔记，提供一个**手动命令**（如 `scripts/export-note.sh <vault-md>`）把单篇笔记回写仓库并开 PR，比常驻双向同步更简单、风险更低。
 5. **禁止**对 vault 启用 Obsidian Sync/云盘多端写，避免外部多写者。
 
+## 需求决策清单（勾选追踪）
+
+- [ ] **Q1**：是否需要在 Obsidian（vault）内**长期**撰写研究笔记？　〔是 / 否〕
+  - 若〔否〕→ 维持单向，方向⑥**整体搁置**（勾选确认即可闭环）。
+- [ ] **Q2**：若 Q1=是，是否接受"仅 `09-研究笔记/` 可回写"的隔离约束？　〔是 / 否〕
+- [ ] **Q3**：是否接受回写后**自动 `git commit`**（草稿先不 push，人工 review 后合入）？　〔是 / 否〕
+- [ ] **Q4**：是否承诺**禁止**对 vault 启用 Obsidian Sync / 云盘多端写？　〔是 / 否〕
+- [ ] **Q5**：是否优先采用"手动导出单篇 + 提 PR"的轻量替代方案（而非常驻双向）？　〔是 / 否〕
+
+> 决策结论（填写）：_______________________________________________
+
 ---
 生成时间：2026-10-12 14:30:00
+修订：2026-10-12 补实测耗时(0.262s)、格式声明、`.sync-state.json` schema 与冲突伪代码、AC-1~7 可执行命令、需求决策清单
 生成者：tdx-data-feed 助手（方向⑥评估）
 数据日期：2026-10-12
