@@ -243,19 +243,19 @@ analyze-dashboard:  ## 生成综合 HTML 仪表盘
 analyze-all: analyze-double-up analyze-signal-d analyze-top10  ## 跑所有分析
 
 # ============== 模型训练 ==============
-train-v5:  ## 训练 v5（12656 样本，rank=8）
+train-v5:  ## 训练 v5（12656 样本，rank=16）
 	@echo "$(CYAN)▶ 训练 v5（GPU 占用）$(NC)"
-	$(PYTHON) /tmp/v5_train_single.py
+	$(PYTHON) training/scripts/train_lora.py training/config/tdx_v5_lora.yaml
 	@echo "$(GREEN)✓ v5 训练完成$(NC)"
 
 train-v6:  ## 训练 v6（5238 样本，rank=16）
 	@echo "$(CYAN)▶ 训练 v6（GPU 占用）$(NC)"
-	$(PYTHON) /tmp/v6_train_single.py
+	$(PYTHON) training/scripts/train_lora.py training/config/tdx_v6_lora.yaml
 	@echo "$(GREEN)✓ v6 训练完成$(NC)"
 
 train-v7:  ## 训练 v7（v5 续训，8000 样本）
 	@echo "$(CYAN)▶ 训练 v7（GPU 占用）$(NC)"
-	$(PYTHON) /tmp/v7_train_v3.py
+	$(PYTHON) training/scripts/train_lora.py training/config/tdx_v7_resume.yaml
 	@echo "$(GREEN)✓ v7 训练完成（eval_loss 最低 0.1914）$(NC)"
 
 train-all: train-v5 train-v6 train-v7  ## 顺序训练所有模型

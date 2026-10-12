@@ -7,7 +7,9 @@ akshare>=1.15.50
 pandas>=2.2.0
 numpy>=1.26.0
 pyarrow>=15.0.0
-fastparquet>=2024.2.0
+# fastparquet 为可选依赖：pyarrow 已覆盖所有 parquet 读写，无脚本 import fastparquet。
+# 仅当偏好 fastparquet 引擎时才需安装；默认可省略。
+# fastparquet>=2024.2.0  # 可选
 
 # ---- 训练 ----
 torch>=2.4.0
