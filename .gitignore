@@ -42,9 +42,9 @@ data/
 parquet-vol-backup/
 train/
 downloads/
-.codebuddy/
 
 # 临时文件 / 日志
+logs/
 *.log
 *.tmp
 *.bak
@@ -103,15 +103,13 @@ v5/audit/*.csv
 v5/audit/v6_enriched_lora/
 v5/reports/suggestion-*.md
 
-# ===== 个人自用:.codebuddy 共享子树放开(skills/agents/rules);memory/、automations/ 等本地私密保持忽略 =====
-# 否定须位于 .codebuddy/ 之后;按 gitignore 规则:父目录被忽略时,须先反忽略父目录,才能对其子目录做选择性反忽略
-!.codebuddy/
+# ===== 个人自用:.codebuddy 仅放开共享子树(skills/agents/rules),其余(根目录私有文件、认证、缓存、memory/、automations/)一律忽略 =====
+# 忽略 .codebuddy 下所有直接子项（根目录私有文件 / 认证令牌 / 缓存 / memory / automations 等均不进版本库）
+.codebuddy/*
+# 重新放开共享子树（项目必需的技能/代理/规则）
 !.codebuddy/skills/
 !.codebuddy/skills/**
 !.codebuddy/agents/
 !.codebuddy/agents/**
 !.codebuddy/rules/
 !.codebuddy/rules/**
-# 重新忽略本地私密子树,防止泄露
-.codebuddy/memory/
-.codebuddy/automations/
