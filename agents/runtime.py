@@ -97,8 +97,8 @@ class McpClient:
                 line = line.rstrip()
                 if line and self.verbose:
                     print(f"  [{self.server_name}] {line}", file=sys.stderr)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("读取 MCP stderr 失败: %s", e)
 
     def _request(self, payload: dict[str, Any], timeout: float = 30) -> dict[str, Any]:
         with self._lock:
@@ -120,8 +120,8 @@ class McpClient:
             try:
                 self.proc.stdin.write(json.dumps({"jsonrpc": "2.0", **payload}) + "\n")
                 self.proc.stdin.flush()
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("写入 MCP stdin 失败: %s", e)
 
     def list_tools(self) -> list[dict[str, Any]]:
         resp = self._request({"method": "tools/list", "params": {}})

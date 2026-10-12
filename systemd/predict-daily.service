@@ -7,6 +7,8 @@ Wants=tdxfeed-sync.service
 Type=oneshot
 WorkingDirectory=/home/jiuben/tdx-data-feed
 Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+# 数据新鲜度守卫：50 抽样中 >20% 末日期早于 today-2d 则 exit 2，主 ExecStart 不执行
+ExecStartPre=/home/jiuben/tdx-data-feed/scripts/precheck_freshness.sh
 # Top 50，阈值 0.7，并行 8 进程（避免内存爆）
 ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/predict.py --top 50 --threshold 0.7 --workers 8
 StandardOutput=append:/home/jiuben/tdx-data-feed/logs/predict.log

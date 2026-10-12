@@ -1,0 +1,18 @@
+[Unit]
+Description=方案 E 实盘样本·定期回溯调优（journal 回灌 + retune/by-year/real）
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+# 数据新鲜度守卫
+ExecStartPre=/home/jiuben/tdx-data-feed/scripts/precheck_freshness.sh
+ExecStart=/home/jiuben/tdx-data-feed/scripts/plan_e_real_refresh.sh
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/plan_e_real_refresh.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/plan_e_real_refresh.err
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=timers.target

@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/home/jiuben/tdx-data-feed
 Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python -m tdxfeed.cli sync
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python -m tdxfeed.full_sync
 StandardOutput=append:/home/jiuben/tdx-data-feed/logs/sync.log
 StandardError=append:/home/jiuben/tdx-data-feed/logs/sync.err
 Nice=10

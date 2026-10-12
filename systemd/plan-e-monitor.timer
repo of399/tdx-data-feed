@@ -1,0 +1,11 @@
+[Unit]
+Description=Plan E 实盘监控（每日 18:40，周五自动出周报）
+Documentation=scripts/monitor_plan_e_live.py
+
+[Timer]
+OnCalendar=*-*-* 18:40:00
+Persistent=true
+Unit=plan-e-monitor.service
+
+[Install]
+WantedBy=timers.target

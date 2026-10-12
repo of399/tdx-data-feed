@@ -89,9 +89,7 @@ RUN git clone --depth=1 --branch ${LLAMA_CPP_REF} https://github.com/ggerganov/l
 COPY scripts/         ./scripts/
 COPY tdxfeed/         ./tdxfeed/
 COPY v5/              ./v5/
-COPY v6/              ./v6/
-COPY v7/              ./v7/
-COPY train/           ./train/
+COPY training/        ./training/
 COPY systemd/         ./systemd/
 COPY Makefile         ./Makefile
 COPY *.md             ./

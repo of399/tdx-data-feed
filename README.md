@@ -44,6 +44,8 @@
 cd /home/jiuben/tdx-data-feed
 source venv/bin/activate
 python scripts/predict.py --codes 600519,000001,300750 --top 3
+# Web UI（浏览器交互式预测，Gradio）
+python scripts/predict.py --web --port 7860
 ```
 
 **结果**：3 只股票的预测概率 + 18 维特征分析报告。
@@ -59,6 +61,16 @@ python scripts/predict.py --codes 600519,000001,300750 --top 3
 | 方案 D 预测 | 7620 只全市场 1 分钟完成 |
 | 容器化 | 10 service · 8 数据卷 · 250 GB |
 | IDE 工作空间 | 4 Agent + 3 Rule + 1 Skill + 1 MCP + 2 Memory |
+
+---
+
+### 🧹 数据治理状态（2026-09-28）
+
+- **债券数据下线**：`download_universe.py` / `download_etf_bond.py` / `backfill_adj_etf.py` 已移除债券处理；已删除 `data/parquet/daily/` 下 317 个债券落盘文件与 `data/convertible_bond_codes.txt`。**后续不再保留债券数据**。
+- **大文件出 git（D7）**：`v5/audit/` 下约 80 MB 审计大文件（parquet/csv/lora/suggestion-md）已 `git rm --cached` 并加入 `.gitignore`（磁盘保留，仅停止跟踪，避免仓库继续膨胀）。
+- **min5 补齐（D1）**：`min_sync2.py --mode market-5d`（Sina scale=5，全市场）补齐 `data/parquet/min5/`；Eastmoney 全历史接口当前连接不稳定。
+- **v5/v6/v7 推理对标（F1）**：`scripts/bench_v567.py` 输出 BLEU/ROUGE + 翻倍分类准确率 + P95 延迟 + 显存峰值，结果见 `data/bench_v567.json`。
+- **脚本归档（W1）**：分类目录见 `scripts/INDEX.md`（未做物理移动，避免破坏现有管线）。
 
 ---
 
@@ -145,7 +157,7 @@ baostock / akshare（外部数据源）
 | 模型 | LightGBM（已训练，joblib 序列化）|
 | 特征 | 18 维（ret_5d / ret_20d / vol_ratio_t1 / pct_t1 / ...）|
 | 输出 | `data/predictions/predict_YYYYMMDD_HHMMSS.csv` + `.md` |
-| 脚本 | `scripts/predict.py` |
+| 脚本 | `scripts/predict.py`（新增 `--web` Gradio UI）|
 | 调度 | `systemd/predict-daily.timer`（18:30 每日）|
 
 #### 🎯 方案 E：翻倍当日跟随策略（回测 + 实盘）

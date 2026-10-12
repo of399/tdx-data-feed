@@ -1,0 +1,12 @@
+[Unit]
+Description=每周日 21:00 跑方案 E 实盘样本回溯调优（在周报 20:00 之后）
+
+[Timer]
+# 每周日 21:00（周报生成后 1 小时，确保 journal 已落盘）
+OnCalendar=Sun 21:00:00
+Persistent=true
+AccuracySec=60s
+Unit=plan-e-real-refresh.service
+
+[Install]
+WantedBy=timers.target

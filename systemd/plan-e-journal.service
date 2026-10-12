@@ -7,6 +7,8 @@ Wants=predict-daily.service
 Type=oneshot
 WorkingDirectory=/home/jiuben/tdx-data-feed
 Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+# 数据新鲜度守卫
+ExecStartPre=/home/jiuben/tdx-data-feed/scripts/precheck_freshness.sh
 ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/plan_e_journal.py --mode daily
 StandardOutput=append:/home/jiuben/tdx-data-feed/logs/plan_e_journal.log
 StandardError=append:/home/jiuben/tdx-data-feed/logs/plan_e_journal.err

@@ -1,3 +1,7 @@
+# tdx-data-feed 运行配置
+# 实际被代码读取的字段：output_root、obsidian_vault（见 tdxfeed/cli.py）。
+# 其余字段为遗留/未接入配置，当前不生效，保留以兼容潜在读取。
+
 output_root: /home/jiuben/tdx-data-feed/data
 
 data_range:
@@ -5,7 +9,6 @@ data_range:
   minute_layers:
     - market_60d
     - core_full_history
-
 
 core_stocks:
   - sh600000
@@ -25,4 +28,4 @@ sources:
 
 obsidian_vault: /home/jiuben/StockVault
 schedule: '0 2 * * 1'
-v4_schema: /home/jiuben/tdx-data-feed/v4_schema.yaml
+v4_schema: /home/jiuben/tdx-data-feed/transform/v4_schema.yaml

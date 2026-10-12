@@ -1,0 +1,10 @@
+[Unit]
+Description=Plan E 实盘监控（真实 PnL 跟踪与偏差分析）
+Documentation=scripts/monitor_plan_e_live.py
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/tdx-data-feed
+ExecStart=%h/tdx-data-feed/venv/bin/python scripts/monitor_plan_e_live.py --emit auto
+StandardOutput=append:%h/tdx-data-feed/logs/plan-e-monitor.out
+StandardError=append:%h/tdx-data-feed/logs/plan-e-monitor.err
