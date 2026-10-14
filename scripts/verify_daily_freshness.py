@@ -17,7 +17,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
-    from tdxfeed.symbols import group, INDICES
+    from tdxfeed.symbols import INDICES, group
 except Exception:  # pragma: no cover
     def group(code: str) -> str:
         return "other"
@@ -88,7 +88,7 @@ def main():
     args = ap.parse_args()
 
     pq_dir = os.path.join(args.root, "parquet", "daily")
-    files = sorted(glob.glob(os.path.join(pq_dir, "*.parquet")))
+    files = sorted(f for f in glob.glob(os.path.join(pq_dir, "*.parquet")) if ".bak" not in f)
     total = len(files)
     buckets: dict[str, dict] = {}
     last_dates: list[int] = []

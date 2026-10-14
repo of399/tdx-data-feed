@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """补全日线到 TARGET 只：pytdx 枚举全市场 -> 筛选股票/ETF -> Sina 源拉日线。
 用法: python download_universe.py --target 10000
 """
-import os, sys, glob, time, argparse
+import argparse
+import glob
+import os
+import sys
+import time
+
 sys.path.insert(0, "/home/jiuben/tdx-data-feed")
 import pandas as pd
 from pytdx.hq import TdxHq_API
+
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.symbols import group
 
@@ -56,7 +61,7 @@ def main():
     cand = [c for c in codes if group(c) in ("sh", "sz", "etf")]
     order = {"sh": 0, "sz": 1, "etf": 2}
     cand.sort(key=lambda c: order[group(c)])
-    existing = set(os.path.basename(p)[:-8] for p in glob.glob(OUT + "*.parquet"))
+    existing = set(os.path.basename(p)[:-8] for p in glob.glob(OUT + "*.parquet") if ".bak" not in p)
     print(f"候选 {len(cand)} 只, 已有 daily {len(existing)} 只", flush=True)
 
     src = SinaSource()
@@ -69,7 +74,7 @@ def main():
             continue
         try:
             bars = src.fetch_bars(s, scale=240, datalen=1023)
-        except Exception as e:
+        except Exception:
             time.sleep(1); continue
         if not bars:
             time.sleep(0.1); continue

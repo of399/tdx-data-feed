@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """训练完成后：提取最终指标 + student(vs teacher)对比 + 追加到 Obsidian 笔记。
 用法：
   python finalize_eval.py check     # 仅验证 loss/checkpoint 提取（不占GPU）
   python finalize_eval.py           # 完整：等训练完 -> 双模型推理 -> 追加笔记
 """
-import json, os, sys, time, re, glob
+import glob
+import json
+import os
+import re
+import sys
+import time
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 NOTE      = "/home/jiuben/StockVault/05-知识库/模型蒸馏与LoRA训练-2026-09-26.md"
 LF        = "/home/workbuddy/lf_project"

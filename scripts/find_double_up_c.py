@@ -153,7 +153,7 @@ def main():
     print(f"  START_DATE: {START_DATE.date()}")
     print(f"  WINDOW: {WINDOW} 交易日")
     print(f"  RATIO: ≥{RATIO:.0%} (翻倍)")
-    print(f"  数据源: parquet/daily ({len(list(PARQUET.glob('*.parquet')))} 个文件)")
+    print(f"  数据源: parquet/daily ({len([p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name])} 个文件)")
     print()
 
     # 加载标的信息
@@ -174,7 +174,7 @@ def main():
     print(f"  ST 集合: {len(st_set)} 只")
 
     # 加载所有 parquet 文件列表
-    files = sorted(PARQUET.glob('*.parquet'))
+    files = sorted(p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name)
     print(f"  扫描股票数: {len(files)}")
 
     # 转换 st_set 为完整代码集（带前缀）

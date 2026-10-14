@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 方案 D 预测脚本：每日全市场预测翻倍潜力股
 ========================================
@@ -70,11 +69,10 @@ import json
 import sys
 import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import lightgbm as lgb
-import numpy as np
 import pandas as pd
 
 warnings.filterwarnings('ignore')
@@ -136,9 +134,10 @@ FEATURE_COLS = [
 
 # 涨停限制与 18/26 维特征：单一数据源见 tdxfeed/features_5d（向后兼容 v8 18 维与 v9+ 26 维）
 # compute_features() 始终返回 26 维（含 8 维扩展），main() 按 model.feature_name() 取子集
-from _common import compute_window_features, compute_window_features_extended, get_limit  # noqa: E402
 # Step 7：polars 候选因子路径（新模型 vpnl_huber_stage1 必需）
 import polars as pl  # noqa: E402
+from _common import compute_window_features_extended  # noqa: E402
+
 from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
 
 
@@ -417,6 +416,8 @@ def load_universe() -> list:
     codes = set()
     for fp in PARQUET_DIR.glob('*.parquet'):
         name = fp.stem
+        if '.bak' in name:  # 跳过 v2 迁移备份 (.v1.bak), 非活数据
+            continue
         for prefix in ['sh', 'sz', 'bj']:
             if name.startswith(prefix):
                 name = name[len(prefix):]
@@ -567,7 +568,7 @@ def main():
         launch_web(args)
         return
 
-    print(f"=== 方案 D 预测 ===")
+    print("=== 方案 D 预测 ===")
     print(f"  时间: {datetime.now().isoformat(timespec='seconds')}")
     print(f"  阈值: {args.threshold}")
     print(f"  Top:  {args.top}")
@@ -606,7 +607,7 @@ def main():
     print(f"  股票数: {len(codes)}")
 
     # 计算特征
-    print(f"\n[1/3] 计算 18 维特征...")
+    print("\n[1/3] 计算 18 维特征...")
     feat_df = load_all_stocks(codes, args.workers)
     if feat_df.empty:
         sys.exit("❌ 无可用数据")
@@ -629,7 +630,7 @@ def main():
         print(f"    --no-gem: 已将 {gem_count} 只创业板/科创板的 is_gem 强制置 0（重训后建议改用 --no-skip-gem 过滤）")
 
     # 预测
-    print(f"\n[2/3] 预测概率...")
+    print("\n[2/3] 预测概率...")
     X = feat_df[feature_cols].fillna(0)
     feat_df['prob'] = model.predict(X)
 
@@ -655,7 +656,7 @@ def main():
         print(f"    中位数概率: {feat_df['prob'].median():.4f}")
 
     # 保存
-    print(f"\n[3/3] 输出结果...")
+    print("\n[3/3] 输出结果...")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
@@ -677,7 +678,7 @@ def main():
     # Markdown 报告
     fp_md = OUTPUT_DIR / f'predict_{ts}.md'
     with open(fp_md, 'w', encoding='utf-8') as f:
-        f.write(f"# 方案 D 每日预测报告\n\n")
+        f.write("# 方案 D 每日预测报告\n\n")
         f.write(f"- **时间**: {datetime.now().isoformat(timespec='seconds')}\n")
         f.write(f"- **基准日**: {args.date or '今天'}\n")
         f.write(f"- **股票数**: {len(feat_df)}\n")
@@ -686,16 +687,16 @@ def main():
 
         score_label = "预期PnL" if ACTIVE_IS_REG else "概率"
         if ACTIVE_IS_REG:
-            f.write(f"## 📊 统计(回归:输出为预期 PnL)\n\n")
-            f.write(f"| 指标 | 值 |\n|---|---|\n")
+            f.write("## 📊 统计(回归:输出为预期 PnL)\n\n")
+            f.write("| 指标 | 值 |\n|---|---|\n")
             f.write(f"| 平均预期PnL | {feat_df['prob'].mean():.4f} |\n")
             f.write(f"| 中位预期PnL | {feat_df['prob'].median():.4f} |\n")
             f.write(f"| 最高预期PnL | {feat_df['prob'].max():.4f} |\n")
             f.write(f"| 正期望(PnL>0) | {len(feat_df[feat_df['prob']>0])} 只 |\n")
             f.write(f"| 负期望 | {len(feat_df[feat_df['prob']<=0])} 只 |\n\n")
         else:
-            f.write(f"## 📊 统计\n\n")
-            f.write(f"| 指标 | 值 |\n|---|---|\n")
+            f.write("## 📊 统计\n\n")
+            f.write("| 指标 | 值 |\n|---|---|\n")
             f.write(f"| 平均概率 | {feat_df['prob'].mean():.4f} |\n")
             f.write(f"| 中位概率 | {feat_df['prob'].median():.4f} |\n")
             f.write(f"| 最高概率 | {feat_df['prob'].max():.4f} |\n")
@@ -706,7 +707,7 @@ def main():
 
         f.write(f"## 🎯 Top {args.top} 高分股\n\n")
         f.write(f"| Rank | 代码 | {score_label} | 收盘 | 前复权 | T-1 涨幅 | 5 日涨幅 | 量比 | 涨停限制 |\n")
-        f.write(f"|---:|:---:|---:|---:|---:|---:|---:|---:|---:|\n")
+        f.write("|---:|:---:|---:|---:|---:|---:|---:|---:|---:|\n")
         for _, r in feat_df.head(args.top).iterrows():
             f.write(f"| {r['rank']} | {r['code']} | **{r['prob']:.4f}** | "
                     f"{r['close']:.2f} | {r['qfq_close']:.2f} | "
@@ -719,30 +720,30 @@ def main():
             else:
                 f.write(f"\n## 🚨 阈值 {args.threshold}+ 高分明细\n\n")
             f.write(f"| 代码 | {score_label} | 收盘 | T-1 涨幅 |\n")
-            f.write(f"|:---:|---:|---:|---:|\n")
+            f.write("|:---:|---:|---:|---:|\n")
             for _, r in high_score.iterrows():
                 f.write(f"| {r['code']} | {r['prob']:.4f} | "
                         f"{r['close']:.2f} | {r['pct_t1']*100:+.2f}% |\n")
 
-        f.write(f"\n## 使用建议\n\n")
+        f.write("\n## 使用建议\n\n")
         if ACTIVE_IS_REG:
-            f.write(f"- 本模型为**回归器**,输出为未来 10 日预期 PnL(TP+30%/SL-10%/双边成本),非概率。\n")
+            f.write("- 本模型为**回归器**,输出为未来 10 日预期 PnL(TP+30%/SL-10%/双边成本),非概率。\n")
             f.write(f"- **预期 PnL 越高越优先**;正期望({score_label}>0)共 {len(high_score)} 只,进入候选池。\n")
             f.write(f"- 建议按 Top {args.top} 排序结合题材/新闻人工复核,严格止损(-10%)。\n\n")
         else:
-            f.write(f"- **阈值 0.7+**：高置信度，可直接进入候选池（结合题材/新闻人工复核）\n")
-            f.write(f"- **阈值 0.6-0.7**：中等置信度，建议观察 1-2 日\n")
-            f.write(f"- **阈值 < 0.6**：仅作参考，不建议行动\n\n")
+            f.write("- **阈值 0.7+**：高置信度，可直接进入候选池（结合题材/新闻人工复核）\n")
+            f.write("- **阈值 0.6-0.7**：中等置信度，建议观察 1-2 日\n")
+            f.write("- **阈值 < 0.6**：仅作参考，不建议行动\n\n")
         f.write(f"生成工具: `scripts/predict.py --model {model_name}`\n")
-        f.write(f"---\n\n")
-        f.write(f"生成工具: `scripts/predict.py`\n")
+        f.write("---\n\n")
+        f.write("生成工具: `scripts/predict.py`\n")
     print(f"    ✓ 报告: {fp_md.name}")
 
     # 同步 latest
     fp_latest = OUTPUT_DIR / 'predict_latest.md'
     fp_latest.write_text(fp_md.read_text(encoding='utf-8'), encoding='utf-8')
 
-    print(f"\n=== ✅ 完成 ===")
+    print("\n=== ✅ 完成 ===")
     print(f"  输出目录: {OUTPUT_DIR}")
     print(f"  Top 1: {feat_df.iloc[0]['code']} (P={feat_df.iloc[0]['prob']:.4f})")
     print(f"  Top 5: {feat_df.head(5)['code'].tolist()}")

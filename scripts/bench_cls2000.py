@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """v7-resume 分类稳健验证：未来 120 交易日是否翻倍（2000+ 样本）。
 
 与 bench_v567.py 的「操作建议代理」不同，本脚本采用**语义一致的判定式任务**：
@@ -22,13 +21,11 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import threading
 import time
+import urllib.request as _urllib
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-
-import urllib.request as _urllib
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 SAMPLES = ROOT / "data" / "cls2000_samples.jsonl"
@@ -92,7 +89,7 @@ def bench_model(model_tag: str, samples: list[dict], opts: dict, concurrency: in
         p = build_prompt(s)
         try:
             resp, _ = call_ollama(model_tag, p, opts)
-        except Exception as e:
+        except Exception:
             return (i, -2, "")
         return (i, parse_pred(resp), resp)
 

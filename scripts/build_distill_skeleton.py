@@ -1,4 +1,8 @@
-import glob, json, os, sys
+import glob
+import json
+import os
+import sys
+
 import pandas as pd
 
 PK = '/home/jiuben/tdx-data-feed/data/parquet/daily/'

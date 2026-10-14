@@ -19,10 +19,6 @@ ETF adj_factor 抓取脚本（备用，当前 akshare 东财接口故障）【�
 Schema：date, adj_factor, qfq_close, raw_close
 """
 import argparse
-import json
-import os
-import re
-import sys
 import time
 import warnings
 from datetime import datetime
@@ -69,7 +65,6 @@ def fetch_etf_adj(code_short, retries=3):
     返回：list of {date, qfq_close, raw_close} 或 None（失败）
     """
     import akshare as ak
-    import pandas as pd
     last_err = None
     for attempt in range(retries):
         try:

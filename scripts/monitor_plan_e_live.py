@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """方案 E 实盘监控 · 真实盈亏(PnL)跟踪与偏差分析 (v1)
 ===================================================
 
@@ -49,7 +48,7 @@ import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # 显式把项目根加入 sys.path，确保 `import tdxfeed`（如 freshness）在直接运行时可用。
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -81,7 +80,7 @@ BJ_SLIP = 0.003     # 北交所额外单边滑点 0.30%（流动性补偿）
 
 # ---------------- 默认基线（方案 E v2 回测·含成本，n=136）----------------
 # 来源：plan_e_backtest.py v2（含成本）汇总；与实盘对比的"预期"锚。
-DEFAULT_BASELINE: Dict[str, float] = {
+DEFAULT_BASELINE: dict[str, float] = {
     "n": 136.0,
     "win_rate": 0.353,
     "avg_ret": 0.0316,
@@ -133,7 +132,7 @@ def _cost_fraction(exch: str) -> float:
     return base
 
 
-def _load_price_series(code: str) -> Optional[pd.Series]:
+def _load_price_series(code: str) -> pd.Series | None:
     """加载某代码日 K 收盘价序列（索引 date），失败返回 None。"""
     cc = str(code).zfill(6).lstrip("bj")
     for cand in [f"{cc}.parquet", f"sh{cc}.parquet", f"sz{cc}.parquet", f"bj{cc}.parquet"]:
@@ -150,7 +149,7 @@ def _load_price_series(code: str) -> Optional[pd.Series]:
     return None
 
 
-def _journal_sha(path: Path) -> Tuple[Optional[str], Optional[float]]:
+def _journal_sha(path: Path) -> tuple[str | None, float | None]:
     """journal 指纹：sha256 + mtime（供可追溯）。"""
     if not path.exists():
         return None, None
@@ -177,7 +176,7 @@ def load_journal() -> pd.DataFrame:
     return df
 
 
-def build_trades(journal: pd.DataFrame) -> Tuple[List[dict], List[dict]]:
+def build_trades(journal: pd.DataFrame) -> tuple[list[dict], list[dict]]:
     """由 journal + positions 构建已实现(closed)与未实现(open)交易清单。
 
     closed 字段：code, entry_date, exit_date, hold_days, qty, entry_price, exit_price,
@@ -187,13 +186,13 @@ def build_trades(journal: pd.DataFrame) -> Tuple[List[dict], List[dict]]:
     buys = journal[journal["action"] == "BUY"] if not journal.empty else pd.DataFrame()
     sells = journal[journal["action"] == "SELL"] if not journal.empty else pd.DataFrame()
 
-    buy_by_key: Dict[Tuple[str, str], dict] = {}
+    buy_by_key: dict[tuple[str, str], dict] = {}
     for _, b in buys.iterrows():
         key = (str(b["code"]).zfill(6), str(b.get("entry_date", "")))
         if key not in buy_by_key:
             buy_by_key[key] = b.to_dict()
 
-    closed: List[dict] = []
+    closed: list[dict] = []
     for _, s in sells.iterrows():
         code = str(s["code"]).zfill(6)
         entry_date = str(s.get("entry_date", ""))
@@ -218,7 +217,7 @@ def build_trades(journal: pd.DataFrame) -> Tuple[List[dict], List[dict]]:
         })
 
     # open：优先 positions.json；并补充 journal 中未平仓买（双重保险）
-    open_map: Dict[str, dict] = {}
+    open_map: dict[str, dict] = {}
     if POSITIONS.exists():
         try:
             pos = json.loads(POSITIONS.read_text(encoding="utf-8"))
@@ -246,7 +245,7 @@ def build_trades(journal: pd.DataFrame) -> Tuple[List[dict], List[dict]]:
                                "qty": int(b["qty"]) if pd.notna(b.get("qty")) else 0,
                                "entry_price": float(b["price"]) if pd.notna(b.get("price")) else 0.0}
 
-    open_l: List[dict] = []
+    open_l: list[dict] = []
     for c, o in open_map.items():
         if o.get("qty", 0) <= 0 or o.get("entry_price", 0) <= 0:
             continue
@@ -270,13 +269,13 @@ def build_trades(journal: pd.DataFrame) -> Tuple[List[dict], List[dict]]:
 
 # ============== 权益曲线 / 风险指标 ==============
 
-def daily_equity_and_returns(closed: List[dict], open_l: List[dict],
-                             capital: float) -> Tuple[pd.Series, pd.Series]:
+def daily_equity_and_returns(closed: list[dict], open_l: list[dict],
+                             capital: float) -> tuple[pd.Series, pd.Series]:
     """构造逐日权益曲线与日收益（cash+holdings 模型，含未实现 MTMark 与成本）。
 
     返回 (equity 序列, daily_return 序列)，索引为日历日（无交易日收益记 0，与回测口径一致）。
     """
-    segs: List[dict] = []
+    segs: list[dict] = []
     for t in closed:
         segs.append({
             "code": t["code"], "qty": t["qty"], "entry_price": t["entry_price"],
@@ -302,12 +301,12 @@ def daily_equity_and_returns(closed: List[dict], open_l: List[dict],
     idx = pd.date_range(d0, d1, freq="D")
 
     # 预载价格
-    price_cache: Dict[str, pd.Series] = {}
+    price_cache: dict[str, pd.Series] = {}
     for s in segs:
         if s["code"] not in price_cache:
             price_cache[s["code"]] = _load_price_series(s["code"])
 
-    equity_vals: List[float] = []
+    equity_vals: list[float] = []
     for d in idx:
         dd = d.date()
         cum_cash = capital
@@ -336,7 +335,7 @@ def daily_equity_and_returns(closed: List[dict], open_l: List[dict],
     return equity, daily_ret
 
 
-def risk_metrics(daily_ret: pd.Series, equity: pd.Series) -> Dict[str, float]:
+def risk_metrics(daily_ret: pd.Series, equity: pd.Series) -> dict[str, float]:
     """由日收益序列计算风险指标（与 compute_metrics 同口径）。"""
     mu = float(daily_ret.mean())
     sd = float(daily_ret.std())
@@ -354,7 +353,7 @@ def risk_metrics(daily_ret: pd.Series, equity: pd.Series) -> Dict[str, float]:
             "ann_ret": ann_ret, "calmar": calmar, "n_days": len(daily_ret)}
 
 
-def trade_stats(trades: List[dict], key: str) -> Dict[str, float]:
+def trade_stats(trades: list[dict], key: str) -> dict[str, float]:
     """由交易清单计算胜率/均收益/盈亏比/期望等。key='net_pct' 或 'gross_pct'。"""
     if not trades:
         return {"n": 0.0, "win_rate": 0.0, "avg_ret": 0.0, "pf": 0.0, "expectancy": 0.0,
@@ -375,10 +374,10 @@ def trade_stats(trades: List[dict], key: str) -> Dict[str, float]:
 
 # ============== 异常 / 状态 ==============
 
-def detect_anomalies(closed: List[dict], open_l: List[dict], metrics: Dict[str, float],
-                     equity: pd.Series, capital: float) -> Tuple[str, List[dict]]:
+def detect_anomalies(closed: list[dict], open_l: list[dict], metrics: dict[str, float],
+                     equity: pd.Series, capital: float) -> tuple[str, list[dict]]:
     """返回 (status, anomalies[])。status ∈ {GO, WATCH, HALT}。"""
-    anoms: List[dict] = []
+    anoms: list[dict] = []
 
     # 累计净收益（含未实现）
     cum_net_pct = (equity.iloc[-1] / capital - 1) if capital > 0 and len(equity) else 0.0
@@ -447,7 +446,7 @@ def detect_anomalies(closed: List[dict], open_l: List[dict], metrics: Dict[str, 
     return "GO", anoms
 
 
-def next_checkpoint(n_closed: int) -> Tuple[int, str]:
+def next_checkpoint(n_closed: int) -> tuple[int, str]:
     for cp, desc in CHECKPOINTS:
         if n_closed < cp:
             return cp, desc
@@ -464,13 +463,13 @@ def _fmt_money(x: float) -> str:
     return f"{x:,.2f}" if x is not None else "—"
 
 
-def emit_report(emit: str, closed: List[dict], open_l: List[dict],
-                equity: pd.Series, daily_ret: pd.Series, rmet: Dict[str, float],
-                tstat_net: Dict[str, float], tstat_gross: Dict[str, float],
-                metrics: Dict[str, float], baseline: Dict[str, float],
-                sim_stat: Optional[Dict[str, float]], status: str, anoms: List[dict],
-                capital: float, journal_sha: Optional[str], journal_mtime: Optional[float],
-                cost_info: Dict[str, float]) -> str:
+def emit_report(emit: str, closed: list[dict], open_l: list[dict],
+                equity: pd.Series, daily_ret: pd.Series, rmet: dict[str, float],
+                tstat_net: dict[str, float], tstat_gross: dict[str, float],
+                metrics: dict[str, float], baseline: dict[str, float],
+                sim_stat: dict[str, float] | None, status: str, anoms: list[dict],
+                capital: float, journal_sha: str | None, journal_mtime: float | None,
+                cost_info: dict[str, float]) -> str:
     now = datetime.now()
     today = now.date()
     n_closed = len(closed)
@@ -487,7 +486,7 @@ def emit_report(emit: str, closed: List[dict], open_l: List[dict],
 
     cp_n, cp_desc = next_checkpoint(n_closed)
 
-    L: List[str] = []
+    L: list[str] = []
     title = "方案 E 实盘观察报告"
     L.append(f"# {title} ({now.strftime('%Y-%m-%d %H:%M')})\n")
     L.append(f"> 模式：{'周度复盘' if emit=='weekly' else '每日监控'} ｜ 状态机：**{status}** ｜ "
@@ -663,13 +662,13 @@ def emit_report(emit: str, closed: List[dict], open_l: List[dict],
     return "\n".join(L)
 
 
-def tstat_avg(trades: List[dict], key: str) -> float:
+def tstat_avg(trades: list[dict], key: str) -> float:
     if not trades:
         return 0.0
     return float(np.mean([t[key] for t in trades]))
 
 
-def load_sim_stat() -> Optional[Dict[str, float]]:
+def load_sim_stat() -> dict[str, float] | None:
     sim_path = LIVE_DIR / "journal_sim.csv"
     if not sim_path.exists():
         return None
@@ -688,7 +687,7 @@ def load_sim_stat() -> Optional[Dict[str, float]]:
 
 # ============== 历史 / 快照 ==============
 
-def update_history(emit: str, row: Dict[str, Any]) -> None:
+def update_history(emit: str, row: dict[str, Any]) -> None:
     row = dict(row)
     row["emit"] = emit
     cols = list(row.keys())
@@ -703,7 +702,7 @@ def update_history(emit: str, row: Dict[str, Any]) -> None:
     hist.to_csv(HISTORY, index=False, encoding="utf-8-sig")
 
 
-def write_snapshot(now: datetime, payload: Dict[str, Any]) -> Path:
+def write_snapshot(now: datetime, payload: dict[str, Any]) -> Path:
     OBS_DIR.mkdir(parents=True, exist_ok=True)
     fp = OBS_DIR / f"monitor_snapshot_{now.strftime('%Y%m%d_%H%M%S')}.json"
     fp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")

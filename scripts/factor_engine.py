@@ -45,34 +45,47 @@ OUT_DIR = ROOT / 'data/factors'
 ST_VAULT = Path('/home/jiuben/StockVault/01-标的')
 
 
+def norm_code(code: str) -> str:
+    """剥离 sh/sz/bj 前缀，返回裸 6 位代码。
+
+    data/parquet/daily 文件名实为裸代码（600825）+ 北交所 bj 前缀（bj920000），
+    而非 sh/sz 前缀；统一归一后 name_map / ST 集合 / 翻倍样本匹配才一致。
+    """
+    return re.sub(r"^(sh|sz|bj)", "", code)
+
+
+def resolve_parquet(code: str) -> Path:
+    """code 为裸 6 位；北交所文件为 bj 前缀，主板为裸名。返回实际路径。"""
+    bare = norm_code(code)
+    for cand in (bare, f"bj{bare}"):
+        p = PARQUET / f"{cand}.parquet"
+        if p.exists():
+            return p
+    return PARQUET / f"{bare}.parquet"
+
+
 def get_limit(code: str) -> float:
-    short = code[2:]
-    if code.startswith('bj'):
-        return 0.295
-    if code.startswith('sz'):
-        if short.startswith('30') or short.startswith('20'):
-            return 0.195
-        return 0.095
-    if code.startswith('sh'):
-        if short.startswith('688'):
-            return 0.195
-        return 0.095
-    return 0.095
+    short = norm_code(code)
+    if short.startswith("920") or short.startswith("8"):
+        return 0.295                      # 北交所
+    if short.startswith("688") or short.startswith("300") or short.startswith("301") or short.startswith("200"):
+        return 0.195                      # 科创板 / 创业板 / 中小板
+    return 0.095                          # 沪深主板
 
 
 def get_board(code: str) -> str:
-    short = code[2:]
-    if code.startswith('bj'):
-        return 'bj'
-    if code.startswith('sz') and short.startswith('300'):
-        return 'sz300'
-    if code.startswith('sh') and short.startswith('688'):
-        return 'sh688'
-    if code.startswith('sh') and (short.startswith('60') or short.startswith('90')):
-        return 'sh_main'
-    if code.startswith('sz') and short.startswith('00'):
-        return 'sz_main'
-    return 'other'
+    short = norm_code(code)
+    if short.startswith("920") or short.startswith("8"):
+        return "bj"
+    if short.startswith("688"):
+        return "sh688"
+    if short.startswith("300") or short.startswith("301"):
+        return "sz300"
+    if short.startswith("60") or short.startswith("90"):
+        return "sh_main"
+    if short.startswith("00") or short.startswith("20") or short.startswith("30"):
+        return "sz_main"
+    return "other"
 
 
 def parse_daily(fp: Path) -> pd.DataFrame | None:
@@ -189,6 +202,69 @@ def extract_factors_at_date(df_full: pd.DataFrame, factors: pd.DataFrame,
     return out
 
 
+def cross_section_mode(start: str, end: str, limit: int = 0):
+    """--cross-section：在调仓日（周五）构建全市场截面因子快照（long 格式落盘）。
+
+    复用 quant/multifactor.factors 的五维因子与 z-score，默认事件驱动逻辑不变。
+    落盘 data/factors/cross_section_YYYYMMDD.parquet（date,code,factor,z），
+    并输出关键因子截面覆盖率中位数（<0.6 的因子在合成中将被剔除）。
+    """
+    sys.path.insert(0, str(ROOT))
+    from quant.multifactor.factors import (build_factor_panel, zscore_panel,
+                                           load_lhb_trailing, compute_stock_raw, parse_daily)
+    from quant.multifactor.valuation_data import ValuationProvider, ValuationConfig
+
+    files = sorted(PARQUET.glob("*.parquet"))
+    if limit:
+        files = files[:limit]
+    cache: dict = {}
+    for fp in files:
+        code = fp.stem
+        df = parse_daily(fp)
+        if df is None or len(df) < 190:
+            continue
+        cache[code] = compute_stock_raw(df, code)
+    print(f"[{datetime.now():%H:%M:%S}] 载入 {len(cache)} 只因子序列")
+
+    lhb = load_lhb_trailing()
+    valp = ValuationProvider(ValuationConfig(mode="auto"))
+    rbdates = pd.date_range(start, end, freq="W-FRI")
+    rows, coverages = [], []
+    t0 = time.time()
+    for i, d in enumerate(rbdates):
+        panel = build_factor_panel(cache, d, lhb, valp)
+        if valp.mode != "proxy":
+            panel = panel.drop(columns=["val_proxy"], errors="ignore")
+        keep = panel.dropna(subset=["mom_60d", "zt_density_20d", "fundflow_divergence_20d"])
+        if valp.mode == "proxy":
+            keep = keep.dropna(subset=["val_proxy"])
+        else:
+            keep = keep.dropna(subset=["pe_ttm", "pb_mrq"], how="all")
+        if keep.empty:
+            continue
+        coverages.append(keep.notna().mean())
+        z = zscore_panel(keep)
+        for code, row in z.iterrows():
+            for fac, v in row.items():
+                if pd.notna(v):
+                    rows.append((str(d)[:10], code, fac, float(v)))
+        if i % 20 == 0:
+            print(f"  [{i}/{len(rbdates)}] {d:%Y-%m-%d} 覆盖 {len(keep)} 只")
+    out = pd.DataFrame(rows, columns=["date", "code", "factor", "z"])
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    fp_out = OUT_DIR / f"cross_section_{pd.Timestamp.now():%Y%m%d}.parquet"
+    out.to_parquet(fp_out)
+    print(f"[{datetime.now():%H:%M:%S}] 快照落盘: {fp_out}  ({len(out):,} 行)")
+    if coverages:
+        cov = pd.DataFrame(coverages).median().sort_values()
+        print("  关键因子截面覆盖率中位数（<0.6 将剔除）:")
+        for k, v in cov.items():
+            flag = "✗" if v < 0.6 else "✓"
+            print(f"    {flag} {k}: {v:.2f}")
+    print(f"  耗时 {time.time() - t0:.0f}s")
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--limit', type=int, default=0, help='仅处理前 N 只股票（验证用）')
@@ -197,16 +273,21 @@ def main():
     parser.add_argument('--signal-offset', type=int, default=0,
                         help='提前 N 日提取因子（避免 leakage，默认 0）')
     parser.add_argument('--only-pos', action='store_true', help='只算正样本')
+    parser.add_argument('--cross-section', action='store_true',
+                        help='截面快照模式：调仓日（周五）构建全市场五维因子 long 快照落盘')
+    parser.add_argument('--cs-start', default='2020-01-01', help='--cross-section 起始日')
+    parser.add_argument('--cs-end', default='2026-10-14', help='--cross-section 结束日')
     args = parser.parse_args()
+
+    if args.cross_section:
+        cross_section_mode(args.cs_start, args.cs_end, args.limit)
+        return
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
 
     # 加载股票清单
     name_map = json.load(open(ALL_STOCKS))
-    short_to_codes = {}
-    for fp in PARQUET.glob('*.parquet'):
-        short_to_codes.setdefault(fp.stem[2:], []).append(fp.stem)
 
     # ST 集合
     st_set = set()
@@ -224,7 +305,7 @@ def main():
     pos_df = pos_df[pos_df['start_date'] >= pd.Timestamp(args.start_date)].reset_index(drop=True)
     print(f'  正样本（start_date >= {args.start_date}）: {len(pos_df):,} 笔')
 
-    files = sorted(PARQUET.glob('*.parquet'))
+    files = sorted(p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name)
     if args.limit > 0:
         files = files[:args.limit]
         codes_in_files = set(f.stem for f in files)
@@ -248,7 +329,7 @@ def main():
             continue
         try:
             factors = calc_window_factors(df_full, code)
-        except Exception as e:
+        except Exception:
             continue
         cache[code] = (df_full, factors)
 
@@ -260,10 +341,10 @@ def main():
             if feat is None:
                 continue
             feat['code'] = code
-            feat['name'] = name_map.get(code[2:], '?')
+            feat['name'] = name_map.get(norm_code(code), '?')
             feat['signal_date'] = row['start_date']
             feat['label'] = 1
-            feat['is_st'] = code[2:] in st_set
+            feat['is_st'] = norm_code(code) in st_set
             feat['board'] = get_board(code)
             feat['limit'] = get_limit(code)
             feat['pct_change_20d_actual'] = float(row['pct_change'])
@@ -296,7 +377,7 @@ def main():
 
             for code in sampled:
                 if code not in cache:
-                    fp = PARQUET / f'{code}.parquet'
+                    fp = resolve_parquet(code)
                     df_full = parse_daily(fp)
                     if df_full is None or len(df_full) < 60:
                         continue
@@ -312,10 +393,10 @@ def main():
                 if feat is None:
                     continue
                 feat['code'] = code
-                feat['name'] = name_map.get(code[2:], '?')
+                feat['name'] = name_map.get(norm_code(code), '?')
                 feat['signal_date'] = pos_date
                 feat['label'] = 0
-                feat['is_st'] = code[2:] in st_set
+                feat['is_st'] = norm_code(code) in st_set
                 feat['board'] = get_board(code)
                 feat['limit'] = get_limit(code)
                 feat['pct_change_20d_actual'] = np.nan

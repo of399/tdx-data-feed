@@ -17,8 +17,7 @@ import argparse
 import re
 
 import pandas as pd
-
-from plan_e_backtest import backtest, get_first_double_date, load_double_up
+from plan_e_backtest import backtest, load_double_up
 
 THETA = 0.02
 

@@ -37,7 +37,7 @@ WINDOW = 5
 RANDOM_SEED = 42
 
 # 涨停限制与 18 维特征：单一数据源见 tdxfeed/features_5d（与 predict.py 共用）
-from _common import compute_window_features, get_limit  # noqa: E402
+from _common import compute_window_features  # noqa: E402
 
 
 def load_one(code: str) -> pd.DataFrame:
@@ -112,7 +112,7 @@ def build_dataset():
 
     # 2. 负样本（随机抽取同等数量）
     np.random.seed(RANDOM_SEED)
-    all_files = list(PARQUET.glob('*.parquet'))
+    all_files = [p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name]
     neg_samples = []
     target_neg = len(pos_df)
 

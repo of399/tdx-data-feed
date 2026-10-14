@@ -16,8 +16,7 @@ import argparse
 import re
 
 import pandas as pd
-
-from plan_e_backtest import (backtest, get_first_double_date, load_double_up)
+from plan_e_backtest import backtest, get_first_double_date, load_double_up
 
 THETA = 0.02
 
@@ -107,7 +106,7 @@ def main():
         print(_row(k, m))
 
     # walk-forward：按事件年拆分
-    print(f"\n# Walk-forward（按翻倍事件年份；2024-2026 与模型训练期重合）\n")
+    print("\n# Walk-forward（按翻倍事件年份；2024-2026 与模型训练期重合）\n")
     print("| 年份 | 模式 | 笔数 | 胜率 | 均收益 | 中位收益 | 累计 | SL |")
     print("|------|------|------|------|--------|----------|------|----|")
     for yr in sorted(bt["year"].unique()):

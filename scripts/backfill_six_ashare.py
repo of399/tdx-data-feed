@@ -18,6 +18,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
+
 from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.writers import Writers
@@ -49,7 +50,7 @@ def main():
                 if b:
                     bars, used = b, name
                     break
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 print(f"  [{sym}] {name} 失败: {e!s}")
 
         if not bars:

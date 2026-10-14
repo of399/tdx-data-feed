@@ -17,7 +17,6 @@ import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
@@ -299,8 +298,8 @@ def simulate(args):
     md.append('---')
     md.append('')
     md.append(f'明细: `data/plan_e/v3_simulate_trades_{datetime.now():%Y%m%d_%H%M}.csv`  ')
-    md.append(f'权益曲线: `data/plan_e/v3_simulate_equity.csv`  ')
-    md.append(f'脚本: `scripts/v3_simulate.py`  ')
+    md.append('权益曲线: `data/plan_e/v3_simulate_equity.csv`  ')
+    md.append('脚本: `scripts/v3_simulate.py`  ')
 
     # 写文件
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -316,7 +315,7 @@ def simulate(args):
     print(f'\n报告: {report_fp}')
     print(f'明细: {trades_fp}')
     print(f'权益: {equity_fp}')
-    print(f'\n=== 关键数字 ===')
+    print('\n=== 关键数字 ===')
     print(f'最终权益: ¥{final_equity:,.0f} ({total_ret:+.2f}%)')
     print(f'最大回撤: {max_dd:.2f}%')
     print(f'交易笔数: {n_trades}, 胜率: {win_rate:.1f}%')

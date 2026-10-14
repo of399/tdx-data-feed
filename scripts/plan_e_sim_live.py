@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -33,7 +32,7 @@ import pandas as pd
 
 # 仓库根 + 单一数据源导入桥
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import compute_window_features, compute_window_features_extended  # noqa: E402
+from _common import compute_window_features, compute_window_features_extended
 
 ROOT = Path(__file__).parent.parent
 # 显式把项目根加入 sys.path，确保 `import tdxfeed`（如 freshness）在直接运行时可用。
@@ -214,7 +213,7 @@ def _preload(codes: list[str], max_workers: int) -> dict[str, pd.DataFrame]:
 
 def _features_from_cache(code_dfs: dict[str, pd.DataFrame], cutoff: pd.Timestamp, use_extended: bool = False) -> list[dict]:
     """用缓存的 df + cutoff 日期计算所有 code 的 18/26 维特征。"""
-    from predict import _enrich_market_features, _enrich_industry_features
+    from predict import _enrich_industry_features, _enrich_market_features
     feats = []
     cutoff_str = pd.Timestamp(cutoff).strftime("%Y-%m-%d")
     for code, df_full in code_dfs.items():
@@ -320,7 +319,7 @@ def main():
     args = parser.parse_args()
 
     if not args.no_freshness_check:
-        from tdxfeed.freshness import require_fresh  # noqa: E402
+        from tdxfeed.freshness import require_fresh
         require_fresh(max_age_days=2)
 
     import lightgbm as lgb

@@ -28,7 +28,6 @@
 - data/plan_e/v3_early_test_candidates_*.csv
 """
 import argparse
-import json
 from datetime import datetime
 from pathlib import Path
 
@@ -211,7 +210,7 @@ def main():
     md.append('')
     md.append(f'- **训练期事件数**: {result["train_top_n"]:,}（Top {args.top_pct*100:.0f}%）')
     md.append(f'- **训练期胜率（正样本率）**: {result["train_win_rate"]*100:.2f}%')
-    md.append(f'- **基准胜率（随机 1:1）**: 50.00%')
+    md.append('- **基准胜率（随机 1:1）**: 50.00%')
     md.append(f'- **提升**: +{(result["train_win_rate"]-0.5)*100:.2f}pp')
     md.append('')
     md.append('## 三、验证期结果（关键）')
@@ -274,9 +273,9 @@ def main():
     md.append('')
     md.append('---')
     md.append('')
-    md.append(f'输出脚本: `scripts/plan_e_v3_early_backtest.py`  ')
-    md.append(f'因子矩阵: `data/factors/event_factors.parquet`  ')
-    md.append(f'显著性报告: `data/factor_significance_report.md`  ')
+    md.append('输出脚本: `scripts/plan_e_v3_early_backtest.py`  ')
+    md.append('因子矩阵: `data/factors/event_factors.parquet`  ')
+    md.append('显著性报告: `data/factor_significance_report.md`  ')
 
     out_fp = OUT_DIR / 'v3_early_backtest_report.md'
     out_fp.write_text('\n'.join(md), encoding='utf-8')

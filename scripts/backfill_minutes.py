@@ -20,11 +20,9 @@
 """
 import argparse
 import json
-import os
 import re
 import sys
 import time
-import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -46,7 +44,7 @@ PREFIX_BY_START = {
 def daily_prefix_map():
     """从 data/parquet/daily/ 实际文件名推断每个 6 位代码的市场前缀"""
     m = {}
-    for p in (OUT / 'daily').glob('*.parquet'):
+    for p in (x for x in (OUT / 'daily').glob('*.parquet') if '.bak' not in x.name):
         s = p.stem
         m_pat = re.match(r'^(sh|sz|bj)(\d{6})$', s)
         if m_pat:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 方案 E：翻倍当日跟随策略 - 回测 + 实盘信号生成（增强版 v2）
 ==============================================================
@@ -72,7 +71,6 @@
 import argparse
 import sys
 import warnings
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -91,7 +89,6 @@ REAL_TRADES_CSV = ROOT / 'data' / 'double_up' / 'real_trades.csv'
 
 # 统一日期解析：单一数据源见 tdxfeed/date_utils.parse_date
 from _common import parse_date  # noqa: E402
-
 
 _PARQUET_CACHE: dict[str, pd.DataFrame] = {}
 
@@ -309,7 +306,7 @@ def backtest(double_up: pd.DataFrame,
         min_t_pct = 0.0
         min_t_vol_ratio = 0.0
         if verbose:
-            print(f"  ⚠ v1 模式：无过滤")
+            print("  ⚠ v1 模式：无过滤")
 
     if verbose:
         print(f"  信号过滤: T+1 涨幅 ≥ {min_t_pct*100:.1f}% & 量比 ≥ {min_t_vol_ratio:.1f}")
@@ -975,7 +972,7 @@ def run_walk_forward_rt(double_up: pd.DataFrame, hold: int, tp: float, sl: float
         oos_events = events[events['yr'] == T]
         if oos_events.empty:
             continue
-        n_train = int(len(train_events))
+        n_train = len(train_events)
         sel = select_params(train_events) if n_train >= MIN_TRAIN else None
         if sel is None:
             sel = (hold, tp, sl)  # 冷启动/样本不足 → 默认参数
@@ -1308,6 +1305,14 @@ def main():
                         help='实盘样本分析：消费 data/double_up/real_trades.csv（journal 回灌），'
                              '按观测收益跑 --by-year / 滚动窗口，沿用 n≥30 显著性闸口')
     parser.add_argument('--no-freshness-check', action='store_true', help='跳过数据新鲜度校验')
+    parser.add_argument('--mf', action='store_true',
+                        help='多因子组合回测模式（截面五维因子 + ICIR 合成 + ERC 风险预算 + 全成本），调用 quant/multifactor')
+    parser.add_argument('--mf-limit', type=int, default=0, help='--mf 仅前 N 只股票（冒烟用）')
+    parser.add_argument('--mf-valuation-mode', default='auto', choices=['proxy', 'real', 'auto'],
+                        help='--mf 估值模式：proxy 代理 / real 真实 / auto 自动')
+    parser.add_argument('--mf-top-n', type=int, default=30, help='--mf 持仓数量')
+    parser.add_argument('--mf-start', default='2020-01-01', help='--mf 回测起始日')
+    parser.add_argument('--mf-end', default='2026-10-14', help='--mf 回测结束日')
     args = parser.parse_args()
 
     if not args.no_freshness_check:
@@ -1318,31 +1323,51 @@ def main():
     slippage = 0.0 if args.no_cost else args.slippage
     bj_slippage = 0.0 if args.no_cost else args.bj_slippage
 
+    # ---- 多因子组合回测模式（与事件驱动方案 E 互不干扰）----
+    if args.mf:
+        sys.path.insert(0, str(ROOT))
+        from quant.multifactor.factors import MFConfig
+        from quant.multifactor.engine import run_mf_backtest
+        cfg = MFConfig(start=args.mf_start, end=args.mf_end, top_n=args.mf_top_n,
+                       valuation_mode=args.mf_valuation_mode, limit=args.mf_limit)
+        print("=== 多因子组合回测 (multifactor v1) ===")
+        print(f"  参数: top_n={cfg.top_n} valuation={cfg.valuation_mode} "
+              f"range={cfg.start}~{cfg.end} limit={cfg.limit}")
+        df, metrics = run_mf_backtest(cfg)
+        print(f"  调仓次数: {metrics.get('n_rebalances')}  股票池: {metrics.get('universe_size')}  "
+              f"估值模式: {metrics.get('valuation_mode')}")
+        print(f"  年化: {metrics.get('ann_ret', 0)*100:.2f}%  夏普: {metrics.get('sharpe', 0):.2f}  "
+              f"回撤: {metrics.get('max_dd', 0)*100:.2f}%  IC均值: {metrics.get('ic_mean', 0):.3f}  "
+              f"ICIR: {metrics.get('icir_overall', 0):.3f}")
+        print(f"  输出: {OUTPUT_DIR}")
+        print("=== ✅ 完成 ===")
+        return
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-    print(f"=== 方案 E：翻倍当日跟随策略 (v2) ===")
+    print("=== 方案 E：翻倍当日跟随策略 (v2) ===")
     print(f"  时间: {datetime.now().isoformat(timespec='seconds')}")
     print(f"  参数: hold={args.hold} tp={args.tp} sl={args.sl}")
     if fee + slippage > 0:
         print(f"  成本: 佣金 {fee*100:.3f}% + 滑点 {slippage*100:.3f}%（双边 {(fee+slippage)*2*100:.3f}%）")
     else:
-        print(f"  成本: 关闭（净价）")
+        print("  成本: 关闭（净价）")
     if args.no_filter:
-        print(f"  模式: v1 旧规则（无过滤）")
+        print("  模式: v1 旧规则（无过滤）")
 
     # 加载翻倍样本
-    print(f"\n[1/3] 加载翻倍样本...")
+    print("\n[1/3] 加载翻倍样本...")
     double_up = load_double_up()
 
     if args.today:
-        print(f"\n[2/3] 生成今日信号...")
+        print("\n[2/3] 生成今日信号...")
         sig = generate_today_signals(double_up)
         if sig.empty:
-            print(f"  (今日无触发信号)")
+            print("  (今日无触发信号)")
         else:
             sig = sig.drop(columns=['daily'], errors='ignore')
-            fp = OUTPUT_DIR / f'plan_e_today.csv'
+            fp = OUTPUT_DIR / 'plan_e_today.csv'
             sig.to_csv(fp, index=False, encoding='utf-8-sig')
             print(f"  ✓ {fp}")
             print(sig[['code', 'signal_date', 't1_pct', 't1_vol_ratio']].to_string(index=False))
@@ -1350,7 +1375,7 @@ def main():
 
     # 参数敏感性扫描
     if args.sensitivity:
-        print(f"\n[2/3] 参数敏感性扫描（grid）...")
+        print("\n[2/3] 参数敏感性扫描（grid）...")
         md = run_sensitivity(double_up, fee, slippage)
         fp_md = OUTPUT_DIR / f'plan_e_sensitivity_{ts}.md'
         header = f"# 方案 E 参数敏感性扫描 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
@@ -1358,12 +1383,12 @@ def main():
                   f"生成者：plan_e_backtest.py\n模型版本：v2\n数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
         fp_md.write_text(header + md + footer, encoding='utf-8')
         print(f"  ✓ MD: {fp_md.name}")
-        print(f"\n=== ✅ 完成 ===")
+        print("\n=== ✅ 完成 ===")
         return
 
     # 沪深/北交所分层回测
     if args.stratify:
-        print(f"\n[2/3] 沪深/北交所分层回测...")
+        print("\n[2/3] 沪深/北交所分层回测...")
         md = run_stratify(double_up, args.hold, args.tp, args.sl, args.no_filter, fee, slippage)
         fp_md = OUTPUT_DIR / f'plan_e_stratify_{ts}.md'
         header = f"# 方案 E 分层回测 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
@@ -1371,12 +1396,12 @@ def main():
                   f"生成者：plan_e_backtest.py\n模型版本：v2\n数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
         fp_md.write_text(header + md + footer, encoding='utf-8')
         print(f"  ✓ MD: {fp_md.name}")
-        print(f"\n=== ✅ 完成 ===")
+        print("\n=== ✅ 完成 ===")
         return
 
     # 按年份分层回测
     if args.by_year:
-        print(f"\n[2/3] 按年份分层回测...")
+        print("\n[2/3] 按年份分层回测...")
         md = run_by_year(double_up, args.hold, args.tp, args.sl, args.no_filter, fee, slippage)
         fp_md = OUTPUT_DIR / f'plan_e_by_year_{ts}.md'
         header = f"# 方案 E 按年份分层回测 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
@@ -1384,12 +1409,12 @@ def main():
                   f"生成者：plan_e_backtest.py\n模型版本：v2\n数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
         fp_md.write_text(header + md + footer, encoding='utf-8')
         print(f"  ✓ MD: {fp_md.name}")
-        print(f"\n=== ✅ 完成 ===")
+        print("\n=== ✅ 完成 ===")
         return
 
     # walk-forward 扩展窗口滚动验证（固定参数）
     if args.walk_forward:
-        print(f"\n[2/3] walk-forward 滚动验证...")
+        print("\n[2/3] walk-forward 滚动验证...")
         md = run_walk_forward(double_up, args.hold, args.tp, args.sl, args.no_filter, fee, slippage, bj_slippage)
         fp_md = OUTPUT_DIR / f'plan_e_walkforward_{ts}.md'
         header = f"# 方案 E Walk-forward 滚动验证 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
@@ -1397,12 +1422,12 @@ def main():
                   f"生成者：plan_e_backtest.py\n模型版本：v2\n数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
         fp_md.write_text(header + md + footer, encoding='utf-8')
         print(f"  ✓ MD: {fp_md.name}")
-        print(f"\n=== ✅ 完成 ===")
+        print("\n=== ✅ 完成 ===")
         return
 
     # walk-forward 参数重选滚动验证（真 OOS，训练窗内重选参数）
     if args.retune:
-        print(f"\n[2/3] walk-forward 参数重选滚动验证（训练窗内重选最优参数 → OOS）...")
+        print("\n[2/3] walk-forward 参数重选滚动验证（训练窗内重选最优参数 → OOS）...")
         md = run_walk_forward_rt(double_up, args.hold, args.tp, args.sl, args.no_filter, fee, slippage, bj_slippage)
         tag = f"_bj{int(bj_slippage*1000)}" if bj_slippage > 0 else ""
         fp_md = OUTPUT_DIR / f'plan_e_wf_retune{tag}_{ts}.md'
@@ -1411,12 +1436,12 @@ def main():
                   f"生成者：plan_e_backtest.py\n模型版本：v2\n数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
         fp_md.write_text(header + md + footer, encoding='utf-8')
         print(f"  ✓ MD: {fp_md.name}")
-        print(f"\n=== ✅ 完成 ===")
+        print("\n=== ✅ 完成 ===")
         return
 
     # 实盘样本分析（journal 回灌 → data/double_up/real_trades.csv）
     if args.real:
-        print(f"\n[2/3] 实盘样本分析（观测收益，n≥30 显著性闸口）...")
+        print("\n[2/3] 实盘样本分析（观测收益，n≥30 显著性闸口）...")
         bt_real = _real_bt_from_csv(REAL_TRADES_CSV)
         md = "\n\n".join([run_by_year_real(bt_real), run_real_walk_forward(bt_real)])
         fp_md = OUTPUT_DIR / f'plan_e_real_{ts}.md'
@@ -1428,11 +1453,11 @@ def main():
                   f"数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
         fp_md.write_text(header + md + footer, encoding='utf-8')
         print(f"  ✓ MD: {fp_md.name}")
-        print(f"\n=== ✅ 完成 ===")
+        print("\n=== ✅ 完成 ===")
         return
 
     # 回测
-    print(f"\n[2/3] 回测...")
+    print("\n[2/3] 回测...")
     bt, daily = backtest(double_up, args.hold, args.tp, args.sl, no_filter=args.no_filter,
                        fee=fee, slippage=slippage)
     print(f"  完成: {len(bt)} 笔")
@@ -1443,7 +1468,7 @@ def main():
     bt = bt.drop(columns=['daily'], errors='ignore')
 
     # 输出
-    print(f"\n[3/3] 输出...")
+    print("\n[3/3] 输出...")
     mode = 'v1' if args.no_filter else 'v2'
     fp_csv = OUTPUT_DIR / f'plan_e_backtest_{mode}_{ts}.csv'
     bt.to_csv(fp_csv, index=False, encoding='utf-8-sig')
@@ -1467,7 +1492,7 @@ def main():
 
     # v1 vs v2 对比
     if args.compare and not args.no_filter:
-        print(f"\n[Bonus] v1 vs v2 对比...")
+        print("\n[Bonus] v1 vs v2 对比...")
         bt_v1, _ = backtest(double_up, args.hold, args.tp, args.sl, no_filter=True,
                            fee=fee, slippage=slippage)
         if not bt_v1.empty:
@@ -1484,7 +1509,7 @@ def main():
             print(f"  ✓ 对比: {fp_cmp.name}")
             print(md_cmp)
 
-    print(f"\n=== ✅ 完成 ===")
+    print("\n=== ✅ 完成 ===")
     print(f"  期望收益: {bt['return_pct'].mean()*100:.2f}%")
     print(f"  胜率: {(bt['return_pct']>0).mean()*100:.1f}%")
     print(f"  盈亏比: {abs(bt[bt['return_pct']>0]['return_pct'].mean()/bt[bt['return_pct']<=0]['return_pct'].mean()):.2f}")

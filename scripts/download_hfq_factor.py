@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """下载后复权因子（hfq）到 data/hfq_factor/{code}.parquet。
 
 【背景】

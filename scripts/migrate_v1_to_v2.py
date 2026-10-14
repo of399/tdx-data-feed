@@ -40,7 +40,7 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0, help="仅处理前 N 个异常文件（调试）")
     args = ap.parse_args()
 
-    files = sorted(DAILY_DIR.glob("*.parquet"))
+    files = sorted(p for p in DAILY_DIR.glob("*.parquet") if ".bak" not in p.name)
     to_migrate: list[Path] = []
     for p in files:
         try:

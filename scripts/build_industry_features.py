@@ -115,7 +115,7 @@ def main():
     print(f"  ret_minus_ind_5d: {sample['ret_minus_ind_5d']:.4f}")
     print(f"  ind_stock_count: {sample['ind_stock_count']}")
 
-    print(f"\n=== 完成 ===")
+    print("\n=== 完成 ===")
 
 
 if __name__ == "__main__":

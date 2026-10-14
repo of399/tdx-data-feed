@@ -21,7 +21,6 @@ import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
@@ -90,7 +89,7 @@ def calc_sentiment_factors(event_df, lhb_daily, jg_daily, windows=(5, 10, 20)):
             start = signal_date - timedelta(days=w * 2)
             mask = (lhb.index >= start) & (lhb.index <= signal_date)
             window = lhb[mask]
-            feats[f'lhb_appear_{w}d'] = int(len(window))
+            feats[f'lhb_appear_{w}d'] = len(window)
             feats[f'lhb_net_amt_{w}d'] = float(window['net_amt'].sum()) if 'net_amt' in window.columns and len(window) > 0 else 0.0
             if 'total_amt' in window.columns and window['total_amt'].sum() > 0:
                 feats[f'lhb_buy_ratio_{w}d'] = float(window['buy_amt'].sum() / window['total_amt'].sum())
@@ -143,7 +142,7 @@ def main():
     print(f'\n输出: {OUT_FP}')
 
     # 情绪因子在正负样本中的对比
-    print(f'\n===== 情绪因子正负样本对比 =====')
+    print('\n===== 情绪因子正负样本对比 =====')
     for c in sent_cols:
         pos = merged[merged['label']==1][c]
         neg = merged[merged['label']==0][c]

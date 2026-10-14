@@ -143,7 +143,7 @@ def list_codes(pattern: str | None = None, market: str | None = None,
         market: 'sh' / 'sz' / 'bj'（北交所）/ None
         has_data: True = 仅返回有 parquet 的
     """
-    files = list(DAILY_DIR.glob("*.parquet"))
+    files = [p for p in DAILY_DIR.glob("*.parquet") if ".bak" not in p.name]
     codes = [f.stem for f in files]
     if market:
         codes = [c for c in codes if c.startswith(market)]

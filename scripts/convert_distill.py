@@ -1,7 +1,9 @@
 """把蒸馏产物 data/distill/full.jsonl 转换为 LLaMA-Factory 训练集。
 用法: venv/bin/python scripts/convert_distill.py [--name stock_10k]
 """
-import json, os, argparse
+import argparse
+import json
+import os
 
 SRC = "/home/jiuben/tdx-data-feed/data/distill/full.jsonl"
 LF_DATA = "/home/workbuddy/lf_project/data"

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """scripts/eval_signal_forward.py — 信号模型时序前向横向评测
 
 背景
@@ -156,7 +155,7 @@ def main() -> None:
     topn = [int(x) for x in args.topn.split(",")]
     cutoff = pd.Timestamp(args.cutoff)
 
-    print(f"=== 信号模型时序前向评测 ===")
+    print("=== 信号模型时序前向评测 ===")
     print(f"  test 窗口: signal_date >= {cutoff.date()}")
     print(f"  Top-N: {topn}\n")
 
@@ -202,7 +201,7 @@ def write_report(df: pd.DataFrame, cols: list[str], cutoff: pd.Timestamp,
         f.write(f"# 信号模型时序前向横向评测 ({ts})\n\n")
         f.write(f"- **test 窗口**: signal_date >= {cutoff.date()}\n")
         f.write(f"- **候选数**: {len(df)}\n")
-        f.write(f"- **统一真实目标**: `hypothetical_pnl`(TP+30%/SL-10%/HOLD10d)\n")
+        f.write("- **统一真实目标**: `hypothetical_pnl`(TP+30%/SL-10%/HOLD10d)\n")
         f.write(f"- **随机基线均 PnL**: {random_pnl:+.4f}\n\n")
 
         f.write("## 📊 核心指标(按 long_short 降序)\n\n")
@@ -240,9 +239,9 @@ def write_report(df: pd.DataFrame, cols: list[str], cutoff: pd.Timestamp,
 
         f.write("## 🔧 下一步建议\n\n")
         f.write(f"- 候选最优(按 long_short): **{winner}**。\n")
-        f.write(f"- 若为分类模型:直接切换 `predict.py` 的 `MODEL_FILE` 为该模型并验证产出。\n")
-        f.write(f"- 若为回归模型:为 `predict.py` 增加回归模式(Top-N 排序 + PnL 语义统计)后部署。\n")
-        f.write(f"- 部署后跑一次 `predict.py` 对比 Top picks,并接入方案E 实盘 journal 观察真实 PnL。\n\n")
+        f.write("- 若为分类模型:直接切换 `predict.py` 的 `MODEL_FILE` 为该模型并验证产出。\n")
+        f.write("- 若为回归模型:为 `predict.py` 增加回归模式(Top-N 排序 + PnL 语义统计)后部署。\n")
+        f.write("- 部署后跑一次 `predict.py` 对比 Top picks,并接入方案E 实盘 journal 观察真实 PnL。\n\n")
         f.write("---\n\n")
         f.write(f"生成时间:{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write("生成者:scripts/eval_signal_forward.py\n")

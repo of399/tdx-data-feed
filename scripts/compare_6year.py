@@ -56,7 +56,7 @@ def run_sim_live(model_path: Path, limit_codes: int) -> tuple[Path, float]:
     proc = subprocess.run(cmd, cwd=str(ROOT / "scripts"), capture_output=True, text=True)
     dt = time.time() - t0
     if proc.returncode != 0:
-        print(f"  ❌ sim_live failed:", proc.stderr[-500:])
+        print("  ❌ sim_live failed:", proc.stderr[-500:])
         return None, dt
     # 输出文件名形如 plan_e_sim_live_YYYYMMDD_HHMMSS.md
     md_files = sorted(OUT_DIR.glob("plan_e_sim_live_*.md"), key=lambda p: p.stat().st_mtime)
@@ -261,12 +261,12 @@ def main():
         md, dt = run_sim_live(fp, limit)
         timing[name] = dt
         if md is None:
-            print(f"  ❌ 失败\n")
+            print("  ❌ 失败\n")
             continue
         print(f"  sim_live 耗时: {dt:.0f}s")
         data = parse_sim_live(md)
         results[name] = data
-        if "overall" in data and data["overall"]:
+        if data.get("overall"):
             o = data["overall"]
             print(f"  6 年: {o.get('trades', '?')} 笔, 胜率 {o.get('win_rate', 0):.1f}%, "
                   f"平均收益 {o.get('avg_pnl', 0):+.2f}%, 累计 {o.get('cum_pnl', 0):+.1f}%")
@@ -302,7 +302,7 @@ def main():
     print(f"PNG: {png_path}")
 
     print("\n=== 完成 ===")
-    print(f"耗时统计:")
+    print("耗时统计:")
     for n, t in timing.items():
         print(f"  {n:20s} {t:.0f}s")
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 v5/v6/v7 推理对标（F1）
   - 生成质量：BLEU(sacreBLEU) + ROUGE-1/2/L，对比 train/data/test.jsonl 的 output 真值
@@ -14,6 +13,7 @@ v5/v6/v7 推理对标（F1）
 输出: data/bench_v567.json + 终端对比表(markdown)
 """
 from __future__ import annotations
+
 import argparse
 import json
 import random
@@ -57,6 +57,7 @@ def call_ollama(model: str, prompt: str, timeout: int = 600) -> tuple[str, float
 
 # 兼容 py<3.11 的 urllib 引用
 import urllib.request as _urllib
+
 urllib_request_payload = lambda p: _urllib.Request(
     f"{OLLAMA_URL}/api/generate", data=json.dumps(p).encode(),
     headers={"Content-Type": "application/json"})
@@ -107,8 +108,8 @@ def build_input_from_rows(rows) -> str:
 
 def daily_tail(code: str, end_idx: int | None = None, window: int = 20):
     """返回 (last_date, input_json, df_tail) 或 None。end_idx 指定窗口末尾行号。"""
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
+    for cand in (code, f"sh{code}", f"sz{code}", f"bj{code}"):
+        p = PARQUET_DIR / f"{cand}.parquet"
         if p.exists():
             df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
             df = df.sort_values("date").reset_index(drop=True)
@@ -173,7 +174,7 @@ def load_bleu_samples(n: int, seed: int = 42):
 def build_cls_samples(n: int, seed: int = 7, horizon: int = 120):
     """构造 (prompt, label) 标签集：窗口末尾后 horizon 交易日最大涨幅 >=100% 为 1。"""
     random.seed(seed)
-    files = [p for p in PARQUET_DIR.glob("*.parquet") if re.match(r"^(sh|sz|bj)\d{6}", p.stem)]
+    files = [p for p in PARQUET_DIR.glob("*.parquet") if re.match(r"^(sh|sz|bj)?\d{6}$", p.stem)]
     random.shuffle(files)
     out = []
     for p in files:

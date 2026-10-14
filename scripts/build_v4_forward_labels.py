@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import re
 from pathlib import Path

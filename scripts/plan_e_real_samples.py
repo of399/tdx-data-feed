@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """实盘 journal → 实盘样本集（回灌 data/double_up + 单独维护）。
 
 把 plan_e_journal.py 的逐笔交易（journal.csv 的 SELL 行 = 已实现交易）抽取为
@@ -152,7 +151,7 @@ def main():
             print(f"    {e}: {n} 笔")
     else:
         print("  （空样本集，待实盘成交后重跑本脚本累积）")
-    print(f"\n=== ✅ 完成 ===")
+    print("\n=== ✅ 完成 ===")
 
 
 if __name__ == '__main__':

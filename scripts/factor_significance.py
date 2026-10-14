@@ -15,7 +15,6 @@
 3. 显著性: p-value < 0.01 为强显著，< 0.05 为显著
 """
 import argparse
-import json
 from datetime import datetime
 from pathlib import Path
 
@@ -61,7 +60,7 @@ def calc_factor_significance(df: pd.DataFrame, factor_col: str) -> dict:
         q5_pos_rate = q_stats['pos_rate'].iloc[-1]
         q1_pos_rate = q_stats['pos_rate'].iloc[0]
         spread = q5_pos_rate - q1_pos_rate
-    except Exception as e:
+    except Exception:
         q_stats = None
         monotonic = False
         q5_pos_rate = q1_pos_rate = spread = np.nan
@@ -142,9 +141,9 @@ def main():
     md.append('# 因子显著性检验报告')
     md.append('')
     md.append(f'> 生成时间: {datetime.now():%Y-%m-%d %H:%M:%S}  ')
-    md.append(f'> 数据: `data/factors/event_factors.parquet`  ')
-    md.append(f'> 训练期: 2001-01 ~ 2026-08  ')
-    md.append(f'> 验证期: 2025-01 ~ 2026-09（21 个月）  ')
+    md.append('> 数据: `data/factors/event_factors.parquet`  ')
+    md.append('> 训练期: 2001-01 ~ 2026-08  ')
+    md.append('> 验证期: 2025-01 ~ 2026-09（21 个月）  ')
     md.append(f'> 正样本: {(df["label"]==1).sum():,}  负样本: {(df["label"]==0).sum():,}  ')
     md.append('')
     md.append('## 一、检验方法')
@@ -207,7 +206,7 @@ def main():
     md.append('')
     strong_factors = res_df[res_df['rank_ic_p'] < 0.01]['factor'].tolist()
     if strong_factors:
-        md.append(f'### 5.1 可入选因子（p < 0.01）')
+        md.append('### 5.1 可入选因子（p < 0.01）')
         md.append('')
         md.append('以下因子在 1:1 配对检验中显著：**' + ' / '.join(strong_factors[:10]) + '**')
         md.append('')
@@ -244,13 +243,13 @@ def main():
     md.append('---')
     md.append('')
     md.append(f'详细数值: `{DETAIL_FP.relative_to(ROOT)}`  ')
-    md.append(f'生成脚本: `scripts/factor_significance.py`  ')
+    md.append('生成脚本: `scripts/factor_significance.py`  ')
 
     REPORT_FP.write_text('\n'.join(md), encoding='utf-8')
     print(f'报告: {REPORT_FP}')
 
     # 控制台简短输出
-    print(f'\n=== Top 10 因子 (按 |RankIC| 排序) ===')
+    print('\n=== Top 10 因子 (按 |RankIC| 排序) ===')
     print(res_df[['factor', 'rank_ic', 'rank_ic_p', 'sig_level', 'monotonic', 'spread']].head(10).to_string(index=False))
 
 

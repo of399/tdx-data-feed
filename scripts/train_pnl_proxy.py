@@ -138,7 +138,7 @@ def train_regressor(df: pd.DataFrame, feature_cols: list[str], n_folds: int = 5,
       objective_alpha: huber 的 delta / quantile 的分位数
     """
     import lightgbm as lgb
-    from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+    from sklearn.metrics import mean_squared_error, r2_score
     from sklearn.model_selection import StratifiedKFold, train_test_split
 
     # 过滤 NaN(部分样本未来数据不足,无法算 hypothetical_pnl)
@@ -235,7 +235,7 @@ def main():
             valid_pnl = df["hypothetical_pnl"].notna().sum()
             print(f"\n[Phase 1] 复用 OUT_DATA PnL 列 ({valid_pnl} 有效 / {len(df)} 总)")
         else:
-            print(f"\n[Phase 1] 计算 hypothetical PnL (并行 8 进程)...")
+            print("\n[Phase 1] 计算 hypothetical PnL (并行 8 进程)...")
             t0 = datetime.now()
             df = attach_pnl(df, max_workers=8)
             valid_pnl = df["hypothetical_pnl"].notna().sum()
@@ -243,7 +243,7 @@ def main():
             print(f"  耗时: {(datetime.now()-t0).total_seconds():.0f}s")
             df.to_csv(OUT_DATA, index=False)
     else:
-        print(f"\n[Phase 1] 计算 hypothetical PnL (并行 8 进程)...")
+        print("\n[Phase 1] 计算 hypothetical PnL (并行 8 进程)...")
         t0 = datetime.now()
         df = attach_pnl(df, max_workers=8)
         valid_pnl = df["hypothetical_pnl"].notna().sum()
@@ -257,7 +257,7 @@ def main():
 
     # 检查 PnL 分布
     pnl_stats = df["hypothetical_pnl"].describe()
-    print(f"\n[PnL 分布]")
+    print("\n[PnL 分布]")
     print(pnl_stats)
 
     # 保存带 PnL 的训练数据
@@ -265,7 +265,7 @@ def main():
     print(f"\n  数据: {OUT_DATA}")
 
     # 训练
-    print(f"\n[Phase 2] LGBMRegressor 训练 (目标 = hypothetical_pnl)...")
+    print("\n[Phase 2] LGBMRegressor 训练 (目标 = hypothetical_pnl)...")
     print(f"  特征: {len(FEATURE_VPNL)} 维 (18 基础 + 2 greedy 选中)")
 
     # 决定模型保存路径
@@ -289,7 +289,7 @@ def main():
     print(f"\n  CV MSE: {metrics['cv_mse_mean']:.4f}  R²: {metrics['cv_r2_mean']:.4f}")
     print(f"  Test MSE: {metrics['test_mse']:.4f}  R²: {metrics['test_r2']:.4f}")
 
-    print(f"\n[特征重要性 Top 15]")
+    print("\n[特征重要性 Top 15]")
     for i, (k, v) in enumerate(metrics["importance"].head(15).items(), 1):
         tag = " **(NEW)**" if k in ["dist_to_5d_high", "amt_per_price"] else ""
         print(f"  {i:2d}. {k:22s} {v:.0f}{tag}")
@@ -306,14 +306,14 @@ def main():
         f.write("- PnL 代理: 训练目标 `E[PnL]` (R² / MSE 衡量)\n")
         f.write("- **PnL 代理直接对应 sim_live 平均收益(我们的真实目标)**\n\n")
         f.write("## 2. hypothetical_pnl 计算口径\n\n")
-        f.write(f"- T+1 open 入场\n")
-        f.write(f"- TP=+30%, SL=-10%, HOLD=10d\n")
+        f.write("- T+1 open 入场\n")
+        f.write("- TP=+30%, SL=-10%, HOLD=10d\n")
         f.write(f"- 含 {FEE*100:.2f}% 佣金 + {SLIP*100:.2f}% 滑点(双边)\n\n")
         if args_cli.loss_weight != 1.0:
             f.write(f"## 2.5 加亏权: 亏损样本 (y<0) sample_weight × {args_cli.loss_weight:.1f}\n\n")
             f.write(f"- 盈利样本 {metrics['n_pos']} 笔(权重 1.0)\n")
             f.write(f"- 亏损样本 {metrics['n_neg']} 笔(权重 {args_cli.loss_weight:.1f})\n")
-            f.write(f"- 目标: 让模型对亏损预测更敏感,在 Top N 选股中过滤「看似高 PnL 实则亏」的样本\n\n")
+            f.write("- 目标: 让模型对亏损预测更敏感,在 Top N 选股中过滤「看似高 PnL 实则亏」的样本\n\n")
         f.write("## 3. PnL 分布\n\n")
         f.write("| 统计 | 值 |\n|---|---|\n")
         for k in ["count", "mean", "std", "min", "25%", "50%", "75%", "max"]:
@@ -335,12 +335,12 @@ def main():
 
         f.write("\n## 6. 下一步\n\n")
         f.write("- 用此模型跑 sim_live(PnL 排序 vs 概率排序)\n")
-        f.write(f"- 若真实胜率/收益优于 v8(32.1% / -0.92%)与 vpnl(32.1% / -1.39%),可考虑上线\n")
+        f.write("- 若真实胜率/收益优于 v8(32.1% / -0.92%)与 vpnl(32.1% / -1.39%),可考虑上线\n")
         f.write(f"- 模型文件: `{model_out.name}`\n")
 
     print(f"\n  模型: {metrics['model_path']}")
     print(f"  报告: {report_path}")
-    print(f"\n=== 完成 ===")
+    print("\n=== 完成 ===")
 
 
 if __name__ == "__main__":

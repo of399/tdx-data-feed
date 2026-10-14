@@ -24,7 +24,6 @@ import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
@@ -325,9 +324,9 @@ def main():
     md.append('')
     md.append('---')
     md.append('')
-    md.append(f'明细: `data/plan_e/v3_simulate_rolling_windows.csv`  ')
-    md.append(f'权益: `data/plan_e/v3_simulate_rolling_equity.csv`  ')
-    md.append(f'脚本: `scripts/v3_simulate_rolling.py`  ')
+    md.append('明细: `data/plan_e/v3_simulate_rolling_windows.csv`  ')
+    md.append('权益: `data/plan_e/v3_simulate_rolling_equity.csv`  ')
+    md.append('脚本: `scripts/v3_simulate_rolling.py`  ')
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     report_fp = OUT_DIR / 'v3_simulate_rolling_summary.md'
@@ -339,7 +338,7 @@ def main():
     print(f'\n报告: {report_fp}')
     print(f'明细: {OUT_DIR / "v3_simulate_rolling_windows.csv"}')
     print(f'权益: {OUT_DIR / "v3_simulate_rolling_equity.csv"}')
-    print(f'\n=== 综合 ===')
+    print('\n=== 综合 ===')
     print(f'窗口数: {len(results)}')
     print(f'平均收益: {avg_return:+.2f}%')
     print(f'累计复利: {cumulative_return:+.2f}%')

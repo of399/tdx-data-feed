@@ -351,11 +351,16 @@ simulate:  ## 模拟交易（START=2026-08-27 END=2026-09-25 CAPITAL=100000）
 		--start $(START) --end $(END) --capital $(CAPITAL)
 
 # ============== 自动化调度 ==============
-timer-install:  ## 安装 systemd timer/path（复制到 user systemd）
+# ⚠️ 部署铁律：凡修改 systemd/ 目录下任何 *.service / *.timer / *.path 文件，提交后
+#    必须执行 `make timer-install`（将文件复制到 ~/.config/systemd/user/，即 systemd 实际加载目录），
+#    再 `systemctl --user daemon-reload`；对 *.path 还需 `restart <单元>.path` 重建 inotify 监视，
+#    对处于 start-limit-hit 的单元还需 `reset-failed`。否则 systemd 加载的仍是旧文件。
+#    漂移与限流会被 `make status` / `make canary` 的 obsidian 监控持续检测并告警。
+timer-install:  ## 安装 systemd timer/path（复制到 user systemd，凡改 systemd/ 必跑）
 	@echo "$(CYAN)▶ 复制 timer/service/path 到 user systemd$(NC)"
 	@mkdir -p $(USER_SYSTEMD)
 	@cp --remove-destination $(SYSTEMD_DIR)/*.service $(SYSTEMD_DIR)/*.timer $(SYSTEMD_DIR)/*.path $(USER_SYSTEMD)/
-	@echo "$(GREEN)✓ timer/path 已复制$(NC)"
+	@echo "$(GREEN)✓ timer/path 已复制（记得 daemon-reload + 必要时 restart/reset-failed）$(NC)"
 
 timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@echo "$(CYAN)▶ 重载 systemd$(NC)"
@@ -424,8 +429,18 @@ status:  ## 系统全状态（数据/模型/timer/canary）
 	@echo "$(YELLOW)$(BOLD)🏥 Canary:$(NC)"
 	@tail -1 $(LOGS)/canary.log 2>/dev/null || echo "  (无 canary 日志)"
 	@echo ""
+	@echo "$(YELLOW)$(BOLD)🔄 Obsidian 同步监控 (obsidian-sync):$(NC)"
+	@bash $(SCRIPTS)/verify_obsidian_systemd.sh --readonly || \
+		echo "$(RED)$(BOLD)⚠ obsidian-sync 监控异常：存在 FAIL（详见上方；漂移需 make timer-install，限流需 reset-failed）$(NC)"
+	@echo ""
 	@echo "$(YELLOW)$(BOLD)💾 磁盘:$(NC)"
 	@df -h /home | tail -1 | awk '{printf "  %s 已用 %s (%s)\n", $$2, $$3, $$5}'
+
+verify-obsidian:  ## 验证 obsidian-sync systemd 重载/部署（V0–V8，含触发测试）
+	@bash $(SCRIPTS)/verify_obsidian_systemd.sh
+
+verify-obsidian-quick:  ## 仅只读静态检查（V0–V4），用于日常
+	@bash $(SCRIPTS)/verify_obsidian_systemd.sh --readonly
 
 health: canary  ## 别名
 

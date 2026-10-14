@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -217,7 +216,7 @@ def main():
         if not_covered:
             print(f"  未覆盖股票(前 10): {not_covered}")
 
-    print(f"\n=== 完成 ===")
+    print("\n=== 完成 ===")
 
 
 if __name__ == "__main__":

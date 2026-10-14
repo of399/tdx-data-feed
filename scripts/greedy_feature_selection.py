@@ -112,7 +112,7 @@ def main():
     print(f"训练数据: {len(df)} 样本 × {len(df.columns)-3} 特征")
 
     # 基线 AUC (18 维)
-    print(f"\n[基线] 18 维基础特征 CV 评估...")
+    print("\n[基线] 18 维基础特征 CV 评估...")
     baseline_auc = cv_eval(df, FEATURE_BASE)
     print(f"  Baseline AUC: {baseline_auc:.4f}")
 
@@ -136,7 +136,7 @@ def main():
                 best_desc = desc
 
         if best_name is None:
-            print(f"  无特征带来提升,停止。")
+            print("  无特征带来提升,停止。")
             break
 
         delta = best_auc - current_auc
@@ -153,13 +153,13 @@ def main():
             print(f"  ΔAUC {delta:+.4f} < threshold {args.threshold}, 停止贪心。")
             break
 
-    print(f"\n=== 贪心完成 ===")
+    print("\n=== 贪心完成 ===")
     print(f"  最佳子集: {len(selected)} 维 (基线 + {len(selected)-18} 工程化)")
     print(f"  最终 AUC: {current_auc:.4f}")
     print(f"  相比基线: {current_auc - baseline_auc:+.4f}")
 
     # 训练最终模型
-    print(f"\n训练最终模型...")
+    print("\n训练最终模型...")
     test_auc, importance = train_final(df, selected, MODEL_OUT)
 
     # 保存最佳子集训练数据
@@ -180,7 +180,7 @@ def main():
             last = history[-1]
             f.write(f"| {last['step']} | {last['auc']:.4f} | {last['delta']:+.4f} | **{last['added']}** | {last['subset_size']} |\n")
 
-        f.write(f"\n## 2. 最终结果\n\n")
+        f.write("\n## 2. 最终结果\n\n")
         f.write(f"- 基线 AUC (18 维): {baseline_auc:.4f}\n")
         f.write(f"- 最佳 AUC ({len(selected)} 维): {current_auc:.4f}\n")
         f.write(f"- 总提升: **{current_auc - baseline_auc:+.4f}**\n")
@@ -197,11 +197,11 @@ def main():
         f.write("\n## 4. 对比\n\n")
         f.write("| 模型 | 特征数 | 5-fold CV AUC | Test AUC |\n|---|---:|---:|---:|\n")
         f.write(f"| v8 baseline (18 维) | 18 | {baseline_auc:.4f} | 0.7934 |\n")
-        f.write(f"| v9 全 26 维 | 26 | 0.8054 | 0.8138 |\n")
+        f.write("| v9 全 26 维 | 26 | 0.8054 | 0.8138 |\n")
         f.write(f"| **greedy 最佳子集** | **{len(selected)}** | **{current_auc:.4f}** | **{test_auc:.4f}** |\n")
 
     print(f"  报告: {report_path}")
-    print(f"\n=== 完成 ===")
+    print("\n=== 完成 ===")
 
 
 if __name__ == "__main__":

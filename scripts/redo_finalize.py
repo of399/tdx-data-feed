@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """单卡重跑 student(vs teacher) 对比，修正 loss，追加 §6 到 Obsidian 笔记。"""
-import json, os, time, re, glob
+import glob
+import json
+import os
+import re
+import time
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 NOTE = "/home/jiuben/StockVault/05-知识库/模型蒸馏与LoRA训练-2026-09-26.md"
 LF = "/home/workbuddy/lf_project"

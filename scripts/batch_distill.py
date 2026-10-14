@@ -1,6 +1,12 @@
-import json, os, time, re, argparse, torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+import argparse
+import json
+import os
+import re
+import time
+
+import torch
 from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 BASE = "/home/workbuddy/models/Qwen3-14B"
 ADAPTER = "/home/workbuddy/lf_project/output/stock_abc"

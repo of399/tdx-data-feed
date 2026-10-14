@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """单只股票技术面分析：用训练/蒸馏模型对指定标的做 K 线分析（仅模型输出，非投资建议）。"""
-import json, sys, time
+import json
+import sys
+import time
+
 import pandas as pd
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 PK = '/home/jiuben/tdx-data-feed/data/parquet/daily/'
 WINDOW = 20

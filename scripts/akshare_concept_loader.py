@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 scripts/akshare_concept_loader.py — 同花顺(THS)题材/概念板块数据加载
 
@@ -49,9 +48,9 @@ import argparse
 import json
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 import pandas as pd
 
@@ -81,7 +80,7 @@ def _retry(callable_fn: Callable[[], pd.DataFrame], name: str, max_attempts: int
                 print(f"  ⚠️ {name}: 缺少预期列 code/name (尝试 {attempt}/{max_attempts}); 实际列={list(df.columns)}")
                 continue
             return df
-        except Exception as e:  # noqa: BLE001 — 网络/解析异常统一重试
+        except Exception as e:
             wait = attempt ** 2  # 1, 4, 9
             print(f"  ❌ {name}: {type(e).__name__}: {e} (尝试 {attempt}/{max_attempts}, {wait}s 后重试)")
             if attempt < max_attempts:

@@ -47,7 +47,7 @@ def main():
 
     df = pd.read_csv(SOURCE)
     print(f"训练数据: {len(df)} 样本 × {len(df.columns)-3} 特征")
-    print(f"  含 industry_code 列(分组键,不入特征)")
+    print("  含 industry_code 列(分组键,不入特征)")
     df = clean_inf(df)
 
     df = attach_pnl_simple(df)
@@ -109,7 +109,7 @@ def main():
     print(f"\n  CV R²: {np.mean(fold_r2):.4f}  MAE: {np.mean(fold_mae):.4f}")
     print(f"  Test R²: {test_r2:.4f}  MAE: {test_mae:.4f}")
 
-    print(f"\n[Phase 2] 特征重要性 Top 25")
+    print("\n[Phase 2] 特征重要性 Top 25")
     new_feats = ["ind_ret_5d_avg", "ind_amt_avg_5d", "ind_pct_t1_avg", "ind_volatility_avg", "ind_stock_count", "ret_minus_ind_5d"]
     for i, (k, v) in enumerate(importance.head(25).items(), 1):
         tag = ""
@@ -140,7 +140,7 @@ def main():
         f.write("## 3. 训练结果\n\n")
         f.write(f"- 样本: **{len(df_clean)}**\n")
         f.write(f"- 特征: **{len(ALL_FEATURE_COLS)}** (原 26 + 6 akshare 申万行业)\n")
-        f.write(f"- objective: **Huber (alpha=0.5)**\n")
+        f.write("- objective: **Huber (alpha=0.5)**\n")
         f.write(f"- 5-fold CV R²: **{np.mean(fold_r2):.4f}** (MAE: {np.mean(fold_mae):.4f})\n")
         f.write(f"- Test R²: **{test_r2:.4f}** (MAE: {test_mae:.4f})\n\n")
 
@@ -167,7 +167,7 @@ def main():
 
     print(f"\n  模型: {MODEL_OUT}")
     print(f"  报告: {REPORT_OUT}")
-    print(f"\n=== 完成 ===")
+    print("\n=== 完成 ===")
 
 
 if __name__ == "__main__":

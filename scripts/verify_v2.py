@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """v2 治理端到端验证脚本（Step 6）。
 
 【目的】
@@ -30,7 +29,6 @@ import json
 import logging
 import subprocess
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -83,7 +81,7 @@ def file_count(d: Path) -> dict:
     """目录文件统计（含子目录）。"""
     if not d.exists():
         return {"exists": False, "files": 0}
-    files = list(d.glob("*.parquet"))
+    files = [p for p in d.glob("*.parquet") if ".bak" not in p.name]
     return {
         "exists": True,
         "files": len(files),

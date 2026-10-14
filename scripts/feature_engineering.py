@@ -35,8 +35,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import compute_window_features  # noqa: E402
-from find_d_signal_5d import load_one  # noqa: E402
+from _common import compute_window_features
+from find_d_signal_5d import load_one
 
 ROOT = Path(__file__).parent.parent
 SOURCE = ROOT / "data" / "double_up" / "d_signal_5d_features.csv"
@@ -143,7 +143,7 @@ def phase1_analyze(df_source: pd.DataFrame) -> tuple[dict, list, list]:
             if abs(corr.iloc[i, j]) > 0.7:
                 high_corr.append((FEATURE_BASE[i], FEATURE_BASE[j], float(corr.iloc[i, j])))
 
-    print(f"\n[高相关性对 |r|>0.7]")
+    print("\n[高相关性对 |r|>0.7]")
     for a, b, r in sorted(high_corr, key=lambda x: -abs(x[2])):
         print(f"  {a:18s} ~ {b:18s}  r={r:+.3f}")
 
@@ -259,7 +259,7 @@ def phase3_train_cv(df_v9: pd.DataFrame, n_folds: int = 5) -> tuple[float, float
     std_auc = float(np.std(fold_aucs))
     print(f"\n  CV 平均 AUC: {mean_auc:.4f} ± {std_auc:.4f}")
 
-    print(f"\n  训练最终模型 (80/20 split)...")
+    print("\n  训练最终模型 (80/20 split)...")
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     model_final = lgb.LGBMClassifier(
         n_estimators=500, learning_rate=0.05, max_depth=6,
@@ -274,7 +274,7 @@ def phase3_train_cv(df_v9: pd.DataFrame, n_folds: int = 5) -> tuple[float, float
 
     avg_imp = sum(fold_imp) / len(fold_imp)
     avg_imp = avg_imp.sort_values(ascending=False)
-    print(f"\n  Top 20 特征重要性 (跨 fold 平均):")
+    print("\n  Top 20 特征重要性 (跨 fold 平均):")
     new_names = {n for n, _ in NEW_FEATURES}
     for i, (k, v) in enumerate(avg_imp.head(20).items(), 1):
         flag = " [NEW]" if k in new_names else ""

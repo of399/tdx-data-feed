@@ -12,10 +12,18 @@
 
 set -euo pipefail
 
-JSONL="/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx/trainer_log.jsonl"
-LOG="/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx/train.log"
-OUT_DIR="/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx"
+# 默认监控 v7 旧任务(qwen3-14b-tdx / tdx_lora.yaml)，行为不变。
+# 切换任务用环境变量，例如 v9 双卡训练：
+#   export TDX_TRAIN_CFG=tdx_v9_from_scratch.yaml
+#   export TDX_OUT_DIR=/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v9
+#   trainsh -w 5          # 实时进度
+#   trainsh -k            # 优雅停止(匹配该 CFG 的全部进程: wrapper+launcher+2 worker)
+# 可选 TDX_LOG 指定 tail -l 查看的日志(默认 $OUT_DIR/train.log)
 VENV_PY="/home/jiuben/tdx-data-feed/venv/bin/python"
+TDX_TRAIN_CFG="${TDX_TRAIN_CFG:-tdx_lora.yaml}"
+OUT_DIR="${TDX_OUT_DIR:-/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx}"
+JSONL="$OUT_DIR/trainer_log.jsonl"
+LOG="${TDX_LOG:-$OUT_DIR/train.log}"
 
 usage() {
     sed -n '2,12p' "$0"
@@ -23,20 +31,20 @@ usage() {
 }
 
 status() {
-    "$VENV_PY" << 'PYEOF'
+    TDX_OUT_DIR="$OUT_DIR" TDX_TRAIN_CFG="$TDX_TRAIN_CFG" "$VENV_PY" << 'PYEOF'
 import json, os, sys
 from datetime import datetime
 
-JSONL = "/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx/trainer_log.jsonl"
-OUT_DIR = "/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx"
+OUT_DIR = os.environ.get("TDX_OUT_DIR", "/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx")
+JSONL = os.path.join(OUT_DIR, "trainer_log.jsonl")
+CFG = os.environ.get("TDX_TRAIN_CFG", "tdx_lora.yaml")
 
-# 找训练进程
+# 找训练进程(匹配 llamafactory-cli + torchrun launcher + worker)
 import subprocess
-ps = subprocess.run(["pgrep", "-f", "llamafactory-cli train tdx_lora.yaml"],
-                     capture_output=True, text=True)
-pid_line = ps.stdout.strip().split('\n')[0] if ps.stdout.strip() else "—"
+ps = subprocess.run(["pgrep", "-af", CFG], capture_output=True, text=True)
+pid_lines = [l for l in ps.stdout.strip().split('\n') if l.strip()]
 print(f"=== 训练状态 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ===")
-print(f"  PID:          {pid_line}")
+print(f"  PID:          {pid_lines[0] if pid_lines else '—'}  (匹配进程 {len(pid_lines)} 个)")
 
 # 读 jsonl
 if not os.path.exists(JSONL):
@@ -49,13 +57,25 @@ if not lines:
     print(f"  状态:         初始化中")
     sys.exit(0)
 
-last = lines[-1]
-pct = last["percentage"]
-cur = last["current_steps"]
-total = last["total_steps"]
+train_recs = [l for l in lines if "loss" in l]
+eval_recs = [l for l in lines if "eval_loss" in l]
+
+if not train_recs:
+    # 尚未开始训练 step(初始 eval 阶段, jsonl 里只有 eval 记录, 无 loss 键)
+    print(f"  阶段:         初始评估中(尚未开始训练 step)")
+    if eval_recs:
+        ev = eval_recs[-1]
+        print(f"  eval_loss:    {ev.get('eval_loss'):.4f}")
+        print(f"  eval 进度:    {ev.get('current_steps','?')} / {ev.get('total_steps','?')}")
+    sys.exit(0)
+
+last = train_recs[-1]
+pct = last.get("percentage", 0.0)
+cur = last.get("current_steps", 0)
+total = last.get("total_steps", 0)
 loss = last["loss"]
-lr = last["lr"]
-epoch = last["epoch"]
+lr = last.get("lr", 0)
+epoch = last.get("epoch", 0)
 rem_str = last.get("remaining_time", "?")
 
 # 计算 ETA
@@ -75,10 +95,12 @@ print(f"  loss:         {loss:.4f}")
 print(f"  lr:           {lr:.2e}")
 print(f"  剩余:         {rem_str}")
 print(f"  ETA:          ~{eta_str}")
+if eval_recs:
+    print(f"  eval_loss:    {eval_recs[-1].get('eval_loss'):.4f}")
 
 # 5 步 trend
-if len(lines) >= 5:
-    losses = [l_["loss"] for l_ in lines[-5:]]
+if len(train_recs) >= 5:
+    losses = [l_["loss"] for l_ in train_recs[-5:]]
     trend = losses[-1] - losses[0]
     arrow = "↓" if trend < 0 else ("↑" if trend > 0 else "→")
     print(f"  5 步趋势:    {arrow} {trend:+.4f}  ({losses[0]:.4f} → {losses[-1]:.4f})")
@@ -106,18 +128,16 @@ plot() {
 
 kill_train() {
     local pid
-    pid=$(pgrep -f "llamafactory-cli train tdx_lora.yaml" | head -1)
+    pid=$(pgrep -f "$TDX_TRAIN_CFG" | head -1 || true)
     if [ -z "$pid" ]; then
-        echo "✗ 没有训练进程在跑"
+        echo "✗ 没有匹配 $TDX_TRAIN_CFG 的训练进程"
         exit 1
     fi
-    echo "优雅 kill PID $pid (TERM → 等 15s → KILL)"
-    kill -TERM "$pid"
+    echo "优雅 kill (匹配 $TDX_TRAIN_CFG): TERM → 等 15s → KILL"
+    pkill -TERM -f "$TDX_TRAIN_CFG" || true
     sleep 15
-    if ps -p "$pid" > /dev/null 2>&1; then
-        pkill -KILL -f "llamafactory-cli train tdx_lora.yaml"
-        pkill -KILL -f "torchrun.*tdx_lora"
-        pkill -KILL -f "llamafactory.launcher"
+    if pgrep -f "$TDX_TRAIN_CFG" > /dev/null 2>&1; then
+        pkill -KILL -f "$TDX_TRAIN_CFG" || true
         echo "✓ 强 KILL 完成"
     else
         echo "✓ SIGTERM 优雅退出"

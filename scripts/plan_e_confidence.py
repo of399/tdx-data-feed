@@ -18,8 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, "/home/jiuben/tdx-data-feed/scripts")
 sys.path.insert(0, "/home/jiuben/tdx-data-feed/training/eval")
-from llm_signal_plan_e import build_window  # noqa: E402
-from plan_e_backtest import backtest, load_double_up  # noqa: E402
+from llm_signal_plan_e import build_window
+from plan_e_backtest import backtest, load_double_up
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 OLLAMA_URL = "http://127.0.0.1:11434"

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 方案 E 实盘跟踪系统 v1
 =====================
@@ -408,7 +407,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
 
     # 汇总
     df_j = pd.DataFrame(journal_records)
-    print(f"\n=== 模拟交易汇总 ===")
+    print("\n=== 模拟交易汇总 ===")
     print(f"  初始资金: {capital:,.0f}")
     print(f"  期末资金: {pos['cash']:,.0f}")
     print(f"  总盈亏: {pos['cash'] - capital:+,.0f} ({(pos['cash']/capital-1)*100:+.2f}%)")
@@ -440,13 +439,13 @@ def mode_daily():
         print(f"\n  今日触发信号: {len(sig)} 只")
         print(sig[['code', 'signal_date', 't1_pct', 't1_vol_ratio']].to_string(index=False))
     else:
-        print(f"\n  今日无触发信号")
+        print("\n  今日无触发信号")
 
 
 def mode_status():
     """查看当前状态"""
     pos = load_positions()
-    print(f"=== 方案 E 状态 ===")
+    print("=== 方案 E 状态 ===")
     print(f"  现金: {pos['cash']:,.0f}")
     print(f"  持仓: {len(pos['positions'])} 只")
     if pos['positions']:

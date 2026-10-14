@@ -168,9 +168,9 @@ def main():
                 st_set.add(code.group(1))
     print(f"  ST 集合: {len(st_set)} 只")
 
-    files = sorted(PARQUET.glob('*.parquet'))
+    files = sorted(p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name)
     print(f"  parquet/daily 总数: {len(files)}")
-    print(f"  adj_factor 总数: {len(list(ADJ.glob('*.parquet')))}")
+    print(f"  adj_factor 总数: {len([p for p in ADJ.glob('*.parquet') if '.bak' not in p.name])}")
 
     full_st_set = set()
     for code_short in st_set:
@@ -179,7 +179,7 @@ def main():
                 full_st_set.add(f.stem)
                 break
 
-    print(f"\n开始筛选（仅扫有 adj_factor 的 {len(list(ADJ.glob('*.parquet')))} 只）...")
+    print(f"\n开始筛选（仅扫有 adj_factor 的 {len([p for p in ADJ.glob('*.parquet') if '.bak' not in p.name])} 只）...")
     all_hits = []
     scanned = 0
     no_adj = 0
@@ -189,7 +189,7 @@ def main():
         short = re.sub(r'^(sh|sz|bj)', '', f.stem)
         short_to_files.setdefault(short, []).append(f.stem)
 
-    for adj_fp in ADJ.glob('*.parquet'):
+    for adj_fp in (p for p in ADJ.glob('*.parquet') if '.bak' not in p.name):
         short = adj_fp.stem
         codes = short_to_files.get(short, [])
         if not codes:

@@ -99,7 +99,7 @@ def main():
             md, dt = run_sim_live(fp, top_n, THRESHOLD, args.start, args.end, args.limit_codes)
             timing[key] = dt
             if md is None:
-                print(f"  ❌ 失败\n")
+                print("  ❌ 失败\n")
                 continue
             print(f"  耗时 {dt:.0f}s")
             o = parse_sim_live(md)
@@ -132,7 +132,7 @@ def main():
 
     # MD 报告
     lines = []
-    lines.append(f"# Top-N 敏感性分析报告\n")
+    lines.append("# Top-N 敏感性分析报告\n")
     lines.append(f"> 生成: {datetime.now().isoformat(timespec='seconds')}\n")
     lines.append(f"> threshold = **{THRESHOLD}** (宽松,让 top-N 起作用)\n")
     lines.append(f"> 窗口: {args.start} ~ {args.end}\n\n")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """scripts/eval_signal_honest.py — 诚实时序前向重训评测(去泄漏)
 
 对关键候选在 train(<CUTOFF) 上重训,在 test(>=CUTOFF) 上评测,
@@ -17,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np

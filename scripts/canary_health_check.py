@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Canary 健康检查脚本
 ====================
@@ -10,6 +9,7 @@ Canary 健康检查脚本
   3. 关键数据文件存在性
   4. GPU 状态
   5. systemd timer 状态
+  6. obsidian-sync 部署/重载状态（防仓库-部署漂移与 start-limit-hit）
 
 输出：
   - logs/canary.log（追加）
@@ -27,7 +27,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -125,8 +124,8 @@ def check_data_files() -> dict:
     pq_dir = ROOT / 'data' / 'parquet' / 'daily'
     adj_dir = ROOT / 'data' / 'adj_factor'
 
-    n_pq = len(list(pq_dir.glob('*.parquet'))) if pq_dir.exists() else 0
-    n_adj = len(list(adj_dir.glob('*.parquet'))) if adj_dir.exists() else 0
+    n_pq = len([p for p in pq_dir.glob('*.parquet') if '.bak' not in p.name]) if pq_dir.exists() else 0
+    n_adj = len([p for p in adj_dir.glob('*.parquet') if '.bak' not in p.name]) if adj_dir.exists() else 0
 
     result['details'] = {
         'parquet_daily': n_pq,
@@ -218,6 +217,42 @@ def check_gpu() -> dict:
     return result
 
 
+def check_obsidian_sync() -> dict:
+    """检查 obsidian-sync 的 systemd 单元部署/重载状态（防漂移与 start-limit-hit）
+
+    直接调用 scripts/verify_obsidian_systemd.sh --readonly（只读静态检查 V0–V4），
+    由其作为单一事实来源，避免逻辑重复。失败时返回 'error' 以参与 canary 的非零退出告警。
+    """
+    result = {'name': 'obsidian_sync', 'status': 'ok', 'details': {}}
+    script = ROOT / 'scripts' / 'verify_obsidian_systemd.sh'
+    if not script.exists():
+        result['status'] = 'error'
+        result['message'] = f'verify script missing: {script}'
+        return result
+    try:
+        proc = subprocess.run(
+            ['bash', str(script), '--readonly'],
+            capture_output=True, text=True, timeout=30
+        )
+        out = proc.stdout.strip()
+        fail_lines = [l for l in out.splitlines() if '[FAIL]' in l]
+        summary = [l for l in out.splitlines() if l.startswith('OBSIDIAN_SYSTEMD:')]
+        result['details'] = {'failures': fail_lines, 'summary': summary}
+        if proc.returncode != 0:
+            result['status'] = 'error'
+            result['message'] = '; '.join(fail_lines)[:300] or 'obsidian systemd check failed'
+        else:
+            result['status'] = 'ok'
+            result['message'] = summary[0] if summary else 'ok'
+    except subprocess.TimeoutExpired:
+        result['status'] = 'error'
+        result['message'] = 'verify script timeout'
+    except Exception as e:
+        result['status'] = 'error'
+        result['message'] = f'check error: {str(e)[:200]}'
+    return result
+
+
 def run_all_checks() -> dict:
     """跑所有检查"""
     return {
@@ -229,6 +264,7 @@ def run_all_checks() -> dict:
             check_disk(),
             check_timers(),
             check_gpu(),
+            check_obsidian_sync(),
         ]
     }
 

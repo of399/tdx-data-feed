@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """构建 2000+ 均衡分类评测集：未来 120 交易日是否翻倍（累计涨幅 >= 100%）。
 
 设计目标（对应「稳健验证」要求）:
@@ -68,9 +67,9 @@ def market_of(code: str) -> str:
 
 
 def get_parquet(code: str):
-    # 支持带前缀(sh/sz/bj)或不带前缀的 6 位代码，避免双重前缀
-    candidates = [code] if re.match(r"^(sh|sz|bj)", code) else [f"{p}{code}" for p in ("sh", "sz", "bj")]
-    for c in candidates:
+    # 支持裸 6 位代码或带 sh/sz/bj 前缀；data/parquet/daily 实际为裸名(+bj 前缀)
+    bare = re.sub(r"^(sh|sz|bj)", "", code)
+    for c in (bare, f"sh{bare}", f"sz{bare}", f"bj{bare}"):
         p = PARQUET_DIR / f"{c}.parquet"
         if p.exists():
             df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
@@ -154,7 +153,7 @@ def build_pos(double_up: pd.DataFrame, n_pos: int, seed: int) -> list[dict]:
 # ---------- 负样本 ----------
 def build_neg_candidates(n_cand: int, seed: int) -> list[dict]:
     rng = random.Random(seed + 1)
-    files = [p for p in PARQUET_DIR.glob("*.parquet") if re.match(r"^(sh|sz|bj)\d{6}", p.stem)]
+    files = [p for p in PARQUET_DIR.glob("*.parquet") if re.match(r"^(sh|sz|bj)?\d{6}$", p.stem)]
     rng.shuffle(files)
     cands: list[dict] = []
     for p in files:

@@ -80,24 +80,24 @@ def main():
     print(f"股票分布: {df['code'].nunique()} 只")
 
     # 板块分布
-    print(f"\n[Phase 1] 板块分类(code 前缀)")
+    print("\n[Phase 1] 板块分类(code 前缀)")
     boards = df["code"].apply(assign_board)
     print(boards.value_counts())
 
     # 市场特征
-    print(f"\n[Phase 2] 计算 4 维市场代理特征(按 signal_date)")
+    print("\n[Phase 2] 计算 4 维市场代理特征(按 signal_date)")
     market = compute_market_features(df)
     print(f"  日期数: {len(market)}")
-    print(f"  特征: mkt_ret_5d_avg / mkt_amt_avg_5d / mkt_pct_t1_avg / stock_count_active")
+    print("  特征: mkt_ret_5d_avg / mkt_amt_avg_5d / mkt_pct_t1_avg / stock_count_active")
     print(f"  mkt_ret_5d_avg  范围: [{market['mkt_ret_5d_avg'].min():.4f}, {market['mkt_ret_5d_avg'].max():.4f}]")
     print(f"  mkt_amt_avg_avg  范围: [{market['mkt_amt_avg_5d'].min():.2f}, {market['mkt_amt_avg_5d'].max():.2f}]")
 
     # 板块 one-hot
-    print(f"\n[Phase 3] 板块 one-hot(5 大类)")
+    print("\n[Phase 3] 板块 one-hot(5 大类)")
     df = one_hot_board(df)
     new_cols = BOARD_FEATURE_COLS
     print(f"  添加: {new_cols}")
-    print(f"  板块分布(one-hot sum 检查):")
+    print("  板块分布(one-hot sum 检查):")
     for c in new_cols:
         print(f"    {c}: {df[c].sum()} 笔 ({df[c].mean()*100:.1f}%)")
 
@@ -105,7 +105,7 @@ def main():
     df = df.merge(market, on="signal_date", how="left")
 
     # 保存
-    print(f"\n[Phase 4] 保存")
+    print("\n[Phase 4] 保存")
     market.to_csv(MARKET_FEATS, index=False)
     print(f"  市场特征: {MARKET_FEATS}")
 
@@ -113,11 +113,11 @@ def main():
     print(f"  训练数据: {TARGET_TRAIN}")
     print(f"  新维度: {len(df.columns)-3} (原 26 + 市场 4 + 板块 5 = 35 维,实际含 code/signal_date/is_positive)")
 
-    print(f"\n=== 完成 ===")
-    print(f"下次训练:python scripts/train_pnl_proxy.py \\")
-    print(f"  --objective huber --objective-alpha 0.5 \\")
-    print(f"  --model-out data/double_up/d_signal_5d_model_vpnl_huber_market.txt")
-    print(f"且修改 FEATURE_VPNL 为 28 维(20 旧 + 4 市场 + 5 板块)")
+    print("\n=== 完成 ===")
+    print("下次训练:python scripts/train_pnl_proxy.py \\")
+    print("  --objective huber --objective-alpha 0.5 \\")
+    print("  --model-out data/double_up/d_signal_5d_model_vpnl_huber_market.txt")
+    print("且修改 FEATURE_VPNL 为 28 维(20 旧 + 4 市场 + 5 板块)")
 
 
 if __name__ == "__main__":

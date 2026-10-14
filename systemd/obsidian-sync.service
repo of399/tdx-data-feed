@@ -1,12 +1,14 @@
 [Unit]
 Description=tdx-data-feed: 同步文档到 Obsidian Vault
+# 放宽启动限额：回测/日志等多文件写入或编辑器原子保存可能在短时间内多次触发，
+# 默认 StartLimitIntervalSec=10s / StartLimitBurst=5 易被突破导致 start-limit-hit。
+# 注意：StartLimitIntervalSec/StartLimitBurst 属 [Unit] 级指令，必须置于 [Unit] 段；
+# 置于 [Service] 段在 systemd 259 下会被忽略（systemd-analyze: Unknown key ... in section [Service]）。
+StartLimitIntervalSec=60
+StartLimitBurst=10
 
 [Service]
 Type=oneshot
-# 放宽启动限额：回测/日志等多文件写入或编辑器原子保存可能在短时间内多次触发，
-# 默认 StartLimitIntervalSec=10s / StartLimitBurst=5 易被突破导致 start-limit-hit。
-StartLimitIntervalSec=60
-StartLimitBurst=10
 WorkingDirectory=/home/jiuben/tdx-data-feed
 Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/usr/bin/bash /home/jiuben/tdx-data-feed/scripts/sync-to-obsidian.sh

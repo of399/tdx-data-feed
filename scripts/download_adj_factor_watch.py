@@ -26,7 +26,7 @@ def log(msg):
 
 
 def file_count():
-    return len(list(ADJ_DIR.glob('*.parquet')))
+    return len([p for p in ADJ_DIR.glob('*.parquet') if '.bak' not in p.name])
 
 
 def run_once(restart_n):

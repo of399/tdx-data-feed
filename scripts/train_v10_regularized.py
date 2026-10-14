@@ -164,7 +164,7 @@ def main():
     # 特征重要性 (跨 fold 平均)
     avg_imp = sum(fold_imp) / len(fold_imp)
     avg_imp = avg_imp.sort_values(ascending=False)
-    print(f"\n[Phase 4] Top 15 特征重要性 (DART 跨 fold 平均):")
+    print("\n[Phase 4] Top 15 特征重要性 (DART 跨 fold 平均):")
     for i, (k, v) in enumerate(avg_imp.head(15).items(), 1):
         print(f"  {i:2d}. {k:22s} {v:.0f}")
 
@@ -217,13 +217,13 @@ def main():
 
         # 检查 Dropout 实际生效
         non_zero = (avg_imp > 0).sum()
-        f.write(f"### Dropout 影响\n")
+        f.write("### Dropout 影响\n")
         f.write(f"- 非零重要性特征数: **{non_zero}/{len(feature_cols)}** (其余被 Dropout 稀疏化)\n")
         zero_features = [k for k in feature_cols if avg_imp.get(k, 0) == 0]
         if zero_features:
             f.write(f"- 被稀疏化的特征: {zero_features}\n")
 
-    print(f"\n=== 完成 ===")
+    print("\n=== 完成 ===")
     print(f"  DART 模型: {MODEL_DART}")
     print(f"  GBDT 对照: {MODEL_GBDT}")
     print(f"  报告: {report_path}")

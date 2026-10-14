@@ -109,7 +109,7 @@ def main():
     print(f"\n  CV R²: {np.mean(fold_r2):.4f}  MAE: {np.mean(fold_mae):.4f}")
     print(f"  Test R²: {test_r2:.4f}  MAE: {test_mae:.4f}")
 
-    print(f"\n[Phase 2] 特征重要性 Top 20")
+    print("\n[Phase 2] 特征重要性 Top 20")
     for i, (k, v) in enumerate(importance.head(20).items(), 1):
         tag = ""
         if k.startswith("board_") or k.startswith("mkt_"):
@@ -167,7 +167,7 @@ def main():
 
     print(f"\n  模型: {MODEL_OUT}")
     print(f"  报告: {REPORT_OUT}")
-    print(f"\n=== 完成 ===")
+    print("\n=== 完成 ===")
 
 
 if __name__ == "__main__":

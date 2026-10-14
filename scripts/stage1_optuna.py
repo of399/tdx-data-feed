@@ -70,19 +70,20 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import optuna
-from optuna.samplers import TPESampler
-from optuna.pruners import MedianPruner
-
 import lightgbm as lgb
+import optuna
+from optuna.pruners import MedianPruner
+from optuna.samplers import TPESampler
+from stage1_baseline import (  # noqa: E402
+    ALL35,
+    BASE26,
+    CANDIDATES,
+    DEFAULT_LGBM,
+    _eval_fold,
+    load_and_validate,
+)
 
 # 复用 Step 3.5 的基础设施（单一来源，保证接口一致）
-from tdxfeed.stage1_wide_table import FEAT26_ORDER  # noqa: E402
-from tdxfeed.factors_candidates import CANDIDATE_NAMES  # noqa: E402
-from stage1_baseline import (  # noqa: E402
-    load_and_validate, _spearman, _eval_fold,
-    BASE26, CANDIDATES, ALL35, DEFAULT_LGBM,
-)
 
 log = logging.getLogger("stage1_optuna")
 
@@ -224,7 +225,7 @@ def make_objective(df, cutoffs, top_ns, pool, min_features, max_estimators):
             res = _walk_forward_trial(df, selected, cutoffs, top_ns, hp, trial)
         except optuna.TrialPruned:
             raise
-        except Exception as e:  # noqa: BLE001 — 单 trial 失败不应中断整次 study
+        except Exception as e:
             log.warning("trial %d 失败: %s（剪枝）", trial.number, e)
             raise optuna.TrialPruned(str(e))
 
@@ -350,8 +351,8 @@ def build_report(study, best, freq, meta) -> str:
         "",
         "---",
         f"生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')}",
-        f"生成者：scripts/stage1_optuna.py",
-        f"模型版本：vpnl_huber (Step4 tuning)",
+        "生成者：scripts/stage1_optuna.py",
+        "模型版本：vpnl_huber (Step4 tuning)",
         f"数据日期：{meta['data_date']}",
     ]
     return "\n".join(lines)
@@ -464,9 +465,9 @@ def main(argv=None) -> int:
                     continue
                 try:
                     fn(study).write_html(str(out_dir / f"stage1_optuna_{k}.html"))
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     log.warning("可视化 %s 生成失败: %s", k, e)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.warning("可视化模块加载失败: %s", e)
 
         # 报告
@@ -497,7 +498,7 @@ def main(argv=None) -> int:
         print(f"最佳模型: {best_model}")
         print(f"报告: {Path(args.report_dir) / 'stage1_optuna_report.md'}")
         return 0
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.error("Step 4 优化失败: %s", e, exc_info=True)
         print(f"\n❌ Step 4 优化失败: {e}", file=sys.stderr)
         return 1

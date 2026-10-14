@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """下载 ETF 日 K 到 data/parquet/daily/{sh|sz}{code}.parquet。
 
 【v2 治理产物】（2026-09-27）
@@ -31,8 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pandas as pd
 import akshare as ak
+import pandas as pd
 
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.writers import Writers
@@ -68,7 +67,7 @@ def list_bond_codes() -> list[str]:
 
 def sym_from_code(code: str) -> str | None:
     """6 位代码 → Sina 合法 symbol（含 sh/sz 前缀）。"""
-    from tdxfeed.symbols import sym_of_sina, group
+    from tdxfeed.symbols import group, sym_of_sina
     g = group(code)
     if g != "etf":
         return None

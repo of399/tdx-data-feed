@@ -24,10 +24,10 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pathlib import Path
 
 PARQUET = Path('/home/jiuben/tdx-data-feed/data/parquet/daily')
 ADJ = Path('/home/jiuben/tdx-data-feed/data/adj_factor')
@@ -130,17 +130,17 @@ def main() -> None:
     print('=== 过去5年 30自然日 前复权翻倍筛选 ===')
     print(f'  窗口: {WINDOW_CAL_DAYS} 自然日 | 翻倍阈值: ≥{int((RATIO-1)*100)}%')
     print(f'  时间范围: {START_DATE.date()} ~ {DATA_END.date()}')
-    print(f'  价格类型: 前复权收盘价 / 前复权最高价 (qfq=不复权价×复权因子)')
+    print('  价格类型: 前复权收盘价 / 前复权最高价 (qfq=不复权价×复权因子)')
 
     with open(NAME_MAP_PATH, encoding='utf-8') as f:
         name_map = json.load(f)
 
-    files = sorted(PARQUET.glob('*.parquet'))
+    files = sorted(p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name)
     short_to_codes: dict[str, list[str]] = {}
     for f in files:
         short = re.sub(r'^(sh|sz|bj)', '', f.stem)
         short_to_codes.setdefault(short, []).append(f.stem)
-    adj_files = sorted(ADJ.glob('*.parquet'))
+    adj_files = sorted(p for p in ADJ.glob('*.parquet') if '.bak' not in p.name)
     print(f'  daily parquet: {len(files)} | adj_factor: {len(adj_files)}')
 
     all_eps: list[dict] = []
@@ -187,10 +187,10 @@ def _write_report(res: pd.DataFrame, t0: datetime) -> None:
     L: list[str] = []
     L.append('# 过去5年 30自然日内前复权价翻倍股票筛选\n')
     L.append(f'> 生成时间: {now}')
-    L.append(f'> 窗口: 30 个自然日 | 翻倍阈值: 前复权收盘价 ≥ 起点 2 倍（涨幅≥100%）')
+    L.append('> 窗口: 30 个自然日 | 翻倍阈值: 前复权收盘价 ≥ 起点 2 倍（涨幅≥100%）')
     L.append(f'> 时间范围: {START_DATE.date()} ~ {DATA_END.date()}')
-    L.append(f'> 价格类型: 前复权价（qfq = 不复权价 × 复权因子）；起点价用前复权收盘价，最高价用前复权最高价')
-    L.append(f'> 数据来源: data/parquet/daily + data/adj_factor（全市场 A 股，含沪/深/北交所）\n')
+    L.append('> 价格类型: 前复权价（qfq = 不复权价 × 复权因子）；起点价用前复权收盘价，最高价用前复权最高价')
+    L.append('> 数据来源: data/parquet/daily + data/adj_factor（全市场 A 股，含沪/深/北交所）\n')
 
     n_eps = len(res)
     n_stocks = res['code'].nunique() if n_eps else 0
@@ -200,7 +200,7 @@ def _write_report(res: pd.DataFrame, t0: datetime) -> None:
     L.append(f'- **涉及股票数**: {n_stocks:,} 只')
     L.append(f'- **其中 ST/*ST**: {st_eps} 个事件')
     L.append(f'- **时间窗口**: {START_DATE.date()} ~ {DATA_END.date()}（过去5年）')
-    L.append(f'- **价格口径**: 前复权收盘价 / 前复权最高价')
+    L.append('- **价格口径**: 前复权收盘价 / 前复权最高价')
     L.append(f'- **分析耗时**: {(datetime.now() - t0).total_seconds():.0f}s\n')
 
     if n_eps:

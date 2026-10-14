@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """sim_daily_compare.py — 日K演化模拟 vs 真实日K对比（方案 F 验证工具 v0.1）
 
 【目的】

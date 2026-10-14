@@ -20,11 +20,9 @@ v3 提前版盘前实时打分（每日开盘前自动跑）
 """
 import argparse
 import json
-import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
@@ -164,7 +162,7 @@ def main():
     print(f'  参考日: {ref_date.date()} ({ref_date.day_name()})')
 
     name_map = json.load(open(ALL_STOCKS))
-    files = sorted(PARQUET.glob('*.parquet'))
+    files = sorted(p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name)
     if args.limit_stocks > 0:
         files = files[:args.limit_stocks]
     print(f'  扫描股票: {len(files)}')
@@ -262,14 +260,14 @@ def main():
     md.append('')
     md.append(f'候选池: `{top5_fp.relative_to(ROOT)}`  ')
     md.append(f'买入清单: `{buy_fp.relative_to(ROOT)}`  ')
-    md.append(f'脚本: `scripts/v3_premarket_top.py`  ')
+    md.append('脚本: `scripts/v3_premarket_top.py`  ')
 
     md_fp = DAILY_DIR / f'premarket_{date_str}.md'
     md_fp.write_text('\n'.join(md), encoding='utf-8')
     print(f'  盘前报告: {md_fp}')
 
     # 控制台简短输出
-    print(f'\n=== 今日 Top 10 买入清单 ===')
+    print('\n=== 今日 Top 10 买入清单 ===')
     print(buy_list[['code', 'name', 'close', 'score', 'high_low_20d', 'limit_up_20d']].to_string(index=False))
 
 

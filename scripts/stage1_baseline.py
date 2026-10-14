@@ -53,8 +53,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tdxfeed.stage1_wide_table import FEAT26_ORDER  # 26 基础维顺序（权威）
 from tdxfeed.factors_candidates import CANDIDATE_NAMES  # 9 候选因子名
+from tdxfeed.stage1_wide_table import FEAT26_ORDER  # 26 基础维顺序（权威）
 
 log = logging.getLogger("stage1_baseline")
 
@@ -326,8 +326,8 @@ def build_report(result: dict, meta: dict) -> str:
         "",
         "---",
         f"生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')}",
-        f"生成者：scripts/stage1_baseline.py",
-        f"模型版本：vpnl_huber (baseline)",
+        "生成者：scripts/stage1_baseline.py",
+        "模型版本：vpnl_huber (baseline)",
         f"数据日期：{meta['data_date']}",
     ]
     return "\n".join(lines)
@@ -415,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n报告: {out_md}")
         print(f"JSON: {out_json}")
         return 0
-    except Exception as e:  # noqa: BLE001 — 顶层兜底，给出可读错误
+    except Exception as e:
         log.error("基线评测失败: %s", e, exc_info=True)
         print(f"\n❌ 基线评测失败: {e}", file=sys.stderr)
         return 1

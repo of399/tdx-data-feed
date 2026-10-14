@@ -50,12 +50,12 @@ def _norm_date(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def main() -> int:
-    daily_files = sorted(DAILY.glob("*.parquet"))
+    daily_files = sorted(p for p in DAILY.glob("*.parquet") if ".bak" not in p.name)
     log.info("日K 文件数: %d", len(daily_files))
 
     # 预载 adj_factor（code6 -> df[date, raw_close, qfq_close]）
     adj_map: dict[str, pl.DataFrame] = {}
-    for af in sorted(ADJ.glob("*.parquet")):
+    for af in sorted(p for p in ADJ.glob("*.parquet") if ".bak" not in p.name):
         c = _code6(af.stem)
         try:
             d = pl.read_parquet(af, columns=["date", "raw_close", "qfq_close"])
