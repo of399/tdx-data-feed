@@ -15,8 +15,15 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from plan_e_backtest import DSR_N_TRIALS, deflated_sharpe_ratio  # noqa: E402  # P0-1 补完
+
 from .cost_model import CostConfig, portfolio_turnover_cost  # noqa: E402
-from .cv_utils import ic_by_year, ic_newey_west, icir  # noqa: E402
+from .cv_utils import (  # noqa: E402  # P0-1 补完
+    ic_by_year,
+    ic_newey_west,
+    icir,
+    permutation_return_test,
+)
 from .factors import (  # noqa: E402
     CATEGORY_OF,
     FACTOR_METAS,
@@ -469,6 +476,19 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
 
     # ---- 指标 ----
     metrics = _portfolio_metrics(nav_rets)
+    # P0-1 补完：组合日收益 Deflated Sharpe + 置换检验（多角度看策略显著性）
+    if nav_rets and len(nav_rets) > 5:
+        _s = pd.Series({d: r for d, r in nav_rets})
+        _s.index = pd.to_datetime(_s.index)
+        _s = _s.sort_index()
+        _skew = float(_s.skew())
+        _exk = float(_s.kurt())  # 超额峰度(Fisher 定义)
+        metrics["dsr_p"] = deflated_sharpe_ratio(
+            metrics.get("sharpe", 0.0), len(_s), _skew, _exk, DSR_N_TRIALS
+        )
+        _perm = permutation_return_test(_s.values)
+        metrics["perm_p_two"] = float(_perm["p_two"])
+        metrics["perm_p_one"] = float(_perm["p_one"])
     if ic_records:
         ic_df = pd.DataFrame(ic_records)
         metrics["ic_mean"] = float(ic_df["ic"].mean())
@@ -589,6 +609,8 @@ def _build_report(metrics, holdings_hist, ic_records, yearly, cfg, valp, ts, ic_
          f"| IC 正向率 | {metrics.get('ic_pos_rate',0)*100:.1f}% |",
          f"| IC 均值 Newey-West HAC p | {metrics.get('ic_nw_p', float('nan')):.3f} |",
          f"| IC 均值 HAC t | {metrics.get('ic_nw_t', float('nan')):.2f} |",
+         f"| 组合夏普 Deflated Sharpe p | {metrics.get('dsr_p', float('nan')):.3f} | 多重试验修正 (N={DSR_N_TRIALS}) |",
+         f"| 策略 vs 随机时序 (置换检验 p) | {metrics.get('perm_p_two', float('nan')):.3f} | 打乱时间重排·日收益自相关 (单侧 {metrics.get('perm_p_one', float('nan')):.3f}) |",
          f"| 平均周换手 | {metrics.get('avg_weekly_turnover',0)*100:.1f}% |",
          f"| 最大周换手 | {metrics.get('max_weekly_turnover',0)*100:.1f}% |",
          f"| 调仓次数 | {metrics.get('n_rebalances',0)} |",
@@ -626,6 +648,7 @@ def _build_report(metrics, holdings_hist, ic_records, yearly, cfg, valp, ts, ic_
     L.append("6. IC 序列已做 Newey-West HAC 检验（自相关稳健）：若『IC 均值 HAC p≥0.05』，说明当前样本无法拒绝『IC 均值=0』，因子整体无稳定信号，夏普/ICIR 的高值须谨慎采信。")
     L.append("7. 协方差条件数（max≈{:.1e}）反映估计病态程度；数值显著增大说明候选集个股高度共线或样本期偏短，ERC 风险预算稳定性下降，可下调 top_n 或改用 EWMA 时变估计。".format(metrics.get("max_cov_cond", float("nan"))))
     L.append("8. 尾部风险：组合日收益 CVaR({:.0%}) 均值约 {:.2%}（损失口径为其负值）；显著走阔说明候选集左尾增厚，可开启 cvar_limit 约束或降杠杆/减 top_n。半 Kelly 与波动率目标已实现为可选仓位层，默认关闭以免改变现有组合结构。".format(cfg.cvar_alpha, -metrics.get("mean_cvar", 0.0)))
+    L.append("9. 组合日收益已做 Deflated Sharpe / 置换检验多角度统计（P0-1 补完）：DSR p<0.05 ⇒ 多重试验修正后夏普仍显著；置换 p<0.05 ⇒ 日盈亏顺序显著异于随机时序（不直接等于赚钱，但代表有顺序信息）。两者 ≥ 0.05 须配合 IC Newey-West + bootstrap 综合判定策略显著性。")
     L.append("\n## 五、下一步建议\n")
     L.append("- 待 data/valuation 全量下载完成后以 valuation_mode=real 重跑，验证估值因子真实贡献。")
     L.append("- 用 purged+embargo CV 对因子合成做样本外稳健性复核。")
