@@ -3,7 +3,8 @@
 # 用法:
 #   make help           # 看所有目标
 #   make install        # 装依赖
-#   make data-sync      # 同步日 K
+#   make data-sync      # 单标的同步(默认 sh600000；非全市场)
+#   make full-sync      # 全市场日K(=生产用 tdxfeed.full_sync / tdxfeed-sync.timer)
 #   make predict        # 跑方案 D 预测
 #   make plan-e         # 跑方案 E 回测
 #   make deploy-v5      # 部署 v5
@@ -194,9 +195,16 @@ data-universe:  ## 下载全 A 股代码清单
 	$(PYTHON) $(SCRIPTS)/download_universe.py
 	@echo "$(GREEN)✓ 股票清单: $(DATA)/all_a_stocks.json$(NC)"
 
-data-sync:  ## 同步全市场日 K（tdxfeed）
+# ⚠️ 分工：data-sync = 单标的便捷同步(tdxfeed.cli sync，无参默认 sh600000)；
+#          full-sync  = 全市场增量同步(tdxfeed.full_sync，生产实际入口，tdxfeed-sync.timer 每晚调用的就是它)。
+#          二者勿混：make data-sync 不会拉全市场。
+data-sync:  ## 单标的同步(默认 sh600000；全市场请用 make full-sync)
 	$(PYTHON) -m tdxfeed.cli sync
-	@echo "$(GREEN)✓ 日 K 同步完成$(NC)"
+	@echo "$(GREEN)✓ 日 K 同步完成 (单标的 sh600000)$(NC)"
+
+full-sync:  ## 全市场日K增量同步(生产入口, =tdxfeed-sync.timer)
+	$(PYTHON) -m tdxfeed.full_sync
+	@echo "$(GREEN)✓ 全市场日 K 同步完成$(NC)"
 
 data-sync-symbol:  ## 同步单股日 K（参数 SYM=sh600000）
 	$(PYTHON) -m tdxfeed.cli sync $(SYM)
