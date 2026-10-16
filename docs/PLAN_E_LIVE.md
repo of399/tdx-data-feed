@@ -306,3 +306,98 @@ logs/
 - 关键动作：每日 09:00 检查信号 → 09:30 开盘买入 → 盘中监控 TP/SL → 周日生成周报
 
 > 下次评估：2026-10-28 周一，根据 4 周实盘数据决定是否继续。
+
+---
+
+## 11. 信号驱动回测（方案 B · 2026-10-16 落地）
+
+> 本章配套 `docs/PROPOSAL_B_INTERFACES_2026-10-16.md` 与 `docs/ROADMAP_2026-10-16.md` §方案 B。
+> 用途：把方案 D（predict.py 每日预测）与方案 E（plan_e_backtest + plan_e_journal）**端到端打通**，
+> 不再需要手动复制代码列表。
+
+### 11.1 三组件数据流
+
+```
+predict.py --emit-top  →  data/predictions/predict_*.csv
+                                ↓ (mtime 最新)
+plan_e_journal.py --from-predict-list  →  journal.csv / journal_sim.csv
+                                ↓ (Top 50 / 阈值 0.7 过滤)
+plan_e_backtest.py --codes-file codes.csv  →  data/plan_e/plan_e_*.md
+```
+
+### 11.2 完整使用流程
+
+```bash
+# 步骤 1: 每日预测 + 额外写一份 Top 50 到 data/signals/（与默认输出叠加）
+venv/bin/python scripts/predict.py --emit-top
+
+# 步骤 2: 模拟端消费最新 predict（写入 journal_sim.csv）
+venv/bin/python scripts/plan_e_journal.py --mode simulate --from-predict-list
+
+# 步骤 3: 实盘端消费最新 predict（写入 journal.csv, paper-trading, 走 positions 管理）
+venv/bin/python scripts/plan_e_journal.py --mode real --from-predict-list
+
+# 步骤 4: 用 predict 输出 codes 写 codes_file.csv → 子集回测
+head -1 data/predictions/predict_*.csv  # 取最新文件的 code/score 列
+awk -F, 'NR>1 {print $1","$2}' data/predictions/predict_<latest>.csv > /tmp/codes.csv
+# (加 header: code,score)
+venv/bin/python scripts/plan_e_backtest.py --codes-file /tmp/codes.csv --today
+```
+
+### 11.3 codes-file 格式契约
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| 第 1 行 header | ✅ | 首列名必须是 `code` |
+| code 列 | ✅ | 6 位代码（自动去 sh/sz/bj 前缀） |
+| comment 行 | 可选 | 以 `#` 开头（可自定义前缀） |
+| 空行 | 可选 | 自动跳过 |
+| 重复 code | ❌ | **立即 sys.exit(1)**（不容错） |
+| 格式错 | ❌ | 立即 sys.exit(1) + 详细错误信息 |
+
+**文件示例**：
+
+```csv
+code,name,score
+600519,贵州茅台,0.92
+000001,平安银行,0.88
+300750,宁德时代,0.85
+# 这是注释行:仅 Top 3
+```
+
+### 11.4 emit-top 输出格式
+
+`--emit-top` 在默认 `data/predictions/predict_*.csv` 输出基础上**额外**写一份到 `data/signals/`：
+
+```
+data/signals/predict_YYYYMMDD_HHMMSS_top{50}_thr{0.7}.csv
+```
+
+默认字段：`code,score,ts,top_k`（可自定义 `--emit-fields`）。
+
+### 11.5 from-predict-list 默认行为
+
+| 维度 | 默认值 | 来源 |
+|---|---|---|
+| Top N | 50 | 与 `predict.py --top` 默认放大（journal 想更多信号）|
+| 阈值 | 0.7 | 与 `predict.py --threshold` 默认一致 |
+| 文件发现 | `data/predictions/predict_*.csv` 按 mtime 倒序 | 自动 |
+| 资金分配 | 等额 `INITIAL_CAPITAL / N`（100 股一手取整）| 简化 |
+| 实盘/模拟分流 | `--mode real` → `journal.csv` / `--mode simulate` → `journal_sim.csv` | 自动 |
+
+### 11.6 端到端验证记录（2026-10-16）
+
+- **测试 1（--from-predict-list）**：临时 predict 文件（5 只候选，阈值 0.7）→ journal_sim.csv 5 行 ✓
+  - code 6 位 zfill 正确（`000001` 保留前导 0）✓
+  - source=sim / reason=PREDICT_LIST / score 列就位 ✓
+- **测试 2（--codes-file）**：用 5 只真实翻倍样本代码（bj92xxxx）→ 22972 → 105 行过滤 ✓
+  - 错误不容错：测试用伪 codes 过滤后 0 行 → `sys.exit(1)` ✓
+- **测试 3（ruff + AST）**：4 Python 文件 ruff 0 错误 + AST 校验通过 ✓
+- **测试 4（watchdog sanity 集成）**：`bash -n` 语法通过 + run_v4_eval 5 指标输出就位 ✓
+
+### 11.7 注意事项
+
+- ⚠️ **`pd.read_csv` 默认推断 `000001` 为 int**（丢前导 0）——读取 journal.csv / journal_sim.csv 时需显式 `dtype={'code': str}`（`append_journal`/`append_sim_journal` 写入时已强制 str，但旧数据可能已丢前导 0）
+- ⚠️ **`--mode real` 是 paper-trading**（模拟真金白银流），不是真交易
+- ⚠️ **方案 B sanity 集成仅对 `checkpoint-200`** 触发一次（首次落地的 sanity）；后续 checkpoint 不重复
+- ⚠️ **`--codes-file` + 现有批量回测** 是叠加（限定范围）而非互斥
