@@ -1,0 +1,19 @@
+[Unit]
+Description=PushPlus Bridge for Alertmanager (tdx-data-feed)
+Documentation=https://www.pushplus.plus/doc/ | token 见 v5/scripts/.pushplus.env
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jiuben/tdx-data-feed
+# token 从工作树 .pushplus.env 读取；轮换 token 后只需 restart 本服务即可生效
+EnvironmentFile=/home/jiuben/tdx-data-feed/v5/scripts/.pushplus.env
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/pushplus_bridge.py --host 127.0.0.1 --port 5002
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/pushplus-bridge.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/pushplus-bridge.err
+
+[Install]
+WantedBy=default.target
