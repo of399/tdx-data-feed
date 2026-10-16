@@ -28,11 +28,11 @@ template: qwen
 trust_remote_code: true
 
 dataset_dir: /home/jiuben/tdx-data-feed/train/data    # 与现役一致（含 dataset_info.json）
-dataset: tdx_v4_train                       # 训练集映射名（v4_train.jsonl，全量 80071 条）
-eval_dataset: tdx_v4_val                    # 验证集（训练中每 eval_steps 评估）
+dataset: tdx_v4fwd_train                  # 训练集映射名（v4fwd_train.jsonl，前瞻5日方向标签，平衡 涨33.8/跌39.8/震荡26.4%）
+eval_dataset: tdx_v4fwd_val                # 验证集（v4fwd 前瞻标签；分布偏跌56%，仅监控用）
 # test_dataset: tdx_v4_test  # ⚠️ 0.9.5 不支持 test_dataset 键, 已移除; 测试集留待离线评估(training/eval/run_v4_eval.py)
 # split: split              # ⚠️ 0.9.5 HfArgumentParser 不识别 split 键, 已移除(数据集已是预切分的 train/val/test 三个独立文件, 天然防泄漏)
-max_samples: 80071                          # 全部 80,071 条
+max_samples: 64056                          # v4fwd_train.jsonl 实际条数（原 80071 为 v4_train 旧值）
 
 # === LoRA 超参（与现役从零一致，rank=16）=================================
 lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj

@@ -31,6 +31,8 @@ import os
 import socket
 import time
 import traceback
+import concurrent.futures as _cf
+import threading
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -80,13 +82,42 @@ def log(msg: str):
     print(line, flush=True)
 
 
-def with_retry(fn, *args, **kwargs):
-    """指数退避重试 (1s/4s/9s, 共 3 次), 全部失败抛出 RetryExhausted。"""
+def _call_timeout(fn, timeout, *args, **kwargs):
+    """在 daemon 线程中执行 fn, 硬性超时(秒)防止 akshare 网络调用无限挂起。
+
+    socket.setdefaulttimeout(25) 对 akshare/urllib3 复用的 session 不生效,
+    单只卡在坏 host 时会永久阻塞整批 —— 这是此前整轮挂死的根因。
+    超时则放弃该 daemon 线程(不 join), 由上层 with_retry 重试;
+    daemon 线程在进程退出时被回收, 配合 --max-codes 分块重启可限住泄漏。
+    """
+    box, err = {}, {}
+    def runner():
+        try:
+            box["r"] = fn(*args, **kwargs)
+        except Exception as e:  # noqa: BLE001
+            err["e"] = e
+    th = threading.Thread(target=runner, daemon=True)
+    th.start()
+    th.join(timeout)
+    if th.is_alive():
+        raise _cf.TimeoutError(f"timeout>{timeout}s")
+    if "e" in err:
+        raise err["e"]
+    return box["r"]
+
+
+def with_retry(fn, *args, timeout=30, **kwargs):
+    """指数退避重试 (1s/4s/9s, 共 3 次), 每次带硬性超时; 全部失败抛 RetryExhausted。"""
     last = None
     for i, d in enumerate(RETRY_DELAYS):
         time.sleep(d)
         try:
-            return fn(*args, **kwargs)
+            return _call_timeout(fn, timeout, *args, **kwargs)
+        except _cf.TimeoutError:
+            last = TimeoutError(f"timeout>{timeout}s")
+            continue
+        except RetryExhausted:
+            raise
         except Exception as e:
             last = e
     raise RetryExhausted(f"{type(last).__name__}: {str(last)[:120]}")
@@ -337,12 +368,16 @@ def download_all(mode: str, limit: int = None):
     import akshare as ak
     import pandas as pd
 
-    codes = get_codes()
-    if limit:
-        codes = codes[:limit]
-    log(f"=== 下载启动 mode={mode} limit={limit} 待处理={len(codes)} ===")
-
     done = load_done_codes()
+    codes = get_codes()
+    # 仅处理未完成的, 支持 --max-codes 分块续跑:
+    # 每轮处理下 N 只未完成 code, 配合外部 respawn 重启进程, 防止 akshare
+    # 不关连接导致的 socket FD 泄漏(此前观察到单进程堆积 400+ socket)。
+    pending = [c for c in codes if c not in done]
+    if limit:
+        pending = pending[:limit]
+    log(f"=== 下载启动 mode={mode} limit={limit} 待处理={len(pending)} (已完成={len(done)}) ===")
+    codes = pending
     pe_rows, fund_rows = [], []
     ok = fail = cached = 0
     fail_list = []
@@ -379,12 +414,18 @@ def download_all(mode: str, limit: int = None):
         except Exception as e:
             log(f"  [{i+1}/{len(codes)}] {code} fundamentals ERR {type(e).__name__}: {str(e)[:80]}")
 
+        # 增量检查点: 每 BATCH 只 flush 一次 parquet, 实现真正断点续传
+        # (避免整轮只在末尾落盘 → 中途被 SIGTERM 打断则内存数据全丢)
+        if (i + 1) % BATCH == 0:
+            _checkpoint(pe_rows, fund_rows)
+            pe_rows, fund_rows = [], []
+
         if (i + 1) % 100 == 0:
             _progress(i, len(codes), ok, fail, cached, t0)
 
         time.sleep(THROTTLE)
 
-    # 末批落盘
+    # 末批落盘 (剩余不足 BATCH 的部分)
     if pe_rows:
         append_parquet(PE_PB_PATH, pd.concat(pe_rows, ignore_index=True))
     if fund_rows:
@@ -432,6 +473,18 @@ def _progress(i, total, ok, fail, cached, t0):
         f"speed={speed:.2f}只/s ETA={eta:.0f}min")
 
 
+def _checkpoint(pe_rows, fund_rows):
+    """增量落盘当前累积批次, 使断点续传粒度 = BATCH (而非整轮末尾)。"""
+    n_pe = len(pe_rows) if pe_rows else 0
+    n_fund = len(fund_rows) if fund_rows else 0
+    if pe_rows:
+        append_parquet(PE_PB_PATH, pd.concat(pe_rows, ignore_index=True))
+    if fund_rows:
+        append_parquet(FUND_PATH, pd.concat(fund_rows, ignore_index=True))
+    log(f"  [检查点] 落盘 pe={n_pe} fund={n_fund} → {PE_PB_PATH.name} "
+        f"(已持久化, 中断后可断点续传)")
+
+
 def write_report(report: dict):
     try:
         with REPORT_PATH.open("w", encoding="utf-8") as f:
@@ -447,7 +500,8 @@ def main():
     ap = argparse.ArgumentParser(description="A股真实估值/基本面数据采集")
     ap.add_argument("--probe", action="store_true", help="仅探测接口可用性")
     ap.add_argument("--mode", choices=["real", "incremental"], help="下载模式")
-    ap.add_argument("--limit", type=int, default=None, help="仅前 N 只(验证)")
+    ap.add_argument("--limit", type=int, default=None, help="仅前 N 只(验证, 已废弃请用 --max-codes)")
+    ap.add_argument("--max-codes", type=int, default=None, help="每轮最多处理 N 只未完成(分块续跑)")
     ap.add_argument("--incremental", action="store_true", help="增量(等价续传)")
     args = ap.parse_args()
 
@@ -456,8 +510,9 @@ def main():
         return
 
     mode = args.mode or ("incremental" if args.incremental else "real")
+    limit = args.max_codes or args.limit
     try:
-        download_all(mode, limit=args.limit)
+        download_all(mode, limit=limit)
     except Exception:
         with REPORT_PATH.open("a", encoding="utf-8") as f:
             f.write(f"\n[FATAL] {traceback.format_exc()}\n")

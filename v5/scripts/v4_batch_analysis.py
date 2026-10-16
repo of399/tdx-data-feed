@@ -241,8 +241,12 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-existing", action="store_true", help="跳过已有 v4 段")
     parser.add_argument("--code", help="单只 code（覆盖 top/all）")
-    parser.add_argument("--model", default=V4_MODEL, help=f"Ollama 模型名（默认 {V4_MODEL}）")
+    parser.add_argument("--model", default="qwen3-14b-tdx-fast:14b", help="Ollama 模型名（默认 qwen3-14b-tdx-fast:14b）")
     args = parser.parse_args()
+
+    # 让 --model 真正覆盖默认模型（call_v4 请求体 / 段落文本 / JSONL 记录均引用 V4_MODEL）
+    global V4_MODEL
+    V4_MODEL = args.model
 
     # 选股
     if args.code:
