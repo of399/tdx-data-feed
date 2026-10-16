@@ -120,3 +120,6 @@ v5/reports/*.md
 !.codebuddy/agents/**
 !.codebuddy/rules/
 !.codebuddy/rules/**
+
+# v4fwd 数据重切分备份(2026-10-16 INCIDENT, 不入库)
+data/v4fwd/backup_*/

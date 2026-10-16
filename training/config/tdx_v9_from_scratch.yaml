@@ -28,11 +28,12 @@ template: qwen
 trust_remote_code: true
 
 dataset_dir: /home/jiuben/tdx-data-feed/train/data    # 与现役一致（含 dataset_info.json）
-dataset: tdx_v4fwd_train                  # 训练集映射名（v4fwd_train.jsonl，前瞻5日方向标签，平衡 涨33.8/跌39.8/震荡26.4%）
-eval_dataset: tdx_v4fwd_val                # 验证集（v4fwd 前瞻标签；分布偏跌56%，仅监控用）
+dataset: tdx_v4fwd_train                  # 训练集映射名（v4fwd_train.jsonl，前瞻5日方向标签）
+                                             # INC-2026-10-16-v9-collapse 修复 1 后: 重切分 + 3 类 1:1:1 平衡 (涨 33.3% / 跌 33.3% / 震 33.3%)
+eval_dataset: tdx_v4fwd_val                # 验证集（重切分后也是 33.3% 平衡）
 # test_dataset: tdx_v4_test  # ⚠️ 0.9.5 不支持 test_dataset 键, 已移除; 测试集留待离线评估(training/eval/run_v4_eval.py)
 # split: split              # ⚠️ 0.9.5 HfArgumentParser 不识别 split 键, 已移除(数据集已是预切分的 train/val/test 三个独立文件, 天然防泄漏)
-max_samples: 64056                          # v4fwd_train.jsonl 实际条数（原 80071 为 v4_train 旧值）
+max_samples: 50748                          # INC-2026-10-16 修复 1 后: v4fwd_resplit 平衡后 train.jsonl 实际条数（涨/跌/震 各 16916 = 50748 = 33.3% 平衡；原 64056 未平衡）
 
 # === LoRA 超参（与现役从零一致，rank=16）=================================
 lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
@@ -47,16 +48,18 @@ do_train: true                               # ⚠️ 必填：transformers 4.57
 per_device_train_batch_size: 1
 gradient_accumulation_steps: 16             # effective batch 16
 num_train_epochs: 3.0
-max_steps: 600                                   # 方案 B 2026-10-16 救火：ckpt-200 sanity 5 指标 FAILED(mode collapse, cls_acc_down=0.0)
-                                                   # 缩短训练到 600 step(原 6006 = 3 epoch 需 32-50h),目标 3 次 sanity(200/400/600)
-                                                   # 验证坍缩是否持续;若仍坍缩,优先排查根因(数据/超参)再决定是否重训
-                                                   # 与 num_train_epochs 互斥:llamafactory 0.9.5 优先 max_steps
-learning_rate: 1.0e-4
+max_steps: 2000                                  # INC-2026-10-16-v9-collapse 修复 3：延长训练（原 600 救火 → 2000 完整训练）
+                                                   # 配合 load_best_model_at_end + 重切分平衡数据
+                                                   # 2000 step 约 8-10h,与 num_train_epochs 互斥(llamafactory 0.9.5 优先 max_steps)
+learning_rate: 5.0e-5                            # 修复 3: LR 1e-4 → 5e-5（避免早 step 模式坍缩）
 lr_scheduler_type: cosine
-warmup_ratio: 0.03
+warmup_ratio: 0.05                               # 修复 3: warmup 0.03 → 0.05（5% 步数 warmup，更稳）
 weight_decay: 0.0
 max_grad_norm: 1.0
 seed: 42
+load_best_model_at_end: true                     # 修复 3: 训练结束选 eval_loss 最低的 checkpoint
+metric_for_best_model: eval_loss
+greater_is_better: false
 
 # === 序列与 packing =======================================================
 cutoff_len: 512
@@ -80,7 +83,7 @@ save_strategy: steps
 eval_strategy: steps
 eval_steps: 200
 per_device_eval_batch_size: 1               # ⚠️ Qwen3-14B vocab=151936, batch=8 时 logits.float() 要 ~2.5GB → OOM on 16GB; 设为 1 (与 train batch 对齐)
-load_best_model_at_end: false
+# load_best_model_at_end 已在训练超参区定义(修复 3)
 
 # === 监控 ================================================================
 report_to: none

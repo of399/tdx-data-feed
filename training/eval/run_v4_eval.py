@@ -374,6 +374,13 @@ def main():
                         help="回测开仓阈值（pred_pct > threshold 视为买入）")
     parser.add_argument("--out-prefix", type=str, default=None,
                         help="输出文件前缀（默认：eval_<timestamp>）")
+    # INC-2026-10-16-v9-collapse 修复 4: sanity 阈值 L1/L2/L3 分级
+    # L1 (早期 ckpt ≤ 200,宽容): acc ≥ 0.40 + cls_acc_up ≥ 0.25 + cls_acc_down ≥ 0.20 + cls_acc_flat ≥ 0.25
+    # L2 (中期 ckpt 400-600,标准): acc ≥ 0.50 + sp ≥ 0.05 + cls_acc_up/down/flat ≥ 0.35
+    # L3 (训练结束,严格): acc ≥ 0.55 + sp ≥ 0.10 + cls_acc_up/down/flat ≥ 0.45
+    parser.add_argument("--sanity-level", type=str, default="L3",
+                        choices=["L1", "L2", "L3"],
+                        help="sanity 阈值分级（默认 L3,严格）")
     args = parser.parse_args()
 
     EVAL_OUT_DIR.mkdir(parents=True, exist_ok=True)
