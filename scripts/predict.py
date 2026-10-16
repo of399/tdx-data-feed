@@ -213,7 +213,7 @@ def _get_industry_mapping() -> dict[str, str]:
             df = pd.read_csv(m, usecols=["code", "industry_code"])
             df["industry_code"] = df["industry_code"].astype(str).str.replace(r"\.0$", "", regex=True)
             df.loc[df["industry_code"].isin(["nan", "-1.0"]), "industry_code"] = "UNMAPPED"
-            _INDUSTRY_MAPPING_CACHE = dict(zip(df["code"], df["industry_code"]))
+            _INDUSTRY_MAPPING_CACHE = dict(zip(df["code"], df["industry_code"], strict=True))
     return _INDUSTRY_MAPPING_CACHE
 
 
@@ -392,7 +392,7 @@ def load_all_stocks(codes: list, max_workers: int = 8) -> pd.DataFrame:
                              initargs=(ACTIVE_FEATURE_MODE,)) as executor:
         futures = {executor.submit(load_single_stock, code): code for code in codes}
         for i, fut in enumerate(as_completed(futures)):
-            code, data = fut.result()
+            _code, data = fut.result()
             if data is not None:
                 rows.append(data)
             else:
@@ -549,6 +549,15 @@ def main():
     parser.add_argument('--features', default='polars', choices=['legacy', 'polars'],
                         help='特征管线: legacy(26 基础维) / polars(26 基础维+9 候选因子,默认,'
                              'vpnl_huber_stage1 必需)')
+    # 方案 B 2026-10-16：--emit-top 叠加输出到 data/signals/（与默认输出叠加,默认关闭）
+    parser.add_argument('--emit-top', action='store_true',
+                        help='额外写一份 Top N 信号到 data/signals/(与默认输出叠加,默认关闭)')
+    parser.add_argument('--emit-top-n', type=int, default=50,
+                        help='--emit-top 输出 Top N 默认 50')
+    parser.add_argument('--emit-threshold', type=float, default=0.7,
+                        help='--emit-top 阈值过滤 默认 0.7')
+    parser.add_argument('--emit-fields', default='code,score,ts,top_k',
+                        help='--emit-top 输出字段 逗号分隔,默认 code,score,ts,top_k')
     args = parser.parse_args()
 
     # 解析多模型选择(部署 vpnl_huber:PnL 回归;回滚用 --model prod)
@@ -587,8 +596,8 @@ def main():
     feature_cols = model.feature_name()
     # Step 7 守卫：新模型(vpnl_huber_stage1)需要 polars 候选因子列，若用 legacy 管线会 KeyError
     if ACTIVE_FEATURE_MODE != "polars" and _CANDIDATE_FACTOR_COLS & set(feature_cols):
-        sys.exit("❌ 该模型需要 polars 候选因子列(%s)，请加 --features polars"
-                 % ", ".join(sorted(_CANDIDATE_FACTOR_COLS & set(feature_cols))))
+        sys.exit("❌ 该模型需要 polars 候选因子列({})，请加 --features polars"
+                 .format(", ".join(sorted(_CANDIDATE_FACTOR_COLS & set(feature_cols)))))
     if len(feature_cols) > 18:
         print(f"    [扩展模式] {len(feature_cols)} 维特征(18 基础 + {len(feature_cols)-18} 工程化)")
     else:
@@ -674,6 +683,33 @@ def main():
         print(f"    ✓ 高分 {len(high_score)} 只: {fp_high.name}")
     else:
         print(f"    (无阈值 {args.threshold}+ 高分股)")
+
+    # 方案 B 2026-10-16：--emit-top 叠加输出到 data/signals/
+    if args.emit_top:
+        signals_dir = ROOT / 'data' / 'signals'
+        signals_dir.mkdir(parents=True, exist_ok=True)
+        # 阈值过滤（用 emit-threshold,与默认 threshold 独立）
+        if ACTIVE_IS_REG:
+            emit_pool = feat_df[feat_df['prob'] > args.emit_threshold].copy()
+        else:
+            emit_pool = feat_df[feat_df['prob'] >= args.emit_threshold].copy()
+        emit_pool = emit_pool.sort_values('prob', ascending=False).reset_index(drop=True)
+        emit_pool = emit_pool.head(args.emit_top_n)
+        emit_pool['top_k'] = range(1, len(emit_pool) + 1)
+        emit_pool['ts'] = ts
+        # 字段过滤
+        requested = [f.strip() for f in args.emit_fields.split(',') if f.strip()]
+        # 缺失字段容错:只保留存在的
+        present = [c for c in requested if c in emit_pool.columns]
+        if not present:
+            print(f"    ⚠ --emit-top 字段 {args.emit_fields} 全部缺失,跳过")
+        else:
+            missing = [c for c in requested if c not in emit_pool.columns]
+            if missing:
+                print(f"    ⚠ --emit-top 缺失字段: {missing}, 仅输出存在字段: {present}")
+            fp_emit = signals_dir / f'predict_{ts}_top{args.emit_top_n}_thr{args.emit_threshold}.csv'
+            emit_pool[present].to_csv(fp_emit, index=False, encoding='utf-8-sig')
+            print(f"    ✓ emit-top: {fp_emit.relative_to(ROOT)} ({len(emit_pool)} 行 × {len(present)} 列)")
 
     # Markdown 报告
     fp_md = OUTPUT_DIR / f'predict_{ts}.md'
