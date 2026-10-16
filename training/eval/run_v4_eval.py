@@ -62,18 +62,20 @@ class EvalMetrics:
 
 
 # === 模型加载 ===============================================================
-def load_model(ckpt_path: Path, base_model: str = BASE_MODEL_HF, quantize_4bit: bool = False):
-    """加载 base + LoRA adapter（peft + transformers）
+def load_model(ckpt_path: Path, base_model: str = BASE_MODEL_HF,
+              quantize_4bit: bool = False, quantize_8bit: bool = False):
+    """加载 base + LoRA adapter(peft + transformers)
 
-    quantize_4bit=True 时用 4-bit(nf4) 基模，可在单卡 16GB 上放下 14B 并加速；
-    默认 False 保持原 bf16 行为（需 >=32GB 或显存更大的卡）。
+    quantize_4bit=True 时用 4-bit(nf4) 基模,可在单卡 16GB 上放下 14B 并加速;
+    quantize_8bit=True 时用 8-bit(int8) 基模,14B 8bit ≈ 14GB 可在单卡 16GB 跑推理(比 4bit 慢但更精确);
+    默认 False 保持原 bf16 行为(需 >=32GB 或显存更大的卡)。
     """
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-    print(f"[load] base={base_model} adapter={ckpt_path} quantize_4bit={quantize_4bit}")
+    print(f"[load] base={base_model} adapter={ckpt_path} quantize_4bit={quantize_4bit} quantize_8bit={quantize_8bit}")
     tok = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
@@ -84,12 +86,30 @@ def load_model(ckpt_path: Path, base_model: str = BASE_MODEL_HF, quantize_4bit: 
             bnb_4bit_quant_type="nf4",
             bnb_4bit_use_double_quant=True,
         )
-        # 方案 B 2026-10-16：显式单卡,避免 device_map='auto' 误判 OOM dispatch to CPU
-        # (14B 4bit ≈ 7GB,单卡 16GB 能放;auto 模式会 dispatch 到 CPU/disk 触发 bnb 报错)
+        # 方案 B 2026-10-16: 显式单卡 + max_memory 限制 12GB,留 4GB 给推理 KV cache
+        # (14B 4bit ≈ 7GB,但 bnb 计算 dtype=bf16 让模型激活占用 ~13GB)
         base = AutoModelForCausalLM.from_pretrained(
             base_model,
             quantization_config=bnb,
             device_map={'': 0},  # 强制 cuda:0
+            max_memory={0: '13GB', 'cpu': '30GB'},
+            offload_folder="/tmp/transformers_offload",
+            trust_remote_code=True,
+        )
+    elif quantize_8bit:
+        # 方案 B 2026-10-16 现场救火: 4bit 推理时 batch 触发 13.37GB 用量 + 碎片 OOM
+        # 8bit 14B ≈ 14GB < 16GB 单卡,推理 buffer 仍不够 → 用 max_memory + device_map={'': 0}
+        # 强制单卡 15GB 加载(留 1GB 给推理),bnb validate 不会触发(因为 device_map 不是 auto)
+        bnb = BitsAndBytesConfig(
+            load_in_8bit=True,
+            llm_int8_enable_fp32_cpu_offload=True,
+        )
+        base = AutoModelForCausalLM.from_pretrained(
+            base_model,
+            quantization_config=bnb,
+            device_map={'': 0},
+            max_memory={0: '15GB', 'cpu': '30GB'},
+            offload_folder="/tmp/transformers_offload",
             trust_remote_code=True,
         )
     else:
@@ -340,7 +360,9 @@ def main():
     parser.add_argument("--base", type=str, default=BASE_MODEL_HF,
                         help="HF base model id 或本地路径")
     parser.add_argument("--quantize-4bit", action="store_true",
-                        help="用 4-bit(nf4) 基模加载，使其在单卡 16GB 可运行（默认 bf16 需大显存）")
+                        help="用 4-bit(nf4) 基模加载,使其在单卡 16GB 可运行(默认 bf16 需大显存)")
+    parser.add_argument("--quantize-8bit", action="store_true",
+                        help="用 8-bit(int8) 基模加载,14B 8bit ≈ 14GB 可在单卡 16GB 跑推理(比 4bit 慢但更精确)")
     parser.add_argument("--limit", type=int, default=0,
                         help="抽样 N 条（0=全部）")
     parser.add_argument("--batch-size", type=int, default=8)
@@ -376,7 +398,7 @@ def main():
     # 2. 加载模型
     print("\n[2] 加载 base + LoRA adapter ...")
     t0 = time.time()
-    tok, model = load_model(Path(args.ckpt), args.base, args.quantize_4bit)
+    tok, model = load_model(Path(args.ckpt), args.base, args.quantize_4bit, args.quantize_8bit)
     print(f"    加载耗时 {time.time() - t0:.1f}s")
 
     # 3. 方向准确率 + 格式遵循率
