@@ -174,3 +174,42 @@ templates/math/ 7 份 T-*.md
 - 若共库（`--vault` 指向项目 vault），两套查询靠标签隔离：
   项目文档 `#tdx-data-feed`，数学卡 `#math-notes`。
 - 双向同步（方向⑥）目前仍搁置，共库时请保持"数学卡只读消费、不回写仓库"。
+
+## 7. 同步策略（Source/Deploy Policy · 2026-10-16 定型）
+
+数学笔记库存在**三个位置**，单向流向：
+
+```
+┌──────────────────────────────┐     唯一事实源（必须先改这里）
+│ etc/obsidian/math/MOC/总览.md  │ ◀────── 任何修改请编辑此文件
+└──────────────┬───────────────┘
+               │  scripts/install-math-moc.sh
+               ▼
+       ┌───────────────┴───────────────┐
+       ▼                               ▼
+┌────────────────────────┐    ┌──────────────────────────────┐
+│ math-study vault        │    │ StockVault/05-知识库/数学/    │
+│ (独立 git 仓)            │    │ (嵌入主库的子库)               │
+│ 路径: ~/ObsidianVaults/ │    │ 路径: ~/StockVault            │
+│         math-study       │    │                              │
+│ 模板目录: templates/math/│    │ 模板目录: 06-模板/math/       │
+│ 角色: 全量源              │    │ 角色: 嵌入子库 (mirror)       │
+└────────────────────────┘    └──────────────────────────────┘
+```
+
+| 位置 | 角色 | 同步脚本 | 路径 |
+|---|---|---|---|
+| **源（项目仓库）** | **唯一权威** | 编辑这里 | `etc/obsidian/math/MOC/总览.md` |
+| **math-study vault** | 全量源（独立 git 仓） | `install-math-moc.sh`（默认双 vault）| `~/ObsidianVaults/math-study/00_索引/总览.md` |
+| **StockVault vault** | 嵌入子库（mirror）| `install-math-moc.sh`（默认双 vault）| `~/StockVault/05-知识库/数学/00_索引/总览.md` |
+
+**当前状态**（2026-10-16 体检）：
+- math-study vault **几乎是空壳**（14 md = 7 模板 + 1 总览 + 6 笔记；10/11/12/13 领域空）
+- StockVault 部署 vault **反而多 11 张笔记**（与"源→部署"方向相反，是历史存量）
+- **目标方向**：math-study 充实后回流 → StockVault 仍是 mirror
+- **当前特殊**：StockVault 是事实上最完整的"内容池"，math-study 需补全
+
+**操作约束**：
+- 任何对"知识库总览/综述/质检规则"的修改 → 改 `etc/obsidian/math/MOC/总览.md`，跑 `install-math-moc.sh` 双 vault 同步
+- vault 内**只读消费**（Dataview 渲染），不要直接编辑 vault 内总览——会被下次同步覆盖（除非 `--force`）
+- 模板/笔记可由各 vault 独立积累（不在 MOC 同步范围内），但**核心规则在源**
