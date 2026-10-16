@@ -126,6 +126,65 @@ def load_double_up() -> pd.DataFrame:
     return df
 
 
+# === 方案 B 2026-10-16：--codes-file 加载 ==============================
+def load_codes_from_file(path: str, comment_prefix: str = "#") -> list[str]:
+    """加载外部股票代码列表。格式契约:
+      - 编码 UTF-8
+      - header 必须（第 1 行），首列名 = code（含 sh/sz 前缀的 6/7 位代码）
+      - comment 行：以 comment_prefix 开头 → 跳过
+      - 空行 → 跳过
+      - 重复 code → sys.exit(1)（不容错）
+      - 格式错（列名不符 / 缺列）→ sys.exit(1) + 详细错误
+    返回: 6 位代码列表（去前缀）
+    """
+    p = Path(path)
+    if not p.exists():
+        sys.exit(f"❌ --codes-file 不存在: {p}")
+    try:
+        df = pd.read_csv(p, comment=None, skip_blank_lines=True, dtype=str)
+    except Exception as e:
+        sys.exit(f"❌ --codes-file 读取失败: {p}\n  错误: {e}")
+    # 1) header 列名校验
+    if not df.columns.tolist() or df.columns[0] != "code":
+        sys.exit(f"❌ --codes-file={p} 格式错\n"
+                 f"  期望首列名 'code', 实际: {df.columns.tolist()[:3]}\n"
+                 f"  参考格式参见 docs/PLAN_E_LIVE.md §'codes-file 格式'")
+    if len(df.columns) < 1:
+        sys.exit(f"❌ --codes-file={p} 缺少 'code' 列")
+    # 2) 过滤 comment 行: pd.read_csv 不支持 comment 跳过指定 prefix, 手动预处理
+    #    (上面 read_csv 用 comment=None 是因为我们要在 read 前就处理)
+    #    实际 comment 行在 CSV 中是文本,我们已经在 read 时 skip_blank_lines,
+    #    但 # 开头的行会被当数据行,需 post-filter
+    #    更稳:用 open + 逐行 read
+    raw_codes: list[str] = []
+    seen: set[str] = set()
+    with open(p, encoding="utf-8") as f:
+        header_line = f.readline()
+        if not header_line:
+            sys.exit(f"❌ --codes-file={p} 文件为空")
+        if not header_line.lower().lstrip("\ufeff").startswith("code"):
+            sys.exit(f"❌ --codes-file={p} header 首列名不是 'code'\n"
+                     f"  实际: {header_line.strip()[:80]}")
+        for line_no, line in enumerate(f, start=2):
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith(comment_prefix):
+                continue
+            # 取首列（逗号分隔）
+            first = s.split(",")[0].strip()
+            # 去 sh/sz/bj 前缀 → 6 位代码
+            c = first.split(".")[-1]  # 兼容 600519.SH
+            c = c.zfill(6) if c.isdigit() else c
+            if c in seen:
+                sys.exit(f"❌ --codes-file={p} 第 {line_no} 行重复 code: {c}")
+            seen.add(c)
+            raw_codes.append(c)
+    if not raw_codes:
+        sys.exit(f"❌ --codes-file={p} 无有效 code（除 header 外均为空/comment）")
+    return raw_codes
+
+
 def get_first_double_date(df: pd.DataFrame) -> pd.DataFrame:
     """对每只股，找出首次触发翻倍的日期 = peak_date"""
     if 'peak_date' in df.columns:
@@ -342,7 +401,7 @@ def backtest(double_up: pd.DataFrame,
     return bt_valid, daily_records
 
 
-def generate_today_signals(double_up: pd.DataFrame, today: str = None) -> pd.DataFrame:
+def generate_today_signals(double_up: pd.DataFrame, today: str | None = None) -> pd.DataFrame:
     """
     生成今日触发信号（实盘）
     today: 翻倍触发日（T 日，疑似明日入场的清单）
@@ -1099,7 +1158,7 @@ def run_walk_forward_rt(double_up: pd.DataFrame, hold: int, tp: float, sl: float
     ann_s = [r['ann_oos_s'] for r in rows]
     mean_sh_s = sum(sh_s) / nw if use_stress else 0.0
     mean_ann_s = sum(ann_s) / nw if use_stress else 0.0
-    frac_pos_s = sum(1 for x in sh_s if x > 0) / nw if use_stress else 0.0
+    _frac_pos_s = sum(1 for x in sh_s if x > 0) / nw if use_stress else 0.0
 
     # 统计推断闸口：仅 OOS 样本 ≥ MIN_INFER_N 的窗口点估计具统计显著性
     infer_rows = [r for r in rows if r['n_oos'] >= MIN_INFER_N]
@@ -1205,7 +1264,7 @@ def _real_bt_from_csv(path: Path) -> pd.DataFrame:
     if 'exit_reason' not in df.columns and 'reason' in df.columns:
         df['exit_reason'] = df['reason']
     exit_date = pd.to_datetime(df.get('exit_date', df['signal_date']).astype(str))
-    df['daily'] = [[(d, r)] for d, r in zip(exit_date, df['return_pct'])]
+    df['daily'] = [[(d, r)] for d, r in zip(exit_date, df['return_pct'], strict=True)]
     df['yr'] = pd.to_datetime(df['signal_date']).dt.year
     if 'exch' not in df.columns:
         df['exch'] = df['code'].apply(_exchange_of)
@@ -1302,8 +1361,8 @@ def run_real_walk_forward(bt: pd.DataFrame) -> str:
     sh_b = [r['sh_oos_b'] for r in rows]
     ann_b = [r['ann_oos_b'] for r in rows]
     nw = len(rows)
-    mean_sh_b = sum(sh_b) / nw
-    mean_ann_b = sum(ann_b) / nw
+    _mean_sh_b = sum(sh_b) / nw
+    _mean_ann_b = sum(ann_b) / nw
     frac_pos_b = sum(1 for x in sh_b if x > 0) / nw
     infer_rows = [r for r in rows if r['n_oos'] >= MIN_INFER_N]
     n_infer = len(infer_rows)
@@ -1331,8 +1390,11 @@ def run_real_walk_forward(bt: pd.DataFrame) -> str:
     ann_mean = _mean(ann_ok)
     sh_min = min(sh_ok) if sh_ok else None
     sh_max = max(sh_ok) if sh_ok else None
-    _d = lambda v: (f"{v:.2f}" if v is not None else '—')
-    _da = lambda v: (fmt_pct(v) if v is not None else '—')
+    def _d(v):
+        return f"{v:.2f}" if v is not None else '—'
+
+    def _da(v):
+        return fmt_pct(v) if v is not None else '—'
 
     L = []
     L.append("## 🔄 实盘样本·滚动窗口验证（观测收益 OOS）\n")
@@ -1398,6 +1460,12 @@ def main():
     parser.add_argument('--mf-start', default='2000-01-01', help='--mf 回测起始日')
     parser.add_argument('--mf-end', default=datetime.now().strftime("%Y-%m-%d"),
                         help='--mf 回测结束日（默认至今日）')
+    # 方案 B 2026-10-16：--codes-file 叠加输入源（外部股票代码列表，限定回测范围）
+    parser.add_argument('--codes-file', type=str, default=None,
+                        help='外部股票代码列表文件路径（与现有批量回测叠加，限定回测范围）。'
+                             '格式: UTF-8 + 必须 header（首列 code）+ # comment 行 + 空行跳过。错误不容错。')
+    parser.add_argument('--codes-file-comment-prefix', default='#',
+                        help='--codes-file comment 行前缀 默认 #')
     args = parser.parse_args()
 
     if not args.no_freshness_check:
@@ -1418,7 +1486,7 @@ def main():
         print("=== 多因子组合回测 (multifactor v1) ===")
         print(f"  参数: top_n={cfg.top_n} valuation={cfg.valuation_mode} "
               f"range={cfg.start}~{cfg.end} limit={cfg.limit}")
-        df, metrics = run_mf_backtest(cfg)
+        _df, metrics = run_mf_backtest(cfg)  # df 用于 run_mf_backtest 内部写文件
         print(f"  调仓次数: {metrics.get('n_rebalances')}  股票池: {metrics.get('universe_size')}  "
               f"估值模式: {metrics.get('valuation_mode')}")
         print(f"  年化: {metrics.get('ann_ret', 0)*100:.2f}%  夏普: {metrics.get('sharpe', 0):.2f}  "
@@ -1444,6 +1512,15 @@ def main():
     # 加载翻倍样本
     print("\n[1/3] 加载翻倍样本...")
     double_up = load_double_up()
+    # 方案 B 2026-10-16：--codes-file 过滤（限定回测范围）
+    if args.codes_file:
+        codes_filter = load_codes_from_file(args.codes_file, args.codes_file_comment_prefix)
+        before = len(double_up)
+        double_up = double_up[double_up['code'].astype(str).isin(codes_filter)].copy()
+        print(f"  --codes-file 过滤: {before} → {len(double_up)} 行 "
+              f"(限定 {len(codes_filter)} 只候选代码)")
+        if double_up.empty:
+            sys.exit("❌ --codes-file 过滤后无翻倍样本，无法回测")
 
     if args.today:
         print("\n[2/3] 生成今日信号...")
