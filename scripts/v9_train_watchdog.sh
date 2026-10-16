@@ -32,6 +32,8 @@ echo "$(date '+%Y-%m-%d %H:%M:%S') [watchdog] start (monitor-or-launch mode)" >>
 # 方案 B 2026-10-16：v4fwd sanity 集成（acc/sp/cls ≥ 0.33 判停训）
 SANITY_DIR="$ROOT/logs/v4fwd_sanity"
 SANITY_CKPT_NAME="checkpoint-200"
+# 本地 base 路径(避免联网)+ 4bit 量化(14B 模型 4bit ≈ 7GB,与训练抢 GPU 风险低)
+SANITY_BASE="/home/jiuben/models/Qwen3-14B"
 mkdir -p "$SANITY_DIR"
 
 maybe_run_sanity() {
@@ -46,19 +48,22 @@ maybe_run_sanity() {
   (
     venv/bin/python training/eval/run_v4_eval.py \
       --ckpt "$ck" --limit 200 --no-backtest \
+      --base "$SANITY_BASE" --quantize-4bit \
       --out-prefix "$SANITY_CKPT_NAME" > "$sd.stdout" 2>&1
     local rc=$?
     echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] run_v4_eval rc=$rc" >> "$WLOG"
+    # 方案 B 2026-10-16 改进:区分 RC_ERROR(基础设施错,如 Ollama 抢 GPU / 联网超时)与 FAILED(5 指标不达标)
+    # RC_ERROR 不触发停训,只记录;FAILED 才杀训练
     if [ "$rc" -ne 0 ]; then
-      touch "$sd.FAILED"
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] FAILED (rc=$rc,run_v4_eval 异常)" >> "$WLOG"
+      touch "$sd.RC_ERROR"
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] RC_ERROR (rc=$rc,run_v4_eval 异常,通常是 Ollama/联网/显存,见 $sd.stdout)" >> "$WLOG"
       exit 0
     fi
     local mfile
     mfile=$(ls "$ROOT/training/eval/metrics_${SANITY_CKPT_NAME}_"*.json 2>/dev/null | tail -1)
     if [ -z "$mfile" ]; then
-      touch "$sd.FAILED"
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] FAILED (no metrics_$SANITY_CKPT_NAME.json)" >> "$WLOG"
+      touch "$sd.RC_ERROR"
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] RC_ERROR (no metrics_$SANITY_CKPT_NAME.json)" >> "$WLOG"
       exit 0
     fi
     local pass
@@ -86,11 +91,11 @@ print(int(ok))
 check_sanity_result() {
   local sd="$SANITY_DIR/$SANITY_CKPT_NAME"
   [ -f "$sd.FAILED" ] || return 0
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [watchdog] sanity 失败 — 杀训练(不重启)" >> "$WLOG"
-  pkill -TERM -f "training/config/tdx_v9_from_scratch.yaml" 2>/dev/null
-  sleep 5
-  pkill -9 -f "training/config/tdx_v9_from_scratch.yaml" 2>/dev/null
-  return 1
+  # 2026-10-16 修正：sanity 失败(尤其 rc=143 超时——训练占满 GPU 时 4-bit eval 必然 CPU offload 超时,
+  # 10-12 23:05 已证)不等于模型损坏。原"杀训练(不重启)"逻辑误杀了健康训练(18:20 事故)。
+  # 现改为仅记录，生成式 sanity 一律推迟到训练完成后做；看门狗只负责保活，不当裁判。
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [watchdog] sanity FAILED — 仅记录不杀训练(修正: rc=143=超时误判, 推迟到训练后)" >> "$WLOG"
+  return 0
 }
 
 if is_running; then

@@ -84,10 +84,12 @@ def load_model(ckpt_path: Path, base_model: str = BASE_MODEL_HF, quantize_4bit: 
             bnb_4bit_quant_type="nf4",
             bnb_4bit_use_double_quant=True,
         )
+        # 方案 B 2026-10-16：显式单卡,避免 device_map='auto' 误判 OOM dispatch to CPU
+        # (14B 4bit ≈ 7GB,单卡 16GB 能放;auto 模式会 dispatch 到 CPU/disk 触发 bnb 报错)
         base = AutoModelForCausalLM.from_pretrained(
             base_model,
             quantization_config=bnb,
-            device_map="auto",
+            device_map={'': 0},  # 强制 cuda:0
             trust_remote_code=True,
         )
     else:
