@@ -58,3 +58,21 @@ def icir(ic_series: pd.Series) -> float:
     if len(s) < 5 or s.std() == 0:
         return 0.0
     return float(s.mean() / s.std())
+
+
+def ic_newey_west(ic_series: pd.Series, maxlags: int = 5) -> dict:
+    """Newey-West HAC 检验：IC 序列均值是否显著 ≠ 0（IC 强自相关，OLS 标准误会低估）。
+
+    返回 {n, mean_ic, se_hac, t_stat, p_value}；样本不足返回 p=nan。
+    """
+    from statsmodels.api import OLS
+
+    s = ic_series.dropna()
+    n = len(s)
+    if n < 10:
+        return {"n": n, "mean_ic": float(s.mean()) if n else 0.0,
+                "se_hac": float("nan"), "t_stat": float("nan"), "p_value": float("nan")}
+    model = OLS(s.values, np.ones((n, 1))).fit(cov_type="HAC", cov_kwds={"maxlags": maxlags})
+    return {"n": n, "mean_ic": float(s.mean()),
+            "se_hac": float(model.bse[0]), "t_stat": float(model.tvalues[0]),
+            "p_value": float(model.pvalues[0])}

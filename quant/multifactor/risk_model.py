@@ -10,10 +10,21 @@
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+try:
+    from sklearn.covariance import OAS
+
+    HAS_OAS = True
+except Exception:  # pragma: no cover - sklearn 为可选依赖
+    OAS = None
+    HAS_OAS = False
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 IND_CSV = ROOT / "data" / "industry" / "sw_stock_industry.csv"
@@ -67,6 +78,38 @@ def ledoit_wolf_cov(X: np.ndarray, shrinkage: float | None = None) -> np.ndarray
     return (1 - shrinkage) * S + shrinkage * F
 
 
+def _ewma_cov(F: np.ndarray, lam: float = 0.94) -> np.ndarray:
+    """RiskMetrics 风格 EWMA 协方差（λ=0.94，与 sim_daily_compare.py 口径一致）。
+
+    F: (T, P) 因子收益。权重 w_t = λ^{T-1-t}（最新为 1）归一化；
+    减去样本均值后做指数加权外积，对称化输出（PSD 由调用方 clip 保证）。
+    """
+    F = np.asarray(F, dtype=float)
+    T, P = F.shape
+    if T < 2 or P == 0:
+        return np.eye(P) * 1e-6
+    w = lam ** np.arange(T - 1, -1, -1, dtype=float)
+    w = w / w.sum()
+    d = F - F.mean(axis=0)
+    Sigma = (d * w[:, None]).T @ d
+    Sigma = np.nan_to_num(Sigma, nan=0.0)
+    return (Sigma + Sigma.T) / 2
+
+
+def cov_diagnostics(Sigma: np.ndarray) -> dict:
+    """量化协方差病态程度：{cond, min_eig, max_eig, n}。"""
+    Sigma = np.asarray(Sigma, dtype=float)
+    n = Sigma.shape[0]
+    try:
+        ev = np.linalg.eigvalsh(Sigma)  # 升序
+        min_eig = float(ev[0])
+        max_eig = float(ev[-1])
+        cond = float(max_eig / min_eig) if min_eig > 0 else float("inf")
+    except np.linalg.LinAlgError:
+        min_eig = max_eig = cond = float("nan")
+    return {"cond": cond, "min_eig": min_eig, "max_eig": max_eig, "n": n}
+
+
 class RiskModel:
     def __init__(self, industry: IndustryMap | None = None):
         self.industry = industry or IndustryMap()
@@ -101,7 +144,19 @@ class RiskModel:
         B = pd.concat([ind_df, style], axis=1)
         return B, list(B.columns)
 
-    def estimate_cov(self, rets: pd.DataFrame, panel: pd.DataFrame) -> np.ndarray:
+    def _factor_cov(self, F: np.ndarray, cov_method: str, ewma_lambda: float) -> np.ndarray:
+        """对因子收益序列 F(T×P) 估计 P×P 协方差；支持 lw(默认)/oas/ewma。"""
+        if cov_method == "oas" and HAS_OAS:
+            try:
+                return np.asarray(OAS().fit(F).covariance_, dtype=float)
+            except Exception:
+                logger.warning("OAS 估计失败，回退 Ledoit-Wolf")
+        if cov_method == "ewma":
+            return _ewma_cov(F, ewma_lambda)
+        return ledoit_wolf_cov(F)
+
+    def estimate_cov(self, rets: pd.DataFrame, panel: pd.DataFrame,
+                     cov_method: str = "lw", ewma_lambda: float = 0.94) -> np.ndarray:
         """rets: (T, N) 日收益，index=date, columns=codes（入选组合）。
         panel: 当前截面因子面板（用于 B）。返回 N×N 协方差。"""
         codes = list(rets.columns)
@@ -123,7 +178,7 @@ class RiskModel:
         resid = R.T - Bv @ F.T
         D = np.nan_to_num(np.var(resid, axis=1, ddof=1), nan=1e-8)
         D = np.clip(D, 1e-8, None)
-        Sigma_f = ledoit_wolf_cov(F)
+        Sigma_f = self._factor_cov(F, cov_method=cov_method, ewma_lambda=ewma_lambda)
         Sigma_f = np.nan_to_num(Sigma_f, nan=0.0) + np.eye(Sigma_f.shape[0]) * 1e-8
         Sigma = Bv @ Sigma_f @ Bv.T + np.diag(D)
         Sigma = (Sigma + Sigma.T) / 2
@@ -134,6 +189,9 @@ class RiskModel:
             Sigma = V @ np.diag(w) @ V.T
         except np.linalg.LinAlgError:
             Sigma = np.diag(np.clip(np.diag(Sigma), 1e-8, None))
+        diag = cov_diagnostics(Sigma)
+        logger.debug("estimate_cov method=%s n=%d cond=%.3g min_eig=%.3g",
+                     cov_method, Sigma.shape[0], diag["cond"], diag["min_eig"])
         return Sigma
 
     @staticmethod

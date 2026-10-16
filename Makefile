@@ -444,6 +444,28 @@ verify-obsidian-quick:  ## 仅只读静态检查（V0–V4），用于日常
 
 health: canary  ## 别名
 
+verify-math:  ## 兼容旧名（v1 数学闭环），等价 verify-obsidian-templates
+	@$(MAKE) verify-obsidian-templates
+
+verify-obsidian-templates:  ## 校验全 vault 源 ↔ 部署零漂移（v2.1：共享+分 vault 配置 JSON）；需 VAULT_KIND
+	@bash $(SCRIPTS)/verify-obsidian-templates.sh --vault $${VAULT:-/home/jiuben/StockVault} --vault-kind $${VAULT_KIND:-stockvault} --prefix "$${PREFIX:-05-知识库/数学}" --math-tpl-dir "$${MATH_TPL_DIR:-06-模板/math}" --nonmath-tpl-dir "$${NONMATH_TPL_DIR:-06-模板}"
+
+precommit-verify:  ## commit 前跑 verify-obsidian-templates（git 钩子未启用时的手动门）；需 VAULT_KIND
+	@bash $(SCRIPTS)/verify-obsidian-templates.sh --vault $${VAULT:-/home/jiuben/StockVault} --vault-kind $${VAULT_KIND:-stockvault} --prefix "$${PREFIX:-05-知识库/数学}" --math-tpl-dir "$${MATH_TPL_DIR:-06-模板/math}" --nonmath-tpl-dir "$${NONMATH_TPL_DIR:-06-模板}"
+
+install-obsidian-templates:  ## 部署源 → vault（共享+分 vault JSON），备份 .bak-<ts>；需 VAULT_KIND
+	@bash $(SCRIPTS)/install-obsidian-templates.sh --vault $${VAULT:-/home/jiuben/StockVault} --vault-kind $${VAULT_KIND:-stockvault}
+
+verify-obsidian-data:  ## Phase 2 数据完整性：元数据字段 + 链接完整性（断链/循环依赖）
+	@python3 $(SCRIPTS)/verify_obsidian_metadata.py --vault $${VAULT:-/home/jiuben/StockVault}
+	@python3 $(SCRIPTS)/verify_obsidian_links.py --vault $${VAULT:-/home/jiuben/StockVault}
+
+verify-obsidian-metadata:  ## 仅元数据字段完整性校验
+	@python3 $(SCRIPTS)/verify_obsidian_metadata.py --vault $${VAULT:-/home/jiuben/StockVault}
+
+verify-obsidian-links:  ## 仅链接完整性 + 循环依赖校验
+	@python3 $(SCRIPTS)/verify_obsidian_links.py --vault $${VAULT:-/home/jiuben/StockVault}
+
 logs:  ## 查看所有日志（最近 5 行）
 	@echo "$(CYAN)$(BOLD)=== 日志汇总 ===$(NC)"
 	@for f in $(LOGS)/*.log; do \

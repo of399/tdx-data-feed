@@ -1,0 +1,17 @@
+[Unit]
+Description=tdx-data-feed 旧日志清理（保留最近 7 天）
+Documentation=make -C /home/jiuben/tdx-data-feed clean-logs
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+# clean-logs 仅做 find -mtime +7 -delete，无需 venv
+ExecStart=/usr/bin/make -C /home/jiuben/tdx-data-feed clean-logs
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/tdx-clean-logs.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/tdx-clean-logs.err
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=timers.target

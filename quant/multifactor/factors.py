@@ -111,8 +111,8 @@ CATEGORY_OF = {m.name: m.category for m in FACTOR_METAS}
 
 @dataclass
 class MFConfig:
-    start: str = "2020-01-01"
-    end: str = "2026-10-14"
+    start: str = "2000-01-01"
+    end: str = "2026-10-15"
     rebalance_freq: str = "W-FRI"         # 周五信号，次周一开盘成交
     valuation_mode: str = "auto"          # proxy | real | auto
     top_n: int = 30
@@ -128,6 +128,16 @@ class MFConfig:
     seed: int = 42
     limit: int = 0                        # 仅前 N 只（冒烟用）
     ipo_min_days: int = 60
+    lot_rounding: bool = True       # P0-2：A 股 100 股整手
+    lot_size: int = 100             # 整手基数（股）
+    cov_method: str = "lw"          # P1-1：因子协方差估计 lw(默认) | oas | ewma
+    ewma_lambda: float = 0.94       # P1-1：EWMA 衰减系数（与 sim_daily_compare 口径一致）
+    # P1-2 仓位与尾部风险（默认全关，不改动现有组合结构）
+    kelly_frac: float = 0.0         # 半 Kelly 缩放系数（0=关；0.5=半 Kelly）
+    kelly_window: int = 60          # 滚动估计窗口（交易日）
+    vol_target: float = 0.0         # 年化波动率目标（0=关；>0 时缩总体仓位至 target/realized，无杠杆≤1）
+    cvar_alpha: float = 0.95        # CVaR 置信水平
+    cvar_limit: float = 0.0         # CVaR 损失约束上限（0=关；>0 时加 RU 线性化约束）
 
 
 # --------------------------------------------------------------------------
@@ -296,3 +306,134 @@ def build_factor_panel(raw: pd.DataFrame, date: pd.Timestamp,
     else:
         panel["val_proxy"] = np.nan
     return panel
+
+
+# --------------------------------------------------------------------------
+# P2-4 频域/几何视角重构：截面回归 = L² 子空间正交投影；因子对称正交化；
+# 风险度量用 Riesz 表示 / 对偶范数重写（为 P1-2 CVaR 对偶铺路）。
+# 已接入 scripts/factor_significance.py：因子对称正交化（替代此前文档「建议」未实现的 PCA）
+# 与增量显著性（L² 投影残差）分析流程。
+# --------------------------------------------------------------------------
+def cross_sectional_projection(y: np.ndarray, F: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """将截面向量 y 显式分解为「因子子空间 span(F) 上的正交投影 + 正交残差」。
+
+    L² 内积取样本均值（≈ 连续 L² 内积 × 1/N）；投影算子为
+    P = F (FᵀF)⁻¹ Fᵀ，残差 r = y − P y 与 span(F) 中每个因子正交
+    （即 Fᵀ r = 0，因子暴露全部归零 → 残差即「纯 alpha / 特异收益」）。
+
+    y: (T,) 截面向量（如某日各股收益）；F: (T, K) 因子载荷矩阵。
+    返回 (proj, resid)，长度均 T。
+    """
+    y = np.asarray(y, dtype=float)
+    F = np.asarray(F, dtype=float)
+    if F.size == 0 or y.size == 0:
+        return y.copy(), y.copy()
+    # 稳健化：非有限值（inf/nan）用列均值/均值替代，避免 lstsq 产生 NaN 残差
+    if not np.all(np.isfinite(F)):
+        col_mean = np.nanmean(F, axis=0, keepdims=True)
+        F = np.where(np.isfinite(F), F, col_mean)
+        F = np.where(np.isfinite(F), F, 0.0)
+    if not np.all(np.isfinite(y)):
+        ym = np.nanmean(y)
+        y = np.where(np.isfinite(y), y, ym if np.isfinite(ym) else 0.0)
+    beta, *_ = np.linalg.lstsq(F, y, rcond=None)
+    proj = F @ beta
+    resid = y - proj
+    return proj, resid
+
+
+def gram_schmidt_orthogonalize(F: np.ndarray, mode: str = "modified") -> np.ndarray:
+    """Gram-Schmidt 正交化因子列（标准 Rᵀ 内积，QᵀQ = I）。
+
+    F: (T, K) 因子矩阵（每列为一个因子，沿 T 观测）。返回 Q: (T, K) 具有标准正交列；
+    线性相关列退化为全 0（正交补集为 0）。
+
+    mode="modified"：对每一步针对当前已得正交基反复投影（数值更稳，推荐）；
+    mode="classical"：针对原始 F 的前向列投影。
+    """
+    F = np.asarray(F, dtype=float)
+    if F.ndim != 2:
+        raise ValueError("F 必须为 (T, K) 矩阵")
+    K = F.shape[1]
+    Q = np.zeros_like(F)
+    for k in range(K):
+        v = F[:, k].astype(float).copy()
+        if mode == "modified":
+            for j in range(Q.shape[1]):
+                if np.linalg.norm(Q[:, j]) > 1e-15:
+                    v = v - (Q[:, j] @ F[:, k]) * Q[:, j]
+        else:
+            for j in range(k):
+                v = v - (F[:, j] @ F[:, k]) / (F[:, j] @ F[:, j]) * F[:, j]
+        nrm = np.linalg.norm(v)
+        if nrm < 1e-12:
+            Q[:, k] = 0.0
+        else:
+            Q[:, k] = v / nrm
+    return Q
+
+
+def symmetric_orthogonalize(F: np.ndarray) -> np.ndarray:
+    """对称正交化（whitening）：Z(ZᵀZ)^(-1/2)，使因子列互不相关（相关矩阵 = I），且尽量保持原尺度。
+
+    用于因子正交化（替代仅文档「建议」未实现的 PCA 正交化）。F: (T, K)；
+    先对各列 z-score，再以 (ZᵀZ) 的特征分解求 M^(-1/2) = V diag(d^(-1/2)) Vᵀ。
+    返回 S: (T, K)，满足 SᵀS ≈ I（截面相关矩阵 ≈ 单位阵）。
+    """
+    F = np.asarray(F, dtype=float)
+    if F.ndim != 2:
+        raise ValueError("F 必须为 (T, K) 矩阵")
+    F = F.copy()
+    # 稳健化：非有限值（inf/nan，常见于特征工程除零）用列均值替代，避免下游 eigh 失败
+    if not np.all(np.isfinite(F)):
+        col_mean = np.nanmean(F, axis=0, keepdims=True)
+        F = np.where(np.isfinite(F), F, col_mean)
+        F = np.where(np.isfinite(F), F, 0.0)
+    mu = np.nanmean(F, axis=0)
+    sd = np.nanstd(F, axis=0)
+    # 近恒定列（sd≈0）无信息，置零避免除以极小值产生 inf
+    sd_safe = np.where(sd > 1e-9, sd, 0.0)
+    Z = np.where(sd_safe > 0, (F - mu) / sd_safe, 0.0)
+    M = Z.T @ Z
+    evals, evecs = np.linalg.eigh(M)
+    evals = np.clip(evals, 1e-12, None)
+    M_inv_sqrt = evecs @ np.diag(1.0 / np.sqrt(evals)) @ evecs.T
+    return Z @ M_inv_sqrt
+
+
+def cvar_riesz_dual(losses: np.ndarray, alpha: float = 0.95) -> float:
+    """CVaR 的 Riesz 表示 / 对偶范数形式（损失口径）。
+
+    Rockafellar-Uryasev 对偶：CVaR 损失 = sup_{q: q_i≥0, Σq_i=1, q_i≤1/((1−α)N)} Σ q_i ℓ_i。
+    该上确界由「对最差 (1−α) 分位损失各分配上限权重 1/((1−α)N)」取到，
+    故等于最差 (1−α) 分位损失的均值。这正是 P1-2 中 CVaR 线性化约束所依赖的对偶形式。
+
+    与 portfolio.cvar_from_scenarios 的关系：cvar_from_scenarios(returns)（收益口径）
+    = −cvar_riesz_dual(−returns)（损失口径）。
+    """
+    losses = np.asarray(losses, dtype=float)
+    losses = losses[np.isfinite(losses)]
+    n = losses.size
+    if n == 0:
+        return 0.0
+    n_tail = max(1, int(np.ceil((1.0 - alpha) * n)))
+    return float(np.mean(np.sort(losses)[-n_tail:]))
+
+
+def orthogonalize_factor_panel(panel: pd.DataFrame, method: str = "symmetric") -> pd.DataFrame:
+    """对因子截面矩阵做正交化（PoC）。panel: index=code, columns=因子；返回同形 DataFrame。
+
+    method="symmetric" → symmetric_orthogonalize（因子互不相关，推荐）；
+    method="gram_schmidt" → gram_schmidt_orthogonalize（标准正交基）。
+    正交化在「截面（code）维度」进行，因子载荷矩阵形状为 (n_code, n_factor)。
+    """
+    cols = [c for c in panel.columns if pd.api.types.is_numeric_dtype(panel[c])]
+    F = panel[cols].to_numpy(dtype=float)
+    if method == "gram_schmidt":
+        Q = gram_schmidt_orthogonalize(F, mode="modified")
+    else:
+        Q = symmetric_orthogonalize(F)
+    out = panel.copy()
+    for j, c in enumerate(cols):
+        out[c] = Q[:, j]
+    return out

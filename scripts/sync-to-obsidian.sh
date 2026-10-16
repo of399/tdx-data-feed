@@ -304,6 +304,20 @@ archive_report "$VAULT/08-报告/05-评测对比报告.md" "05-评测对比报�
 archive_report "$VAULT/08-报告/06-方案E回测对比报告.md" "06-方案E回测对比报告"
 generate_moc
 
+# 10. 跨 vault 互链钩子（防 sync 覆盖 related_stockvault / 00-跨库索引.md）
+#     link_cross_vault.py 幂等：仅字段变化时才写盘，可安全每次 sync 重跑。
+echo ""
+echo "🔗 跨 vault 互链（重建 related_stockvault / 00-跨库索引.md）"
+if [ "$DRY_RUN" = "1" ]; then
+    log "跨 vault 互链钩子: python3 $SRC/scripts/link_cross_vault.py --dry-run"
+else
+    if python3 "$SRC/scripts/link_cross_vault.py"; then
+        ok "跨 vault 互链已重建"
+    else
+        echo -e "${YELLOW}⚠️ 跨 vault 互链钩子返回非零，请检查 scripts/link_cross_vault.py${NC}"
+    fi
+fi
+
 echo ""
 ok "同步完成！"
 echo ""

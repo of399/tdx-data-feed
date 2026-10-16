@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# pre-commit 钩子 v1.1：commit 前做两项检查
+#   A. verify-obsidian-templates（源-部署零漂移）— 决定 vault-kind
+#   B. 敏感信息扫描（git diff --cached 新增行，匹配白名单正则）
+# 用法：
+#   chmod +x /home/jiuben/tdx-data-feed/scripts/hooks/pre-commit
+#   git -C <vault> config core.hooksPath /home/jiuben/tdx-data-feed/scripts/hooks
+# 紧急跳过：git commit --no-verify
+set -e
+
+REPO="/home/jiuben/tdx-data-feed"
+VAULT_DEFAULT_STOCK="/home/jiuben/StockVault"
+VAULT_DEFAULT_PROJ="/home/jiuben/ObsidianVaults/tdx-data-feed"
+
+# 探测当前 vault 路径
+VAULT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$VAULT_DEFAULT_STOCK")"
+
+# A. 推断 vault-kind
+case "$VAULT" in
+  *StockVault*)                VAULT_KIND="stockvault" ;;
+  *ObsidianVaults/tdx-data-feed*|*tdx-data-feed*) VAULT_KIND="project" ;;
+  *) VAULT_KIND="stockvault" ;;  # 默认
+esac
+
+echo "[pre-commit] vault=$VAULT  kind=$VAULT_KIND"
+
+# === 检查 A：源-部署零漂移 ===
+echo "[pre-commit A] 跑 verify-obsidian-templates ..."
+if ! bash "$REPO/scripts/verify-obsidian-templates.sh" \
+      --vault "$VAULT" \
+      --vault-kind "$VAULT_KIND" \
+      --prefix "${PREFIX:-05-知识库/数学}" \
+      --math-tpl-dir "${MATH_TPL_DIR:-06-模板/math}" \
+      --nonmath-tpl-dir "${NONMATH_TPL_DIR:-06-模板}" ; then
+  cat <<'MSG' >&2
+[pre-commit A] ✗ verify-obsidian-templates 失败，拒绝 commit
+  漂移意味着"源 ↔ 部署"不一致，commit 会把漂移状态固化到历史。
+  处理：
+    1. 看上面 [漂移]/[缺失] 行定位问题
+    2. 修复源或部署后重跑 make verify-obsidian-templates
+    3. 再 git commit
+  紧急跳过：git commit --no-verify（仅本地项目可用，跨设备不安全）
+MSG
+  exit 1
+fi
+echo "[pre-commit A] ✓ verify 通过"
+
+# === 检查 B：敏感信息扫描（仅扫 staged 新增行）===
+echo "[pre-commit B] 扫敏感信息 ..."
+
+# 敏感模式（注意 shell 转义 vs grep -E 正则差异）
+# 用 grep -E 兼容的 POSIX ERE
+SENSITIVE_PATTERNS=(
+  'AKIA[0-9A-Z]{16}'                        # AWS Access Key
+  'sk-[A-Za-z0-9]{20,}'                     # OpenAI key
+  'sk-ant-[A-Za-z0-9-]{20,}'                # Anthropic key
+  'ghp_[A-Za-z0-9]{36,}'                    # GitHub PAT
+  'glpat-[A-Za-z0-9-]{20,}'                 # GitLab PAT
+  'xox[baprs]-[A-Za-z0-9-]{10,}'            # Slack token
+  'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}' # JWT
+  '[Pp]assword[[:space:]]*[:=][[:space:]]*[^[:space:]]+'   # 明文密码 password=xxx
+  '[Pp]asswd[[:space:]]*[:=][[:space:]]*[^[:space:]]+'    # passwd=xxx
+  '[Ss]ecret[[:space:]]*[:=][[:space:]]*[^[:space:]]+'    # secret=xxx
+  '[Tt]oken[[:space:]]*[:=][[:space:]]*[^[:space:]]{10,}' # token=xxx (>=10 chars)
+)
+
+# 取 staged 新增行（diff --cached 中 + 开头，跳过 +++ header）
+staged_adds=$(git diff --cached --no-color | grep -E '^\+[^+]' | sed 's/^.//' || true)
+
+sensitive_hits=0
+if [[ -n "$staged_adds" ]]; then
+  for pat in "${SENSITIVE_PATTERNS[@]}"; do
+    if echo "$staged_adds" | grep -E -q -- "$pat"; then
+      echo "[pre-commit B] ✗ 命中敏感模式: $pat" >&2
+      # 打印具体命中行（最多 5 行）
+      echo "$staged_adds" | grep -E -- "$pat" | head -5 | sed 's/^/  命中: /' >&2
+      sensitive_hits=$((sensitive_hits+1))
+    fi
+  done
+fi
+
+if [[ $sensitive_hits -gt 0 ]]; then
+  cat <<MSG >&2
+[pre-commit B] ✗ 拒绝 commit：$sensitive_hits 个敏感模式命中
+  处理：
+    1. 删除敏感内容，或用占位符替代
+    2. 若误报（如 OAuth test key），git commit --no-verify 跳过
+    3. 改进正则：编辑 $REPO/scripts/hooks/pre-commit SENSITIVE_PATTERNS
+MSG
+  exit 1
+fi
+echo "[pre-commit B] ✓ 敏感扫描通过"
+
+echo "[pre-commit] ✓✓ 全部通过，commit 继续"

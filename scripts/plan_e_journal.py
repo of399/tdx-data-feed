@@ -74,7 +74,13 @@ import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+
+from quant.execution.optimal_execution import (
+    execution_table_markdown,
+    suggest_execution,
+)
 
 warnings.filterwarnings('ignore')
 
@@ -109,6 +115,65 @@ HOLD_DAYS = 10                 # 时间止损
 def ensure_dirs():
     for d in [LIVE_DIR, SIGNALS_DIR, WEEKLY_DIR]:
         d.mkdir(parents=True, exist_ok=True)
+
+
+# ============== 拆单建议（Almgren-Chriss，P2-5 接入） ==============
+
+def _find_parquet(code: str):
+    """按裸码 / sh / sz / bj 前缀定位日 K 文件（与 simulate 逻辑一致）。"""
+    PARQUET = ROOT / 'data' / 'parquet' / 'daily'
+    for c in [f'{code}.parquet', f'sh{code}.parquet', f'sz{code}.parquet', f'bj{code}.parquet']:
+        f = PARQUET / c
+        if f.exists():
+            return f
+    return None
+
+
+def get_execution_inputs(fp) -> tuple:
+    """从日 K 取近 20 个交易日的 ADV（日均成交量）与日收益波动率。"""
+    try:
+        df = pd.read_parquet(fp)
+    except Exception:
+        return None, None
+    if 'date' in df.columns:
+        df = df.sort_values('date')
+    tail = df.tail(20)
+    if tail.empty or 'volume' not in tail.columns or 'close' not in tail.columns:
+        return None, None
+    adv = float(tail['volume'].mean())
+    rets = tail['close'].pct_change().dropna()
+    dvol = float(rets.std()) if len(rets) > 1 else None
+    if not (adv > 0) or dvol is None or not np.isfinite(dvol):
+        return None, None
+    return adv, dvol
+
+
+def get_last_close(fp) -> float:
+    try:
+        df = pd.read_parquet(fp)
+        return float(df.sort_values('date')['close'].iloc[-1])
+    except Exception:
+        return 0.0
+
+
+def format_execution_suggestion(code: str, side: str, qty: int, price: float,
+                               adv: float, dvol: float, *, lam: float = 1.0,
+                               n_buckets: int = 6) -> str:
+    """生成一笔订单的 Almgren-Chriss 拆单建议文本（供 daily / weekly 嵌入）。"""
+    side_cn = '买入' if side == 'buy' else '卖出'
+    try:
+        s = suggest_execution(qty, price, adv, dvol, T_days=1.0, lam=lam, n_buckets=n_buckets)
+    except Exception as e:
+        return f"  （{code} 拆单建议计算失败：{e}）"
+    table = execution_table_markdown(s)
+    return (
+        f"\n  ### {side_cn} {code}  {qty:,.0f} 股 @ {price:.2f}（成交额 {s['notional']:,.0f}）\n"
+        f"  ADV≈{adv:,.0f} 股，日波动 {s['sigma'] * 100:.1f}%，γ={s['gamma']:.2e}\n"
+        f"  {table}\n"
+        f"  > 最优每股成本 {s['per_share_cost']:.4f} vs 匀速 {s['uniform_per_share_cost']:.4f}"
+        f"（风险调整后省 {s['cost_save_pct']:.1f}%）；执行风险降 {s['var_reduce_pct']:.1f}%\n"
+        f"  > {s['recommendation']}"
+    )
 
 
 # ============== 持仓管理 ==============
@@ -157,7 +222,7 @@ def append_sim_journal(records: list):
 
 # ============== 当日信号 ==============
 
-def get_daily_signals(today: str = None) -> pd.DataFrame:
+def get_daily_signals(today: str | None = None) -> pd.DataFrame:
     """调方案 E 脚本获取当日信号"""
     import subprocess
     today = today or datetime.now().strftime('%Y-%m-%d')
@@ -201,9 +266,6 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
 
     # 用 parquet/daily 数据
     dates = pd.date_range(start=start_date, end=end_date, freq='B')  # 工作日
-    all_a = json.loads((ROOT / 'data' / 'all_a_stocks.json').read_text())
-    all_codes = [str(c).zfill(6) for c in all_a.get('codes', [])]
-
     PARQUET = ROOT / 'data' / 'parquet' / 'daily'
     journal_records = []
 
@@ -413,7 +475,6 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
     print(f"  总盈亏: {pos['cash'] - capital:+,.0f} ({(pos['cash']/capital-1)*100:+.2f}%)")
     print(f"  总交易笔数: {len(df_j[df_j['action']=='BUY'])}")
     sells = df_j[df_j['action']=='SELL']
-    wins = sells[sells['pnl_pct'] > 0]
     print(f"  胜率: {(sells['pnl_pct']>0).mean()*100:.1f}%")
     print(f"  平均收益: {sells['pnl_pct'].mean()*100:+.2f}%")
     print(f"  交易明细 → {SIM_JOURNAL_FILE}（与实盘 journal.csv 分离）")
@@ -423,8 +484,8 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
 
 # ============== 实盘每日模式 ==============
 
-def mode_daily():
-    """每日模式：生成信号 + 检查持仓"""
+def mode_daily(args):
+    """每日模式：生成信号 + 检查持仓 + 给出拆单建议"""
     ensure_dirs()
     pos = load_positions()
 
@@ -438,6 +499,21 @@ def mode_daily():
     if not sig.empty:
         print(f"\n  今日触发信号: {len(sig)} 只")
         print(sig[['code', 'signal_date', 't1_pct', 't1_vol_ratio']].to_string(index=False))
+        print("\n  📋 拆单建议（Almgren-Chriss 最优执行）：")
+        for _, row in sig.iterrows():
+            code = str(row['code']).zfill(6)
+            fp = _find_parquet(code)
+            if fp is None:
+                continue
+            adv, dvol = get_execution_inputs(fp)
+            last_close = get_last_close(fp)
+            if adv is None or dvol is None or last_close <= 0:
+                continue
+            qty = int(pos['cash'] * POSITION_PCT / last_close / 100) * 100
+            if qty <= 0:
+                continue
+            print(format_execution_suggestion(code, 'buy', qty, last_close, adv, dvol,
+                                             lam=args.lam, n_buckets=args.exec_buckets))
     else:
         print("\n  今日无触发信号")
 
@@ -546,8 +622,8 @@ def mode_sell(code: str, price: float, reason: str = 'MANUAL'):
     print(f"  当前现金: {pos['cash']:,.0f}")
 
 
-def mode_weekly():
-    """生成周报"""
+def mode_weekly(args):
+    """生成周报（含成交拆单建议章节）"""
     if not JOURNAL_FILE.exists():
         print("❌ 无交易记录")
         return
@@ -588,7 +664,31 @@ def mode_weekly():
 ## 交易明细
 
 {last_week[['date','code','action','qty','price','pnl','pnl_pct','reason','hold_days']].to_markdown(index=False)}
+"""
 
+    # 拆单建议章节：本周每笔买入订单的 Almgren-Chriss 日内拆单轨迹
+    sched_parts = []
+    for _, row in buys.iterrows():
+        code = str(row['code']).zfill(6)
+        fpath = _find_parquet(code)
+        if fpath is None:
+            continue
+        adv, dvol = get_execution_inputs(fpath)
+        if adv is None or dvol is None:
+            continue
+        price = float(row['price'])
+        qty = int(row['qty'])
+        if qty <= 0:
+            continue
+        sched_parts.append(format_execution_suggestion(code, 'buy', qty, price, adv, dvol,
+                                                      lam=args.lam, n_buckets=args.exec_buckets))
+    if sched_parts:
+        md += "\n## 成交拆单建议（Almgren-Chriss 最优执行轨迹）\n\n"
+        md += "本周买入订单的建议日内拆单轨迹（前 1/3 段占比高=前置成交，低=匀速 TWAP）：\n\n"
+        md += "\n\n".join(sched_parts)
+        md += "\n"
+
+    md += f"""
 ---
 生成时间: {datetime.now().isoformat(timespec='seconds')}
 """
@@ -643,6 +743,10 @@ def main():
     parser.add_argument('--end', help='模拟结束日期 (YYYY-MM-DD)')
     parser.add_argument('--capital', type=float, default=INITIAL_CAPITAL,
                         help=f'初始资金（默认 {INITIAL_CAPITAL}）')
+    parser.add_argument('--lam', type=float, default=0.05,
+                        help='Almgren-Chriss 风险厌恶 λ（拆单建议用，默认 0.05，越大越前置）')
+    parser.add_argument('--exec-buckets', type=int, default=6,
+                        help='拆单段数（默认 6 段，日内对应 ~40 分钟/段）')
     parser.add_argument('--no-freshness-check', action='store_true', help='跳过数据新鲜度校验')
     args = parser.parse_args()
 
@@ -651,9 +755,9 @@ def main():
         require_fresh(max_age_days=2)
 
     if args.mode == 'daily':
-        mode_daily()
+        mode_daily(args)
     elif args.mode == 'weekly':
-        mode_weekly()
+        mode_weekly(args)
     elif args.mode == 'status':
         mode_status()
     elif args.mode == 'buy':

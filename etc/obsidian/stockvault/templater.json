@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "settings": {
+    "templates_folder": "templates",
+    "trigger_on_file_creation": true,
+    "auto_jump_to_cursor": true,
+    "enable_folder_templates": true,
+    "folder_templates": [],
+    "enable_syntax_highlighting": true,
+    "syntax_highlighting_background": false
+  }
+}

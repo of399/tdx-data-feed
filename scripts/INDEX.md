@@ -54,7 +54,9 @@
 | `canary_health_check.py` | canary 健康检查（含 ollama） |
 | `train_health.sh` / `train_monitor.sh` / `monitor_gpu_temp.sh` | 训练监控 / GPU 温度 |
 | `watch_eastmoney.sh` | Eastmoney 接口探测（触发分钟线续传） |
-| `sync-to-obsidian.sh` | 笔记同步 |
+| `sync-to-obsidian.sh` | 笔记同步（项目库 repo → vault，单向） |
+| `install-math-templates.sh` | 数学笔记库模板安装到 vault（`--init-config` / `--patch-templater` / `--dry-run`） |
+| `install-obsidian-plugins.sh` | 从 GitHub Releases 安装 Obsidian 社区插件本体（`--vault` / `--plugins` / `--retries`） |
 | `drive_expand.sh` / `drive_train_10k.sh` | 训练驱动 |
 | `v3_premarket_top.py` / `v3_simulate.py` / `v3_simulate_rolling.py` / `top10_deep_dive.py` | v3 盘前/模拟/深度分析 |
 | `gen_dashboard.py` / `analyze_one.py` / `xdxr_verify.py` / `test_bjs_akshare.py` | 看板 / 单标的分析 / 除权验证 / 北交所源测试 |

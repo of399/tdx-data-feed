@@ -24,6 +24,7 @@ packing: false
 
 output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-verify-lora-nq
 overwrite_output_dir: true
+save_total_limit: 3                    # 滚动保留最近 3 个 checkpoint（v9 模式推广到全部训练配置）
 per_device_train_batch_size: 1
 gradient_accumulation_steps: 8
 max_steps: 2                              # 有界：预期在加载阶段即 OOM，不会真正训练

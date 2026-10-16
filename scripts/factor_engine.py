@@ -210,9 +210,14 @@ def cross_section_mode(start: str, end: str, limit: int = 0):
     并输出关键因子截面覆盖率中位数（<0.6 的因子在合成中将被剔除）。
     """
     sys.path.insert(0, str(ROOT))
-    from quant.multifactor.factors import (build_factor_panel, zscore_panel,
-                                           load_lhb_trailing, compute_stock_raw, parse_daily)
-    from quant.multifactor.valuation_data import ValuationProvider, ValuationConfig
+    from quant.multifactor.factors import (
+        build_factor_panel,
+        compute_stock_raw,
+        load_lhb_trailing,
+        parse_daily,
+        zscore_panel,
+    )
+    from quant.multifactor.valuation_data import ValuationConfig, ValuationProvider
 
     files = sorted(PARQUET.glob("*.parquet"))
     if limit:

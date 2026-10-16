@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from .cost_model import CostConfig, portfolio_turnover_cost  # noqa: E402
-from .cv_utils import ic_by_year, icir  # noqa: E402
+from .cv_utils import ic_by_year, ic_newey_west, icir  # noqa: E402
 from .factors import (  # noqa: E402
     CATEGORY_OF,
     FACTOR_METAS,
@@ -28,8 +28,14 @@ from .factors import (  # noqa: E402
     parse_daily,
     zscore_panel,
 )
-from .portfolio import ERCConfig, enforce_turnover, solve_erc  # noqa: E402
-from .risk_model import IndustryMap, RiskModel  # noqa: E402
+from .portfolio import (  # noqa: E402
+    ERCConfig,
+    cvar_from_scenarios,
+    enforce_turnover,
+    half_kelly_scaling,
+    solve_erc,
+)
+from .risk_model import IndustryMap, RiskModel, cov_diagnostics  # noqa: E402
 from .valuation_data import ValuationConfig, ValuationProvider  # noqa: E402
 
 PARQUET_DIR = ROOT / "data" / "parquet" / "daily"
@@ -89,6 +95,11 @@ def _simulate_period(sel_codes, w, start, end, cache):
     ret = cdf.pct_change().fillna(0.0)
     first_open = odf.iloc[0].replace(0, np.nan)
     first_ret = (cdf.iloc[0] / first_open - 1).fillna(0.0)
+    # 防数据损坏（负价 / 未复权跳变 / 拆细）导致极端收益：对单股日收益做 winsorize。
+    # A 股日涨跌停上限为 ±10%（主板）~ ±30%（北交所/科创板/创业板），±50% 已覆盖全部合法
+    # 涨跌且留出余量；超出者必为损坏数据，裁掉以免单日 -99% 连累净值。
+    ret = ret.clip(lower=-0.5, upper=0.5)
+    first_ret = first_ret.clip(lower=-0.5, upper=0.5)
     ret.iloc[0] = first_ret
     wv = pd.Series(w, index=sel_codes).reindex(cdf.columns).fillna(0.0).values
     agg = (ret * wv).sum(axis=1)
@@ -129,6 +140,48 @@ def _forward_returns(codes, exec_date, cache, n):
             continue
         out[c] = fut.iloc[n] / o.iloc[0] - 1
     return pd.Series(out) if out else None
+
+
+def apply_lot_rounding(w: np.ndarray, prices: np.ndarray, nav: float,
+                       lot: int = 100) -> np.ndarray:
+    """A 股 100 股整手：把分数权重转整数手，贪心补满至资金上限。
+
+    返回整手后的「实际仓位占比」数组（= 股数×价格 / nav，含现金余量，和≤1），
+    与输入 w 同序对齐。整手后总仓位误差 < 1%。
+    """
+    w = np.asarray(w, dtype=float)
+    prices = np.asarray(prices, dtype=float)
+    n = len(w)
+    shares = np.zeros(n, dtype=int)
+    if nav <= 0:
+        return w
+    valid = (prices > 0) & np.isfinite(prices) & (w > 0)
+    if not valid.any():
+        return w
+    vidx = np.where(valid)[0]
+    pp = prices[vidx]
+    wp = w[vidx]
+    target = wp * nav
+    shares_v = np.floor(target / (lot * pp)).astype(int) * lot
+    cash = nav - float((shares_v * pp).sum())
+    dev = wp - shares_v * pp / nav
+    while cash > 0:
+        can = (cash >= lot * pp) & (shares_v * pp <= target + 1e-9)
+        if not can.any():
+            break
+        d = np.where(can, dev, -np.inf)
+        j = int(np.argmax(d))
+        if d[j] <= 0:
+            break
+        shares_v[j] += lot
+        cash -= lot * pp[j]
+        dev[j] = wp[j] - shares_v[j] * pp[j] / nav
+    shares[vidx] = shares_v
+    realized = shares * prices
+    tot = realized.sum()
+    if tot <= 0:
+        return w
+    return realized / nav
 
 
 def _rank_ic(a, b):
@@ -240,6 +293,10 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
     class_ic_hist: dict[str, list[float]] = {}
     holdings_hist: list[tuple] = []
     turnover_hist: list[float] = []
+    cov_diag_hist: list[tuple] = []  # (cond, min_eig) 每期协方差病态诊断
+    kelly_hist: list[tuple] = []     # (中位缩放, 触顶占比) 半 Kelly 每期
+    vol_scale_hist: list[float] = [] # 波动率目标每期缩放系数
+    cvar_hist: list[float] = []      # 组合 CVaR(收益口径) 每期监控
     last_end = pd.Timestamp(cfg.end)
 
     for di, d in enumerate(rb_list):
@@ -288,9 +345,13 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
             if rets is not None and rets.shape[1] >= 2 and rets.dropna().shape[0] >= 10:
                 ac = list(rets.columns)
                 sub_panel = keep.reindex(ac)
-                cov = risk.estimate_cov(rets, sub_panel)
+                cov = risk.estimate_cov(rets, sub_panel, cfg.cov_method, cfg.ewma_lambda)
+                _cd = cov_diagnostics(cov)
+                cov_diag_hist.append((_cd["cond"], _cd["min_eig"]))
                 w = solve_erc(cov, ac, {c: risk.industry.get(c) for c in ac},
-                              prev_w, prev_codes, erc_cfg)
+                              prev_w, prev_codes, erc_cfg,
+                              scenarios=rets.values if cfg.cvar_limit > 0 else None,
+                              cvar_limit=cfg.cvar_limit, cvar_alpha=cfg.cvar_alpha)
                 sel_codes = ac
             else:
                 w = None
@@ -300,6 +361,15 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
             w = np.full(len(sel_codes), 1.0 / len(sel_codes))
 
         w = np.asarray(w, dtype=float)
+        # P1-2 半 Kelly 单股缩放（默认 kelly_frac=0 关闭，不改变原组合）
+        if cfg.kelly_frac > 0 and rets is not None and rets.shape[1] > 0:
+            _k = half_kelly_scaling(rets, cfg.kelly_frac, cfg.kelly_window)
+            _kmap = dict(zip(rets.columns, _k, strict=True))
+            _ki = np.array([_kmap.get(c, 1.0) for c in sel_codes], dtype=float)
+            w = w * _ki
+            _s = w.sum()
+            w = w / _s if _s > 0 else w
+            kelly_hist.append((float(np.median(_k)), float((_k >= 1 - 1e-9).mean())))
         # 剔除权重极小的「浮尘」持仓（避免过多近似 0 权重股），保留 ERC 风险预算结果；
         # 不做 top_n 硬截断，使周换手约束真正作用于实际持仓、组合保持动态。
         keep_idx = np.where(w >= 1e-4)[0]
@@ -342,16 +412,41 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
             prev_w, prev_codes = w, sel_codes
             continue
 
-        cost_frac = _turnover_cost_frac(prev_codes, prev_w, sel_codes, w,
+        # P1-2 波动率目标 / CVaR 监控：按当前 sel_codes 对齐场景矩阵（候选集经过滤后已子集化）
+        _rets_sub = rets.reindex(columns=sel_codes) if rets is not None else None
+        if _rets_sub is not None and w.sum() > 0:
+            if cfg.vol_target > 0:
+                _wp = w / w.sum()
+                _pr = _rets_sub.values @ _wp
+                _pr = np.nan_to_num(_pr, nan=0.0)
+                _pr = _pr[np.isfinite(_pr)]
+                if _pr.size > 1:
+                    _ann_vol = float(np.std(_pr, ddof=1) * np.sqrt(252))
+                    if _ann_vol > 1e-9:
+                        _scale = min(cfg.vol_target / _ann_vol, 1.0)
+                        w = _wp * _scale
+                        vol_scale_hist.append(_scale)
+            cvar_hist.append(cvar_from_scenarios(_rets_sub.values, w, cfg.cvar_alpha))
+        # P0-2 整手整数化：A 股 100 股，把分数权重转整数手，作为实际执行权重；
+        # 仅改变收益 / 成本 / 持仓口径，不影响上面已记账的换手。
+        realized_w = w
+        if getattr(cfg, "lot_rounding", True):
+            _lot_prices = np.array([exec_prices.get(c, np.nan) for c in sel_codes], dtype=float)
+            realized_w = apply_lot_rounding(w, _lot_prices, nav_level, getattr(cfg, "lot_size", 100))
+        cost_frac = _turnover_cost_frac(prev_codes, prev_w, sel_codes, realized_w,
                                        nav_level, exec_date, cost_cfg, cache)
         next_rb = rb_list[di + 1] if di + 1 < len(rb_list) else last_end
-        period_ret = _simulate_period(sel_codes, w, exec_date, next_rb, cache)
+        period_ret = _simulate_period(sel_codes, realized_w, exec_date, next_rb, cache)
         if period_ret is not None and len(period_ret) > 0:
             period_ret = period_ret.copy()
             period_ret.iloc[0] = period_ret.iloc[0] - cost_frac
+            # 成本扣减可能使首日收益低于 -1（净值变负），clamp 保证 1+ret>0，杜绝死亡螺旋
+            period_ret.iloc[0] = max(float(period_ret.iloc[0]), -0.99)
             for dt, r in period_ret.items():
                 nav_rets.append((str(dt)[:10], float(r)))
             nav_level *= float((1 + period_ret).prod())
+            if nav_level < 1e-9:
+                nav_level = 1e-9  # 净值触底，标记已实质清盘，避免后续除零/负净值
 
         # IC 记录（composite / 类 / 因子 vs 前瞻 5 日收益）
         fwd = _forward_returns(sel_codes, exec_date, cache, 5)
@@ -369,8 +464,8 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
                 if np.isfinite(c_ic):
                     class_ic_hist.setdefault(cat, []).append(c_ic)
 
-        holdings_hist.append((str(exec_date)[:10], dict(zip(sel_codes, w, strict=True))))
-        prev_w, prev_codes = w, sel_codes
+        holdings_hist.append((str(exec_date)[:10], dict(zip(sel_codes, realized_w, strict=True))))
+        prev_w, prev_codes = realized_w, sel_codes
 
     # ---- 指标 ----
     metrics = _portfolio_metrics(nav_rets)
@@ -379,6 +474,11 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
         metrics["ic_mean"] = float(ic_df["ic"].mean())
         metrics["icir_overall"] = icir(ic_df["ic"])
         metrics["ic_pos_rate"] = float((ic_df["ic"] > 0).mean())
+        # P0-1 收尾：IC 序列 Newey-West HAC 显著性（自相关稳健，判定 IC 均值≠0）
+        nw = ic_newey_west(ic_df["ic"])
+        metrics["ic_nw_t"] = nw["t_stat"]
+        metrics["ic_nw_p"] = nw["p_value"]
+        metrics["ic_nw_se"] = nw["se_hac"]
     # 等权全市场基准（含成本前对比）
     bench = _benchmark_returns(cache, cfg.start, cfg.end)
     if bench is not None and len(bench) > 5:
@@ -391,6 +491,27 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
     metrics["n_rebalances"] = len(holdings_hist)
     metrics["universe_size"] = len(cache)
     metrics["valuation_mode"] = valp.mode
+    # P1-1 协方差病态诊断汇总
+    if cov_diag_hist:
+        conds = [c for c, _ in cov_diag_hist if np.isfinite(c)]
+        mineigs = [m for _, m in cov_diag_hist if np.isfinite(m)]
+        metrics["cov_method"] = cfg.cov_method
+        metrics["max_cov_cond"] = float(max(conds)) if conds else float("nan")
+        metrics["mean_cov_cond"] = float(np.mean(conds)) if conds else float("nan")
+        metrics["n_ill_conditioned"] = int(sum(1 for c in conds if c > 1e4))
+        metrics["min_eig_global"] = float(min(mineigs)) if mineigs else float("nan")
+    # P1-2 仓位与尾部风险诊断
+    if kelly_hist:
+        metrics["kelly_median_scale"] = float(np.median([x[0] for x in kelly_hist]))
+        metrics["kelly_cap_frac"] = float(np.mean([x[1] for x in kelly_hist]))
+    if vol_scale_hist:
+        metrics["vol_target"] = cfg.vol_target
+        metrics["mean_vol_scale"] = float(np.mean(vol_scale_hist))
+        metrics["min_vol_scale"] = float(np.min(vol_scale_hist))
+    if cvar_hist:
+        metrics["cvar_alpha"] = cfg.cvar_alpha
+        metrics["max_cvar"] = float(np.max(cvar_hist))
+        metrics["mean_cvar"] = float(np.mean(cvar_hist))
     metrics["yearly"] = _yearly_breakdown(nav_rets)
     if ic_records:
         metrics["ic_by_year"] = ic_by_year(ic_records)
@@ -466,11 +587,20 @@ def _build_report(metrics, holdings_hist, ic_records, yearly, cfg, valp, ts, ic_
          f"| 平均 IC | {metrics.get('ic_mean',0):.3f} |",
          f"| ICIR | {metrics.get('icir_overall',0):.3f} |",
          f"| IC 正向率 | {metrics.get('ic_pos_rate',0)*100:.1f}% |",
+         f"| IC 均值 Newey-West HAC p | {metrics.get('ic_nw_p', float('nan')):.3f} |",
+         f"| IC 均值 HAC t | {metrics.get('ic_nw_t', float('nan')):.2f} |",
          f"| 平均周换手 | {metrics.get('avg_weekly_turnover',0)*100:.1f}% |",
          f"| 最大周换手 | {metrics.get('max_weekly_turnover',0)*100:.1f}% |",
          f"| 调仓次数 | {metrics.get('n_rebalances',0)} |",
          f"| 股票池 | {metrics.get('universe_size',0)} |",
          f"| 估值模式 | {valp.mode} |",
+         f"| 协方差估计 | {metrics.get('cov_method', cfg.cov_method)} |",
+         f"| 协方差条件数(max/mean) | {metrics.get('max_cov_cond', float('nan')):.2e} / {metrics.get('mean_cov_cond', float('nan')):.2e} |",
+         (f"| 半 Kelly 中位缩放 | {metrics['kelly_median_scale']:.3f} |"
+          if "kelly_median_scale" in metrics else "| 半 Kelly 中位缩放 | 关(frac=0) |"),
+         (f"| 波动率目标 | 启用目标={cfg.vol_target * 100:.0f}% |"
+          if cfg.vol_target > 0 else "| 波动率目标 | 关 |"),
+         f"| 组合 CVaR({cfg.cvar_alpha:.0%}) max/mean | {metrics.get('max_cvar', 0.0):.4f} / {metrics.get('mean_cvar', 0.0):.4f} |",
          f"| 基准(等权全市场)年化 | {metrics.get('bench_ann_ret',0)*100:.2f}% |",
          f"| 基准最大回撤 | {metrics.get('bench_max_dd',0)*100:.2f}% |",
          f"| 相对基准超额(年化) | {(metrics.get('ann_ret',0)-metrics.get('bench_ann_ret',0))*100:.2f}% |",
@@ -493,6 +623,9 @@ def _build_report(metrics, holdings_hist, ic_records, yearly, cfg, valp, ts, ic_
     L.append("3. 情绪（龙虎榜）数据仅覆盖 2025-2026，窗口外按缺失处理，可能削弱情绪因子稳定性。")
     L.append("4. 过拟合残留：尽管采用 ICIR 加权 / Walk-Forward / 合成正则化，因子 IC 样本外可能衰减 30-50%。")
     L.append("5. 组合换手受 ≤40% 周预算约束，极端行情下可能无法充分再平衡。")
+    L.append("6. IC 序列已做 Newey-West HAC 检验（自相关稳健）：若『IC 均值 HAC p≥0.05』，说明当前样本无法拒绝『IC 均值=0』，因子整体无稳定信号，夏普/ICIR 的高值须谨慎采信。")
+    L.append("7. 协方差条件数（max≈{:.1e}）反映估计病态程度；数值显著增大说明候选集个股高度共线或样本期偏短，ERC 风险预算稳定性下降，可下调 top_n 或改用 EWMA 时变估计。".format(metrics.get("max_cov_cond", float("nan"))))
+    L.append("8. 尾部风险：组合日收益 CVaR({:.0%}) 均值约 {:.2%}（损失口径为其负值）；显著走阔说明候选集左尾增厚，可开启 cvar_limit 约束或降杠杆/减 top_n。半 Kelly 与波动率目标已实现为可选仓位层，默认关闭以免改变现有组合结构。".format(cfg.cvar_alpha, -metrics.get("mean_cvar", 0.0)))
     L.append("\n## 五、下一步建议\n")
     L.append("- 待 data/valuation 全量下载完成后以 valuation_mode=real 重跑，验证估值因子真实贡献。")
     L.append("- 用 purged+embargo CV 对因子合成做样本外稳健性复核。")

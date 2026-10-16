@@ -1,0 +1,12 @@
+[Unit]
+Description=每周一 03:00 触发 tdx-clean-logs
+
+[Timer]
+# 每周一 03:00
+OnCalendar=Mon 03:00:00
+Persistent=true
+AccuracySec=60s
+Unit=tdx-clean-logs.service
+
+[Install]
+WantedBy=timers.target

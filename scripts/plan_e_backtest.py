@@ -76,6 +76,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 warnings.filterwarnings('ignore')
 
@@ -379,6 +380,63 @@ def _bootstrap_ci(values: np.ndarray, stat_fn, b: int = 2000, seed: int = 42):
     return (float(np.percentile(stats, 2.5)), float(np.percentile(stats, 97.5)))
 
 
+# Deflated Sharpe Ratio 多重试验次数 N：Optuna 150 trials + 27 网格 + 手工对比，保守取 180
+DSR_N_TRIALS = 180
+
+
+def _bootstrap_pvalue(values: np.ndarray, stat_fn, b: int = 2000, seed: int = 42) -> float:
+    """两样本 bootstrap 显著性检验（H0: 统计量 = 0）。
+
+    用 bootstrap 标准误构造 z = obs / SE_boot，p = 2·(1 − Φ(|z|))。
+    """
+    rng = np.random.default_rng(seed)
+    vals = np.asarray(values, dtype=float)
+    vals = vals[np.isfinite(vals)]
+    n = len(vals)
+    if n < 2:
+        return float('nan')
+    obs = stat_fn(vals)
+    boot = np.empty(b)
+    for i in range(b):
+        samp = vals[rng.integers(0, n, n)]
+        boot[i] = stat_fn(samp)
+    se = boot.std(ddof=1)
+    if se == 0:
+        return float('nan')
+    z = obs / se
+    p = 2 * (1 - stats.norm.cdf(abs(z)))
+    return float(min(max(p, 0.0), 1.0))
+
+
+def deflated_sharpe_ratio(sr_obs: float, n: int, skew: float, excess_kurt: float,
+                          n_trials: int) -> float:
+    """Deflated Sharpe Ratio (Bailey & López de Prado 2014)。
+
+    H0: SR* = 0；V(SR) = (1 − γ₃·SR + (γ₄−1)/4·SR²) / T（γ₃ 偏度, γ₄ 超额峰度）。
+    对 N 次试验做多重性修正：p = (1 − Φ(z)) · N_trials。
+    """
+    if n < 2 or not np.isfinite(sr_obs):
+        return float('nan')
+    V = (1 - skew * sr_obs + (excess_kurt - 1) / 4 * sr_obs ** 2) / n
+    if V <= 0:
+        return float('nan')
+    z = sr_obs / np.sqrt(V)
+    p = (1 - stats.norm.cdf(z)) * n_trials
+    return float(min(max(p, 0.0), 1.0))
+
+
+def _newey_west_ttest(returns: np.ndarray, maxlags: int = 5):
+    """Newey-West HAC t 检验（H0: 日收益均值 = 0）；处理收益率自相关。"""
+    from statsmodels.api import OLS
+    y = np.asarray(returns, dtype=float)
+    y = y[np.isfinite(y)]
+    n = len(y)
+    if n < 3:
+        return float('nan'), float('nan')
+    model = OLS(y, np.ones((n, 1))).fit(cov_type='HAC', cov_kwds={'maxlags': maxlags})
+    return float(model.tvalues[0]), float(model.pvalues[0])
+
+
 def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: float,
               mode: str = 'v2', fee: float = 0.0, slippage: float = 0.0) -> str:
     """生成回测汇总报告（含交易日对齐资金曲线 + 风险调整指标 + bootstrap CI）。"""
@@ -443,6 +501,17 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
     else:
         sh_lo = sh_hi = 0.0
 
+    # ---- P0-1 统计推断增强: Deflated Sharpe / Newey-West HAC / 假设检验 p值 ----
+    dsr_p = float('nan')
+    nw_p = float('nan')
+    if n_days > 0:
+        _skew = float(daily_full.skew())
+        _exk = float(daily_full.kurt())   # 超额峰度(Fisher 定义)
+        dsr_p = deflated_sharpe_ratio(sharpe, n_days, _skew, _exk, DSR_N_TRIALS)
+        _, nw_p = _newey_west_ttest(daily_full.values)
+    ar_p = _bootstrap_pvalue(bt['return_pct'].values, lambda x: float(x.mean()))         # H0: 平均收益=0
+    wr_p = float(stats.binomtest(int((bt['return_pct'] > 0).sum()), total, 0.5).pvalue)  # H0: 胜率=50%(随机基准)
+
     def pct(x): return f"{x*100:.2f}%"
     def pctci(lo, hi): return f"[{lo*100:.1f}%, {hi*100:.1f}%]"
     def numci(lo, hi): return f"[{lo:.2f}, {hi:.2f}]"
@@ -484,6 +553,10 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
 | **最大回撤** | {pct(max_dd)} | — |
 | **Calmar** | {calmar:.2f} | — |
 | 盈亏比 | {pf:.2f} | — |
+| **夏普显著性 (Deflated Sharpe p)** | {dsr_p:.3f} | 多重试验修正 (N={DSR_N_TRIALS}) |
+| **日收益均值 (Newey-West HAC p)** | {nw_p:.3f} | 自相关稳健 t 检验 |
+| 平均收益 H₀=0 (bootstrap p) | {ar_p:.3f} | 重采样置换 |
+| 胜率 H₀=50% (精确二项 p) | {wr_p:.3f} | 对随机基准 |
 
 ### 整体表现（明细）
 
@@ -522,6 +595,7 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
 3. 收益**已扣除**交易成本与滑点（默认开，双边约 {(fee + slippage) * 2 * 100:.2f}%）；实盘滑点可能高于假设，北交所（920XXX）流动性低时尤甚。
 4. 最大回撤/夏普基于等权聚合的交易日对齐资金曲线，未考虑单股 10% 仓位上限下的现金占用与并发约束。
 5. 标的集中于北交所（920XXX）时流动性低、滑点放大，结论外推需分层验证。
+6. **统计显著性（P0-1 新增）**：夏普/日收益均值/胜率现附假设检验 p 值 —— Deflated Sharpe 修正多次试验偏差、Newey-West 处理收益自相关、二项检验对随机 50% 基准。若 p≥0.05，表示当前样本无法拒绝"策略无超额收益"原假设，结论须谨慎。
 
 ## 🔧 下一步建议
 
@@ -1311,8 +1385,9 @@ def main():
     parser.add_argument('--mf-valuation-mode', default='auto', choices=['proxy', 'real', 'auto'],
                         help='--mf 估值模式：proxy 代理 / real 真实 / auto 自动')
     parser.add_argument('--mf-top-n', type=int, default=30, help='--mf 持仓数量')
-    parser.add_argument('--mf-start', default='2020-01-01', help='--mf 回测起始日')
-    parser.add_argument('--mf-end', default='2026-10-14', help='--mf 回测结束日')
+    parser.add_argument('--mf-start', default='2000-01-01', help='--mf 回测起始日')
+    parser.add_argument('--mf-end', default=datetime.now().strftime("%Y-%m-%d"),
+                        help='--mf 回测结束日（默认至今日）')
     args = parser.parse_args()
 
     if not args.no_freshness_check:
@@ -1326,8 +1401,8 @@ def main():
     # ---- 多因子组合回测模式（与事件驱动方案 E 互不干扰）----
     if args.mf:
         sys.path.insert(0, str(ROOT))
-        from quant.multifactor.factors import MFConfig
         from quant.multifactor.engine import run_mf_backtest
+        from quant.multifactor.factors import MFConfig
         cfg = MFConfig(start=args.mf_start, end=args.mf_end, top_n=args.mf_top_n,
                        valuation_mode=args.mf_valuation_mode, limit=args.mf_limit)
         print("=== 多因子组合回测 (multifactor v1) ===")

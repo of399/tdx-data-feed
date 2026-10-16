@@ -29,13 +29,13 @@ import argparse
 import json
 import os
 import socket
-import sys
 import time
 import traceback
-import pandas as pd
 import warnings
 from datetime import datetime
 from pathlib import Path
+
+import pandas as pd
 
 warnings.filterwarnings("ignore")
 # 抑制 akshare 内部 tqdm 进度条噪声 (写入日志无用)
@@ -87,7 +87,7 @@ def with_retry(fn, *args, **kwargs):
         time.sleep(d)
         try:
             return fn(*args, **kwargs)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             last = e
     raise RetryExhausted(f"{type(last).__name__}: {str(last)[:120]}")
 
@@ -124,7 +124,7 @@ def load_done_codes():
             import pandas as pd
             df = pd.read_parquet(PE_PB_PATH, columns=["code"])
             done.update(df["code"].astype(str).tolist())
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
     return done
 
@@ -227,7 +227,6 @@ def do_probe():
         return report
 
     import akshare as ak
-    import pandas as pd
 
     test_codes = ["600519", "000001", "300750", "920002"]
     # 1) 主接口: 百度估值
@@ -243,7 +242,7 @@ def do_probe():
                 baidu_sample = {
                     "code": code,
                     "columns": list(df.columns),
-                    "rows": int(len(df)),
+                    "rows": len(df),
                     "head": _h.to_dict(orient="records"),
                     "date_range": [str(df["date"].min()), str(df["date"].max())],
                 }
@@ -273,7 +272,7 @@ def do_probe():
                 fund_sample = {
                     "code": code,
                     "columns_have_roe": "净资产收益率(%)" in df.columns,
-                    "rows": int(len(df)),
+                    "rows": len(df),
                     "date_range": [str(df["日期"].min()), str(df["日期"].max())],
                 }
                 break
@@ -358,7 +357,7 @@ def download_all(mode: str, limit: int = None):
         pe_df = None
         try:
             pe_df = fetch_valuation(ak, code)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log(f"  [{i+1}/{len(codes)}] {code} valuation ERR {type(e).__name__}: {str(e)[:80]}")
         if pe_df is not None and len(pe_df):
             pe_rows.append(pe_df)
@@ -377,7 +376,7 @@ def download_all(mode: str, limit: int = None):
             fund_df = fetch_fundamentals(ak, code)
             if fund_df is not None and len(fund_df):
                 fund_rows.append(fund_df)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log(f"  [{i+1}/{len(codes)}] {code} fundamentals ERR {type(e).__name__}: {str(e)[:80]}")
 
         if (i + 1) % 100 == 0:
@@ -437,7 +436,7 @@ def write_report(report: dict):
     try:
         with REPORT_PATH.open("w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log(f"report 写入失败: {e}")
 
 

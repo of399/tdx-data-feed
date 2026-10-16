@@ -87,6 +87,33 @@ def _subtract_trading_days(ref: date, n: int, holidays: set[str]) -> date:
     return d
 
 
+# A 股个股代码前缀集合（与 quant.multifactor.factors.is_stock_code 对齐）。
+# 不含：159/51/56 段 ETF/LOF/基金、920/8 段北交所（流动性差、不在 full_sync 范围）。
+_A_SHARE_STOCK_PREFIXES: tuple[str, ...] = (
+    "600", "601", "603", "605",   # 沪市主板
+    "688",                       # 沪市科创板
+    "900",                       # 沪市 B 股
+    "000", "001", "002", "003",   # 深市主板
+    "300", "301",                 # 深市创业板
+    "200",                       # 深市 B 股
+)
+
+
+def _is_a_share_stock(filename: str) -> bool:
+    """判定文件名（形如 sh600000.parquet / 600000.parquet / bj920026.parquet）
+    是否属于 full_sync 覆盖的 A 股个股 universe。"""
+    stem = filename.rsplit("/", 1)[-1].rsplit(".", 1)[0]  # 去除路径与后缀
+    # 去除可能的市场前缀
+    for prefix in ("sh", "sz", "bj"):
+        if stem.lower().startswith(prefix):
+            stem = stem[2:]
+            break
+    # 北交所 bj920xxx / 8xxxxx 不属于 A 股个股（流动性差、30% 涨跌停）
+    if stem.startswith(("920", "8")):
+        return False
+    return stem.startswith(_A_SHARE_STOCK_PREFIXES)
+
+
 def require_fresh(parquet_dir: Path = DEFAULT_PARQUET_DIR, max_age_days: int = 2,
                   sample_size: int = 50, allowed_stale_trading_days: int | None = None,
                   holidays: set[str] | None = None) -> None:
@@ -101,9 +128,18 @@ def require_fresh(parquet_dir: Path = DEFAULT_PARQUET_DIR, max_age_days: int = 2
         print("  请先跑 full_sync: nohup venv/bin/python -m tdxfeed.full_sync &", file=sys.stderr)
         sys.exit(2)
 
-    files = list(parquet_dir.glob("*.parquet"))
+    # ⚠ 必须排除 .bak 迁移备份（v1→v2 期间遗留的 <code>.v1.bak.parquet）：
+    # 这些是 5+ 天前的 v1 schema 快照，date 列是 int YYYYMMDD（合法但末日期停滞），
+    # 混入抽样会让 require_fresh 误判 ~42% 过期（5232/7231）。
+    # 与 scripts/predict.py:419 / scripts/check_schema.py:37-38 保持一致。
+    # 进一步限定到 A 股个股 universe（predict 实际使用的范围）：
+    # ETF/LOF/基金（159/51/56 开头）与北交所（920/8 开头）不在 full_sync 的
+    # akshare 清单中、长期停留在 9-14 末日期，会污染抽样。
+    files = [p for p in parquet_dir.glob("*.parquet")
+             if ".bak" not in p.name and _is_a_share_stock(p.name)]
     if not files:
-        print(f"❌ parquet 目录为空: {parquet_dir}", file=sys.stderr)
+        print(f"❌ parquet 目录无活跃 A 股个股数据: {parquet_dir}", file=sys.stderr)
+        print("  请先跑 full_sync: nohup venv/bin/python -m tdxfeed.full_sync &", file=sys.stderr)
         sys.exit(2)
 
     if holidays is None:

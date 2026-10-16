@@ -1,0 +1,14 @@
+[Unit]
+Description=Run annual Obsidian report archive on Jan 1
+Documentation=file:///home/jiuben/tdx-data-feed/docs/obsidian_upgrade_plan_20261015.md
+
+[Timer]
+# 每年 1/1 凌晨 01:00
+OnCalendar=*-01-01T01:00:00
+# 持久化：若系统关机错过，开机后补跑
+Persistent=true
+# 避免与其它 timer 抢锁，加 30s 随机延迟
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

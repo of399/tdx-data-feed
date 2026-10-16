@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 
-from tdxfeed.features_5d import compute_window_features, get_limit, LIMIT_MAP
+from tdxfeed.features_5d import LIMIT_MAP, compute_window_features, get_limit
 
 
 def _make_window(n: int = 10, start_close: float = 10.0, trend: float = 0.05) -> pd.DataFrame:

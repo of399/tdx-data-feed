@@ -1,0 +1,21 @@
+{
+  "version": "0.0.17",
+  "settings": {
+    "daily": {
+      "format": "YYYY-MM-DD",
+      "folder": "07-日记",
+      "template": "06-模板/日记模板.md"
+    },
+    "weekly": {
+      "format": "YYYY-[W]WW",
+      "folder": "07-日记/weekly",
+      "template": ""
+    },
+    "monthly": {
+      "format": "YYYY-MM",
+      "folder": "07-日记/monthly",
+      "template": ""
+    },
+    "newFileLocation": "folder"
+  }
+}

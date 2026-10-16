@@ -1,14 +1,24 @@
 {
   "version": "2.0.0",
   "settings": {
-    "commitMessage": "vault: {{date}} (auto)",
+    "commitMessage": "vault: {{date}} {{hostname}}",
     "autoCommit": false,
     "autoPush": false,
     "autoPull": false,
     "disablePush": true,
-    "commitOnClose": true,
+    "commitOnClose": false,
     "syncMethod": "merge",
     "refreshSourceControl": true,
-    "differentInterval": 10
+    "differentInterval": 10,
+    "autoSaveInterval": 30,
+    "lineAuthor": {
+      "enable": false
+    },
+    "showDiffStyle": "git",
+    "updateSubmodules": false,
+    "excludePatterns": [
+      ""
+    ],
+    "listChangedFilesInMessageBody": false
   }
 }

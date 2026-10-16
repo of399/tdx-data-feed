@@ -1,0 +1,13 @@
+[Unit]
+Description=Archive Obsidian reports from previous year to 08-报告/archive/YYYY.zip
+Documentation=file:///home/jiuben/tdx-data-feed/docs/obsidian_upgrade_plan_20261015.md
+After=network.target
+
+[Service]
+Type=oneshot
+# 用 /bin/bash 显式调用，避免脚本需要 +x
+ExecStart=/bin/bash /home/jiuben/tdx-data-feed/scripts/archive_obsidian_annual.sh
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/archive-obsidian-annual.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/archive-obsidian-annual.log
+# 失败不重试（oncalendar 持久化会补跑）
+Restart=no
