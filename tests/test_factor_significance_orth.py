@@ -50,9 +50,25 @@ def test_orthogonalize_returns_frame_with_columns():
     assert res is not None
     for col in [
         "factor", "rank_ic_raw", "rank_ic_p_raw", "rank_ic_orth", "rank_ic_p_orth",
-        "rank_ic_resid", "rank_ic_p_resid", "redundant", "independent",
+        "rank_ic_resid", "rank_ic_p_resid", "q_value_resid", "fdr_sig_resid",
+        "redundant", "independent",
     ]:
         assert col in res.columns
+
+
+def test_orth_residual_fdr_consistency():
+    """P0-1：正交化输出的残差 FDR 列必须自洽，且 independent/redundant 以 FDR 为准。"""
+    df = _make_df()
+    res = fs.orthogonalize_factor_significance(df, ["fA", "fB", "fC", "fNoise"], method="symmetric")
+    # fdr_sig_resid 为 bool
+    assert res["fdr_sig_resid"].dtype == bool
+    # q_value_resid 与 reject 一致：q<0.05 iff fdr_sig_resid
+    valid = res["q_value_resid"].notna()
+    assert (res.loc[valid, "fdr_sig_resid"] == (res.loc[valid, "q_value_resid"] < 0.05)).all()
+    # 判定口径：independent = 原始显著 且 残差 FDR 显著；redundant = 原始显著 且 残差 FDR 不显著
+    raw_sig = res["rank_ic_p_raw"] < 0.05
+    assert (res["independent"] == (raw_sig & res["fdr_sig_resid"])).all()
+    assert (res["redundant"] == (raw_sig & ~res["fdr_sig_resid"])).all()
 
 
 def test_redundancy_detection():
