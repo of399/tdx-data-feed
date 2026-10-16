@@ -97,9 +97,11 @@ def load_model(ckpt_path: Path, base_model: str = BASE_MODEL_HF,
             trust_remote_code=True,
         )
     elif quantize_8bit:
-        # 方案 B 2026-10-16 现场救火: 4bit 推理时 batch 触发 13.37GB 用量 + 碎片 OOM
-        # 8bit 14B ≈ 14GB < 16GB 单卡,推理 buffer 仍不够 → 用 max_memory + device_map={'': 0}
-        # 强制单卡 15GB 加载(留 1GB 给推理),bnb validate 不会触发(因为 device_map 不是 auto)
+        # 方案 B 2026-10-16 现场救火 v3 (用户提示): 双卡推理
+        # 8bit 14B ≈ 14GB 拆 2 卡(7GB/张) + buffer(每张 8GB) = 15GB/张 < 16GB/张
+        # device_map='auto' 让 transformers 自动按层拆分(避免单卡 OOM)
+        # max_memory={0: '15GB', 1: '15GB'} 限制每张卡最大用量,留 1GB buffer
+        # llm_int8_enable_fp32_cpu_offload=True 满足 bnb 8bit validate_environment 校验
         bnb = BitsAndBytesConfig(
             load_in_8bit=True,
             llm_int8_enable_fp32_cpu_offload=True,
@@ -107,8 +109,8 @@ def load_model(ckpt_path: Path, base_model: str = BASE_MODEL_HF,
         base = AutoModelForCausalLM.from_pretrained(
             base_model,
             quantization_config=bnb,
-            device_map={'': 0},
-            max_memory={0: '15GB', 'cpu': '30GB'},
+            device_map="auto",
+            max_memory={0: '15GB', 1: '15GB', 'cpu': '30GB'},
             offload_folder="/tmp/transformers_offload",
             trust_remote_code=True,
         )
