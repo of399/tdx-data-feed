@@ -1,16 +1,19 @@
 # tdx-data-feed 工作流全景文档
 
-> 生成：2026-09-27 · 范围：tdx-data-feed 完整系统（含数据采集 → LoRA 微调 → 妖股识别 → 模型评估 → 报告产出全链路）
+> 生成：2026-09-27 · 最近更新：2026-10-16（基于 `docs/WORKFLOW_REVIEW_2026-10-16.md` 回填，消除 7 处过时陈述）
+> 范围：tdx-data-feed 完整系统（含数据采集 → LoRA 微调 → 妖股识别 → 模型评估 → 量化信号 → 报告产出全链路）
 >
-> 阅读路径：第 1 章建立心智模型 → 第 2-3 章按数据流向读 → 第 4-6 章按组件维度查 → 第 7 章是速查表
+> 阅读路径：第 1 章建立心智模型 → 第 2-3 章按数据流向读 → 第 4-6 章按组件维度查 → 第 7 章是速查表。⚠️ 本文件为 2026-09-27 初版，2026-10-16 已回填方案 D/E、题材/行业 loader、`full_sync` 生产入口、v7r/PnL Huber 模型与部署形态说明。
 
 ---
 
 ## 0. 系统目标（一句话）
 
-把 A 股全市场 5565 只股票的历史 K 线 + 复权因子 + 财务数据喂给 **Qwen3-14B 量化分析师**（经 LoRA 微调），输出两类产品：
-- **结构化样本**（翻倍样本/预警信号，CSV+MD）
-- **可对话模型**（Ollama 部署的 qwen3-14b-tdx-v5/v6/v7 三选一）
+把 A 股全市场 5565 只股票的历史 K 线 + 复权因子 + 财务数据 + 行业/题材标签，喂给两条引擎：
+- **量化信号引擎（LightGBM）**：方案 D（翻倍前 5 日信号，`scripts/predict.py` 每日全市场预测）+ 方案 E（翻倍跟随，`plan_e_backtest.py` / `plan_e_journal.py`）+ PnL Huber 回归（`train_pnl_huber_*.py`）
+- **可对话模型（Ollama，Qwen3-14B LoRA）**：v5/v6/v7（**v7r 续训为生产优选**），经 `deploy_v5/v6/v7.sh`（merge → GGUF → ollama create）部署
+
+输出三类产品：**结构化样本**（翻倍样本/预警信号，CSV+MD）、**每日预测**（`data/predictions/`）、**可对话模型**（Ollama 端点）。
 
 ---
 
@@ -26,6 +29,11 @@
 | `scripts/download_adj_factor_watch.py` | 上面两个的 watchdog | - | 自动重启挂死的子进程 | 手动启动 |
 | `scripts/download_universe.py` | A 股全市场代码清单 | 通联数据 | `data/all_a_stocks.json` | systemd timer |
 | `scripts/analyze_one.py` | 单只股多因子分析（技术面）| parquet/daily + adj_factor | dict（落库） | 单股触发 |
+| `tdxfeed/full_sync.py` | **实际生产全量同步**（systemd 调用）：Sina 源日K + akshare 清单 + 财务增量 | Sina/akshare/baostock | `data/parquet/daily/*.parquet` + `sh\|sz/lday/*.day`（增量双写）| `tdxfeed-sync.timer` 每晚 18:00 |
+| `tdxfeed/cli.py` | `sync` 子命令：单标的拉取双写（**仅手动单只，非全量**）| Sina/akshare/tencent | 同上 | 手动 |
+| `scripts/akshare_industry_loader.py` | 申万/同花顺行业分类加载（股票→行业映射）| akshare `stock_industry_clf_hist_sw` | `data/industry/sw_*.csv`（335 三级）| 手动 |
+| `scripts/akshare_concept_loader.py` | 同花顺(THS)题材/概念板块列表（名称+代码）加载与查询 | akshare `stock_board_concept_name_ths` | `data/concept/ths_concept_list.csv`（375 板块）| 手动（7 天缓存）|
+| `scripts/tdx_concept_loader.py` | 通达信(tdx)个股→概念归属（解析 `block_gn/hy/fg/zs/wg.dat`，独立于 THS）| 本地通达信 `T0002/block/` | `data/concept/tdx_{gn,hy,...}.csv` | 手动（⚠️ 需用户放置标准 `block_gn.dat`）|
 
 ### 1.2 训练层（3 个 wrapper + 1 个 yaml）
 
@@ -52,6 +60,10 @@
 | `scripts/find_double_up_c_v2.py` | 方案 C v2/v3：前复权价翻倍 + v1 对比 | parquet/daily + adj_factor | v3 csv + 假阳性/漏判分析 + report MD |
 | `scripts/top10_deep_dive.py` | Top 10 妖股深度复盘 | v1 by_code + akshare stock_zyjs_ths | 22KB MD（涨停节奏/连板/成交量/行业）|
 | `scripts/find_d_signal_5d.py` | 方案 D：翻倍前 5 日信号识别（LightGBM）| v1 detail + parquet | AUC 0.8144 模型 + 特征重要性报告 |
+| `scripts/predict.py` | **方案 D 上线**：每日全市场 18/26/35 维特征 + LightGBM 推理（Top50/阈值0.7）| parquet/daily + features_5d | `data/predictions/predict_YYYYMMDD_HHMMSS.{csv,md}` | `predict-daily.timer`（收盘后）|
+| `scripts/plan_e_backtest.py` | 方案 E：翻倍次日跟随策略回测（v2 胜率 50%/均 10.13%）| double_up + parquet/daily | `data/plan_e/plan_e_*.csv\|md` | 手动 / `--compare` |
+| `scripts/plan_e_journal.py` | 方案 E 实盘/模拟跟踪（journal.csv 实盘 / journal_sim.csv 模拟分离）| predict + plan_e 信号 | `data/plan_e/journal_*.csv\|md` | `plan-e-journal.timer` |
+| `scripts/train_pnl_huber_*.py` | PnL Huber 回归（33/35 维，Test R² 0.166→0.278）| 行业/市场聚合特征 | PnL 模型（合并 v9 后继）| 手动 |
 
 ### 1.5 评估层（2 个）
 
@@ -67,7 +79,12 @@
 | `scripts/train_health.sh` | 训练进程健康检查（ckpt 记录、孤儿跳过）| systemd timer 每 5min |
 | `scripts/plot_loss.py` | loss 曲线可视化 | 手动 `--all` 自动扫所有 v* 目录 |
 | `scripts/gen_dashboard.py` | 综合 HTML 仪表盘 | 手动（包含所有数据快照）|
-| `systemd/tdxfeed-sync.timer` | 行情同步（每晚 18:00）| systemd timer |
+| `systemd/tdxfeed-sync.timer` | 行情同步（`tdxfeed.full_sync`，每晚 18:00）| systemd timer |
+| `systemd/predict-daily.timer` | 方案 D 每日预测（收盘后，含 `precheck_freshness.sh` 数据新鲜度守卫）| systemd timer |
+| `systemd/plan-e-journal.timer` | 方案 E 每日实盘信号归档（18:10，After predict-daily）| systemd timer |
+| `systemd/plan-e-weekly.timer` | 方案 E 周报汇总（周五 20:00）| systemd timer |
+| `systemd/canary-health.timer` | 6 项金丝雀健康检查（数据/模型/timer/obsidian 漂移，每 5min）| systemd timer |
+| `systemd/obsidian-sync.path` | Obsidian vault 源↔部署零漂移监控 | systemd path |
 | `.codebuddy/automations/v5-daemon/` | v5 训练自动续训（CodeBuddy 自动化）| CodeBuddy 调度 |
 
 ### 1.7 数据转换 / 辅助（5+ 个）
@@ -265,10 +282,12 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                                  输出层                                      │
 │                                                                             │
-│  - data/double_up/*.csv / *.md × 9                                          │
-│  - data/double_up/training_dashboard.html                                  │
-│  - DELIVERY.md (§12 全章节 = 587 行)                                       │
-│  - Ollama: qwen3-14b-tdx-v5 / v6 / fast (3 个推理端点)                      │
+│  - data/double_up/*.csv / *.md × 9 + training_dashboard.html               │
+│  - data/predictions/predict_*.{csv,md}（方案 D 每日全市场预测）            │
+│  - data/plan_e/plan_e_*.{csv,md} + journal_*.csv（方案 E 回测/实盘）       │
+│  - data/industry/sw_*.csv + data/concept/ths_concept_list.csv（行业/题材） │
+│  - DELIVERY.md（§12 全章节）                                               │
+│  - Ollama: qwen3-14b-tdx-v5/v6/v7/v7r/v7r1115/fast（v7r 为生产优选）      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -374,7 +393,7 @@ tdx-data-feed/
 | v6/v7 训练 | - | ✅ | 用户指令 |
 | deploy | - | ✅ | 用户指令（修 GGUF 工具链后才成功）|
 | 翻倍筛选 v1/v3 | - | ✅ | 用户指令 |
-| 方案 D LightGBM | - | ✅ | 用户指令 |
+| 方案 D 每日预测（predict.py）| ✅ | - | systemd `predict-daily.timer`（收盘后，依赖 tdxfeed-sync）|
 | v6_eval / v5_v6_compare | - | ✅ | 用户指令（启动后跑 ~30min）|
 | Dashboard 重新生成 | - | ✅ | 用户指令（读取最新 csv）|
 
@@ -403,8 +422,10 @@ tdx-data-feed/
 | qwen3-14b-tdx-fast (v4) | 8 | 16 | 4733 | 0.23 | ✅ Ollama |
 | qwen3-14b-tdx-v5 | 8 | 16 | 12656 | **0.1958** | ✅ Ollama |
 | qwen3-14b-tdx-v6 | 16 | 32 | 5238 | 0.2883 | ✅ Ollama |
-| qwen3-14b-tdx-v7 | 8 | 16 | 8000(v5续训) | **0.1914** | ❌ 仅 LoRA adapter |
-| qwen3-14b-tdx-v8 (fusion) | - | - | - | - | ❌ 未生成 |
+| qwen3-14b-tdx-v7 | 8 | 16 | 8000(v5续训) | **0.1914** | ✅ 已部署（v7r 续训为生产优选）|
+| qwen3-14b-tdx-v7r | 16 | 32 | v7 续训 | - | ✅ Ollama 生产端点 |
+| qwen3-14b-tdx-v8 (fusion) | - | - | - | - | ❌ rank 不兼容未生成 |
+| vpnl_huber_stage1 (LightGBM) | - | - | 阶段1 因子 21 维 | OOS Sp 0.3475 | ✅ 方案 D 默认推理模型 |
 
 ### 7.2 关键文件路径
 
@@ -458,12 +479,25 @@ tdx-data-feed/
 
 ### 7.4 当前未完成项
 
-- [ ] **v7 部署到 Ollama**：adapter 已训好，但需跑 `deploy_v5.sh` 同款流程（merge → GGUF → Modelfile → ollama create）
-- [ ] **v8 LoRA fusion**：rank 不兼容（v5=8, v6=16），需 model souping 或重训
-- [ ] **方案 D 上线**：模型 AUC 0.81 已可生产化，但缺 `predict.py`（每日全市场预测）
-- [ ] **方案 E**：识别"翻倍当日信号"（已是翻倍则跟随买入的策略）
-- [ ] **方案 F**：行业/概念识别（akhare `stock_board_industry_cons_em` 接口断连，需换源）
-- [ ] **DELIVERY.md §12.11+ v7**：已加 v7 章节，但 v8/方案 D 上线章节待补
+- [x] **v7 部署到 Ollama**：已完成，并新增 v7r 续训作为生产优选端点
+- [ ] **v8 LoRA fusion**：rank 不兼容（v5=8, v6=16），需 model souping 或重训（仍未解决）
+- [x] **方案 D 上线**：`scripts/predict.py` 已每日生产运行（`predict-daily.timer`，Top50/阈值0.7），默认模型 `vpnl_huber_stage1`
+- [x] **方案 E**：翻倍跟随策略已落地（`plan_e_backtest.py` 回测 + `plan_e_journal.py` 实盘/模拟跟踪）
+- [x] **方案 F（行业/题材）**：`akshare_industry_loader.py`（申万 335 三级）+ `akshare_concept_loader.py`（THS 375 板块列表）已落地；⚠️ THS 概念**仅名称+代码列表**，成分股明细需另接 Eastmoney `stock_board_concept_cons_em`（不同后端，未纳入）
+- [ ] **PnL Huber + akshare SW 部署为 v9 后继**：替换 v8 生产环境（记忆中列为后续工作）
+- [x] **DELIVERY.md v7/v8/方案 D 章节**：已补（本次审查回填）
+- [ ] **路线图（4 项 PENDING）**：详见 `docs/ROADMAP_2026-10-16.md`——① v7r→v9 量化迭代 ② 方案 D→E 信号联调 ③ 监控栈按需评估 ④ docs 治理（✅ 已完成）
+
+---
+
+## 7.5 部署形态说明（2026-10-16 审查补正）
+
+- **生产形态 = `venv` 虚拟环境 + 用户级 systemd timer**（唯一实际运行方式）：`tdxfeed-sync` → `predict-daily` → `plan-e-journal` 顺序编排，`canary-health` 每 5min 巡检。
+- **`docker-compose.yml` 是目标架构（未实际部署）**：含 Ollama/PostgreSQL/Redis/Prometheus/Grafana + exporters，但当前生产**未启用**容器栈；Prometheus/Grafana 监控当下不存在，可观测性依赖 `canary` 健康检查与日志。
+- **监控栈(Prometheus/Grafana)维持未部署（2026-10-16 复核）**：资源核查显示 2×RTX 5060Ti(16G) 已被 Ollama 占满(~96% 利用率)，宿主机空闲内存仅 1.4G（13G 可回收缓存）。按"避免与本地 Ollama 争抢资源"约束，**暂不部署**；docker 29.7.2 已就绪，待 GPU/内存宽松时再启。
+- **告警桥(pushplus-bridge)已停用（2026-10-16）**：0 调用方空转，`systemctl --user disable --now` 后 inactive；端口 :5002 关闭；3 个文件（systemd 单元/桥脚本/token）保留供回滚。详见 `docs/pushplus_bridge_status_2026-10-16.md`。
+- **Makefile ≠ 生产口径（已对齐）**：`make data-sync` 实为单标的 `tdxfeed.cli sync`（无参默认 `sh600000`，**不会拉全市场**）；全市场增量同步由 `make full-sync`（`tdxfeed.full_sync`，即 `tdxfeed-sync.timer` 每晚 18:00 调用的生产入口）负责。现已在 Makefile 新增 `full-sync` 目标并加注释澄清分工；改调度须同步两边，避免行为漂移。
+- **systemd 漂移铁律**：凡改 `systemd/` 下文件，提交后必须 `make timer-install` + `daemon-reload`，否则加载旧文件（被 canary 持续检测告警）。
 
 ---
 

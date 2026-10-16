@@ -17,6 +17,7 @@
 | `min_sync2.py` | 分钟线同步 v2：`market-60d`(min15) / `core-1y`(min60) / `market-5d`(min5, Sina) / `core-full-em`(Eastmoney 全历史，目前接口不稳定) |
 | `akshare_industry_loader.py` | 同花顺/申万行业分类加载(股票→行业映射) |
 | `akshare_concept_loader.py` | 同花顺(THS)题材/概念板块列表加载与查询(名称+代码) |
+| `tdx_concept_loader.py` | 通达信(tdx)个股→概念归属(解析 block_gn/hy/fg/zs/wg.dat，独立于 THS) |
 
 ## 二、特征 / 因子
 | 脚本 | 用途 |

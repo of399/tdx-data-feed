@@ -1084,13 +1084,17 @@ tail -f logs/canary.log
 | 文档 | 内容 |
 |---|---|
 | **README.md**（本文档）| 系统总览 + 入门 |
+| `docs/INDEX.md` | **docs/ 目录入口索引**（47 文档按 7 段分类，2026-10-16 新增）|
+| `docs/ROADMAP_2026-10-16.md` | **迭代路线图**（4 项：v9 量化 / D→E 联调 / 监控栈 / docs 治理）|
 | `docs/WORKFLOW.md` | 工作流全景（程序 + Agent + Skill + MCP）|
+| `docs/WORKFLOW_REVIEW_2026-10-16-v2.md` | 工作流审查 v2（最新）|
 | `docs/PLAN_E.md` | 方案 E 策略详解 |
 | `docs/PLAN_E_LIVE.md` | 方案 E 实盘启动指南 |
 | `docs/API.md` | API 接口文档 |
 | `docs/ARCHITECTURE.md` | 架构深度说明 |
 | `docs/tdx-data-feed-数据字典.md` | 数据 schema |
 | `docs/volume-单位治理计划书.md` | 成交量单位治理 |
+| `docs/pushplus_bridge_status_2026-10-16.md` | pushplus-bridge 退役记录（2026-10-16）|
 | `DELIVERY.md` | 项目交付报告 |
 | `CHANGELOG.md` | 变更日志 |
 | `CONTRIBUTING.md` | 贡献指南 |
