@@ -25,7 +25,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy import stats
-from statsmodels.stats.multitest import multipletests
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 FACTOR_FP = ROOT / 'data/factors/event_factors.parquet'
@@ -36,6 +35,7 @@ ORTH_FP = ROOT / 'data/factor_significance_orthogonalized.csv'
 # 仓库根加入 sys.path，使 `import quant` 在直接运行脚本时可用（与 plan_e_journal.py 一致）。
 sys.path.insert(0, str(ROOT))
 
+from quant.multifactor.cv_utils import bh_fdr_correct  # noqa: E402  # P0-1 BH-FDR
 from quant.multifactor.factors import (  # noqa: E402
     cross_sectional_projection,
     orthogonalize_factor_panel,
@@ -152,6 +152,7 @@ def orthogonalize_factor_significance(df: pd.DataFrame, factor_cols: list[str],
     scored = pd.DataFrame(data)
 
     rows = []
+    resid_pvals: list[float] = []
     for c in factor_cols:
         raw = _signif_brief(scored, f'raw__{c}')
         o = _signif_brief(scored, f'orth__{c}')
@@ -164,6 +165,7 @@ def orthogonalize_factor_significance(df: pd.DataFrame, factor_cols: list[str],
         if resid_std < max(1e-9, 1e-6 * (raw_std if raw_std > 0 else 1.0)):
             res = {'rank_ic': float('nan'), 'rank_ic_p': float('nan'),
                    'sig_level': '○ 不显著', 'n': len(resid[c])}
+        resid_pvals.append(res['rank_ic_p'])
         rows.append({
             'factor': c,
             'rank_ic_raw': raw['rank_ic'], 'rank_ic_p_raw': raw['rank_ic_p'], 'sig_raw': raw['sig_level'],
@@ -171,9 +173,16 @@ def orthogonalize_factor_significance(df: pd.DataFrame, factor_cols: list[str],
             'rank_ic_resid': res['rank_ic'], 'rank_ic_p_resid': res['rank_ic_p'], 'sig_resid': res['sig_level'],
         })
     out = pd.DataFrame(rows)
+    # === P0-1: 残差 RankIC 的 BH-FDR 校正 ===
+    # 正交化后「独立信号」判定同样面临多重检验：对 k 个因子的残差 RankIC 同时做
+    # 单点检验会制造假阳性。用与主表相同的 BH-FDR 压低 FDR，使「独立」判定与主表口径一致。
+    rej_resid, q_resid = bh_fdr_correct(np.asarray(resid_pvals, dtype=float), alpha=0.05)
+    out['q_value_resid'] = q_resid
+    out['fdr_sig_resid'] = rej_resid
+
     raw_sig = out['rank_ic_p_raw'] < 0.05
-    resid_sig = out['rank_ic_p_resid'] < 0.05
-    # 残差 IC 为 NaN（残差恒为常量 = 被同伴完全解释）时记为「不显著」→ 归入冗余
+    resid_sig = out['fdr_sig_resid']      # P0-1：以 FDR 校正后的残差判定为准
+    # 残差 IC 为 NaN（残差恒为常量 = 被同伴完全解释）时 q=nan → reject=False → 归入冗余
     out['independent'] = raw_sig & resid_sig
     out['redundant'] = raw_sig & ~resid_sig
     return out
@@ -195,13 +204,14 @@ def format_orth_section(orth_res: pd.DataFrame, method: str) -> list[str]:
     md.append('|---|---|')
     md.append('| RankIC(原始) | 单因子与 label 的 Spearman（同主表，但在完整样本子集上重算以对齐维度） |')
     md.append('| RankIC(残差) | 因子对「其余因子」做 L² 投影后的残差与 label 的 RankIC = 该因子独有信号 |')
-    md.append('| 冗余 | 原始显著(p<0.05) 但 残差不显著 → 信号可由同伴解释 |')
-    md.append('| 独立 | 残差仍显著(p<0.05) → 提供独特信息，应优先保留 |')
+    md.append('| 冗余 | 原始显著(p<0.05) 但 残差 FDR 不显著 → 信号可由同伴解释 |')
+    md.append('| 独立 | 残差仍 FDR 显著(q<0.05) → 提供独特信息，应优先保留 |')
+    md.append('| 残差 FDR | 对「各因子残差 RankIC」同时做 BH-FDR 校正（P0-1），q<0.05 判独立 |')
     md.append('')
     md.append('### 6.2 正交化后因子显著性对照')
     md.append('')
-    md.append('| 因子 | RankIC原 | p原 | RankIC残差 | p残差 | 判定 |')
-    md.append('|---:|---:|---:|---:|---:|:---:|')
+    md.append('| 因子 | RankIC原 | p原 | RankIC残差 | p残差 | q(FDR)残差 | 判定 |')
+    md.append('|---:|---:|---:|---:|---:|---:|:---:|')
     for _, r in orth_res.iterrows():
         if pd.isna(r['rank_ic_resid']):
             judge = '—'
@@ -211,9 +221,10 @@ def format_orth_section(orth_res: pd.DataFrame, method: str) -> list[str]:
             judge = '独立信号'
         else:
             judge = '弱/不显著'
+        q_disp = f"{r['q_value_resid']:.2e}" if pd.notna(r['q_value_resid']) else '—'
         md.append(
             f"| `{r['factor']}` | {r['rank_ic_raw']:.3f} | {r['rank_ic_p_raw']:.2e} | "
-            f"{r['rank_ic_resid']:.3f} | {r['rank_ic_p_resid']:.2e} | {judge} |"
+            f"{r['rank_ic_resid']:.3f} | {r['rank_ic_p_resid']:.2e} | {q_disp} | {judge} |"
         )
     md.append('')
     n_indep = int(orth_res['independent'].sum())
@@ -272,15 +283,9 @@ def main():
 
     # === P0-1: BH-FDR 多重检验校正 ===
     # 22 因子同时检验, 裸 p<0.05 会大量假阳性; Benjamini-Hochberg 控制 FDR=0.05
-    _p = res_df['rank_ic_p']
-    _m = _p.notna()
-    if _m.sum() > 0:
-        _rej, _q, _, _ = multipletests(_p[_m].values, method='fdr_bh', alpha=0.05)
-        res_df.loc[_p[_m].index, 'q_value'] = _q
-        res_df['fdr_sig'] = res_df['q_value'] < 0.05
-    else:
-        res_df['q_value'] = np.nan
-        res_df['fdr_sig'] = False
+    rej, q = bh_fdr_correct(res_df['rank_ic_p'].to_numpy(), alpha=0.05)
+    res_df['q_value'] = q
+    res_df['fdr_sig'] = rej
 
     res_df.to_csv(DETAIL_FP, index=False)
     print(f'\n详细结果: {DETAIL_FP}')

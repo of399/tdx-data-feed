@@ -91,6 +91,11 @@ REAL_TRADES_CSV = ROOT / 'data' / 'double_up' / 'real_trades.csv'
 # 统一日期解析：单一数据源见 tdxfeed/date_utils.parse_date
 from _common import parse_date  # noqa: E402
 
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+# P0-1 ④：置换检验（H0 策略日盈亏顺序随机 = 随机抽样同分布）
+from quant.multifactor.cv_utils import permutation_return_test  # noqa: E402
+
 _PARQUET_CACHE: dict[str, pd.DataFrame] = {}
 
 
@@ -511,6 +516,10 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
         _, nw_p = _newey_west_ttest(daily_full.values)
     ar_p = _bootstrap_pvalue(bt['return_pct'].values, lambda x: float(x.mean()))         # H0: 平均收益=0
     wr_p = float(stats.binomtest(int((bt['return_pct'] > 0).sum()), total, 0.5).pvalue)  # H0: 胜率=50%(随机基准)
+    # P0-1 ④ 置换检验：H0 策略日盈亏顺序随机 → 无择时 alpha（≈ 随机抽样同分布）
+    perm = permutation_return_test(daily_full.values) if n_days > 0 else None
+    perm_p = float(perm['p_two']) if perm else float('nan')
+    perm_p_one = float(perm['p_one']) if perm else float('nan')
 
     def pct(x): return f"{x*100:.2f}%"
     def pctci(lo, hi): return f"[{lo*100:.1f}%, {hi*100:.1f}%]"
@@ -557,6 +566,7 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
 | **日收益均值 (Newey-West HAC p)** | {nw_p:.3f} | 自相关稳健 t 检验 |
 | 平均收益 H₀=0 (bootstrap p) | {ar_p:.3f} | 重采样置换 |
 | 胜率 H₀=50% (精确二项 p) | {wr_p:.3f} | 对随机基准 |
+| **策略 vs 随机时序 (置换检验 p)** | {perm_p:.3f} | 打乱时间重排·日收益自相关 (单侧 {perm_p_one:.3f}) |
 
 ### 整体表现（明细）
 
@@ -595,7 +605,7 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
 3. 收益**已扣除**交易成本与滑点（默认开，双边约 {(fee + slippage) * 2 * 100:.2f}%）；实盘滑点可能高于假设，北交所（920XXX）流动性低时尤甚。
 4. 最大回撤/夏普基于等权聚合的交易日对齐资金曲线，未考虑单股 10% 仓位上限下的现金占用与并发约束。
 5. 标的集中于北交所（920XXX）时流动性低、滑点放大，结论外推需分层验证。
-6. **统计显著性（P0-1 新增）**：夏普/日收益均值/胜率现附假设检验 p 值 —— Deflated Sharpe 修正多次试验偏差、Newey-West 处理收益自相关、二项检验对随机 50% 基准。若 p≥0.05，表示当前样本无法拒绝"策略无超额收益"原假设，结论须谨慎。
+6. **统计显著性（P0-1 新增）**：夏普/日收益均值/胜率现附假设检验 p 值 —— Deflated Sharpe 修正多次试验偏差、Newey-West 处理收益自相关、二项检验对随机 50% 基准、**置换检验（打乱时间重排）判策略是否优于随机时序**。若 p≥0.05，表示当前样本无法拒绝"策略无超额收益/无择时 alpha"原假设，结论须谨慎。
 
 ## 🔧 下一步建议
 
