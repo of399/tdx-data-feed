@@ -123,3 +123,6 @@ v5/reports/*.md
 
 # v4fwd 数据重切分备份(2026-10-16 INCIDENT, 不入库)
 data/v4fwd/backup_*/
+
+# 自动恢复脚本日志(2026-10-16 INCIDENT, 每次执行产生新文件)
+logs/auto_train_recover_*.log
