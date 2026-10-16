@@ -29,9 +29,77 @@ strip_opt_state() {
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') [watchdog] start (monitor-or-launch mode)" >> "$WLOG"
 
+# 方案 B 2026-10-16：v4fwd sanity 集成（acc/sp/cls ≥ 0.33 判停训）
+SANITY_DIR="$ROOT/logs/v4fwd_sanity"
+SANITY_CKPT_NAME="checkpoint-200"
+mkdir -p "$SANITY_DIR"
+
+maybe_run_sanity() {
+  local ck="$OUT/$SANITY_CKPT_NAME"
+  local sd="$SANITY_DIR/$SANITY_CKPT_NAME"
+  [ -d "$ck" ] || return 0
+  [ -f "$sd.PASS" ] && return 0     # 已通过
+  [ -f "$sd.FAILED" ] && return 0    # 已失败（不再重试）
+  [ -f "$sd.RUNNING" ] && return 0   # 已在跑
+  touch "$sd.RUNNING"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] 检测到 $SANITY_CKPT_NAME 落地,启动后台 sanity" >> "$WLOG"
+  (
+    venv/bin/python training/eval/run_v4_eval.py \
+      --ckpt "$ck" --limit 200 --no-backtest \
+      --out-prefix "$SANITY_CKPT_NAME" > "$sd.stdout" 2>&1
+    local rc=$?
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] run_v4_eval rc=$rc" >> "$WLOG"
+    if [ "$rc" -ne 0 ]; then
+      touch "$sd.FAILED"
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] FAILED (rc=$rc,run_v4_eval 异常)" >> "$WLOG"
+      exit 0
+    fi
+    local mfile
+    mfile=$(ls "$ROOT/training/eval/metrics_${SANITY_CKPT_NAME}_"*.json 2>/dev/null | tail -1)
+    if [ -z "$mfile" ]; then
+      touch "$sd.FAILED"
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] FAILED (no metrics_$SANITY_CKPT_NAME.json)" >> "$WLOG"
+      exit 0
+    fi
+    local pass
+    pass=$(python3 -c "
+import json
+m = json.load(open('$mfile'))
+ok = (m.get('direction_accuracy', 0) >= 0.33
+      and m.get('spearman', 0) >= 0.33
+      and m.get('cls_acc_up', 0) >= 0.33
+      and m.get('cls_acc_down', 0) >= 0.33
+      and m.get('cls_acc_flat', 0) >= 0.33)
+print(int(ok))
+")
+    if [ "$pass" = "1" ]; then
+      touch "$sd.PASS"
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] PASS (5 指标均 ≥ 0.33)" >> "$WLOG"
+    else
+      touch "$sd.FAILED"
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [sanity] FAILED (5 指标不达标,见 $sd.stdout)" >> "$WLOG"
+    fi
+  ) &
+  disown 2>/dev/null || true
+}
+
+check_sanity_result() {
+  local sd="$SANITY_DIR/$SANITY_CKPT_NAME"
+  [ -f "$sd.FAILED" ] || return 0
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [watchdog] sanity 失败 — 杀训练(不重启)" >> "$WLOG"
+  pkill -TERM -f "training/config/tdx_v9_from_scratch.yaml" 2>/dev/null
+  sleep 5
+  pkill -9 -f "training/config/tdx_v9_from_scratch.yaml" 2>/dev/null
+  return 1
+}
+
 if is_running; then
   echo "$(date '+%Y-%m-%d %H:%M:%S') [watchdog] training already running — monitoring only" >> "$WLOG"
-  while is_running; do sleep 30; done
+  while is_running; do
+    sleep 30
+    maybe_run_sanity
+    check_sanity_result || break
+  done
   echo "$(date '+%Y-%m-%d %H:%M:%S') [watchdog] training exited — entering restart loop" >> "$WLOG"
 fi
 

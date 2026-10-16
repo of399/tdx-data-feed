@@ -52,6 +52,11 @@ class EvalMetrics:
     max_drawdown: float = 0.0                 # 最大回撤
     format_compliance_rate: float = 0.0       # alpaca 格式遵循率
     parse_fail_rate: float = 0.0              # 解析失败率
+    # 方案 B 2026-10-16 新增：5 指标 sanity 判定用
+    spearman: float = 0.0                     # pred_pct vs real_pct 的 Spearman 排序相关系数
+    cls_acc_up: float = 0.0                   # 涨类（real=1）准确率
+    cls_acc_down: float = 0.0                 # 跌类（real=-1）准确率
+    cls_acc_flat: float = 0.0                 # 平类（real=0）准确率
     elapsed_sec: float = 0.0
     timestamp: str = ""
 
@@ -176,7 +181,45 @@ def infer_batch(tok, model, samples: list, max_new_tokens: int = 256):
 
 
 # === 评估各维度 =============================================================
-def eval_direction(tok, model, samples: list, batch_size: int = 8) -> tuple[float, list]:
+def _compute_spearman(parsed_records: list) -> float:
+    """方案 B 2026-10-16：Spearman 排序相关（pred_pct vs real_pct，None 跳过）。
+    无 scipy 依赖：用 numpy 手动算。返回 0.0 当样本不足。
+    """
+    pairs = [(r["pred_pct"], r["real_pct"]) for r in parsed_records
+             if r["pred_pct"] is not None and r["real_pct"] is not None]
+    if len(pairs) < 3:
+        return 0.0
+    arr = np.array(pairs, dtype=float)
+    x, y = arr[:, 0], arr[:, 1]
+    # Spearman = Pearson on ranks
+    def _rank(a: np.ndarray) -> np.ndarray:
+        order = a.argsort().argsort()
+        return order.astype(float)
+    rx, ry = _rank(x), _rank(y)
+    if rx.std() == 0 or ry.std() == 0:
+        return 0.0
+    return float(np.corrcoef(rx, ry)[0, 1])
+
+
+def _compute_per_class_acc(parsed_records: list) -> dict:
+    """方案 B 2026-10-16：三分类 acc（up=1, down=-1, flat=0）。返回 {up, down, flat} 各自 acc。
+    样本不足的类返回 0.0（让 sanity 直接 fail）。
+    """
+    out: dict[str, float] = {"up": 0.0, "down": 0.0, "flat": 0.0}
+    for cls_name, cls_val in [("up", 1), ("down", -1), ("flat", 0)]:
+        relevant = [r for r in parsed_records
+                    if r.get("real_dir") is not None and r["pred_dir"] is not None]
+        in_cls = [r for r in relevant if r["real_dir"] == cls_val]
+        if not in_cls:
+            # 该类无样本：返回 0.0（让 sanity fail，比 0/0 安全）
+            out[cls_name] = 0.0
+            continue
+        correct = sum(1 for r in in_cls if r["pred_dir"] == cls_val)
+        out[cls_name] = correct / len(in_cls)
+    return out
+
+
+def eval_direction(tok, model, samples: list, batch_size: int = 8) -> dict:
     """方向准确率：模型预测方向 vs 真实 output 中的方向"""
     preds, reals = [], []
     parsed_records = []
@@ -209,7 +252,16 @@ def eval_direction(tok, model, samples: list, batch_size: int = 8) -> tuple[floa
         return 0.0, parsed_records, 1.0
     acc = (arr_p[valid] == arr_r[valid]).mean()
     parse_fail = 1.0 - parsed_records.count if False else (sum(1 for r in parsed_records if not r["parsed_ok"]) / len(parsed_records))
-    return float(acc), parsed_records, parse_fail
+    # 方案 B 2026-10-16：sanity 5 指标补充计算（Spearman + 三分类 acc）
+    spearman_val = _compute_spearman(parsed_records)
+    cls_acc = _compute_per_class_acc(parsed_records)
+    return {
+        "acc": float(acc),
+        "parsed_records": parsed_records,
+        "parse_fail": parse_fail,
+        "spearman": spearman_val,
+        "cls_acc": cls_acc,  # dict: {"up":..., "down":..., "flat":...}
+    }
 
 
 def eval_format_compliance(parsed_records: list) -> float:
@@ -328,10 +380,18 @@ def main():
     # 3. 方向准确率 + 格式遵循率
     print("\n[3] 方向准确率 + 格式遵循率 ...")
     t0 = time.time()
-    direction_acc, parsed_records, parse_fail = eval_direction(tok, model, samples, args.batch_size)
+    direction_result = eval_direction(tok, model, samples, args.batch_size)
+    direction_acc = direction_result["acc"]
+    parsed_records = direction_result["parsed_records"]
+    parse_fail = direction_result["parse_fail"]
+    spearman_val = direction_result["spearman"]
+    cls_acc = direction_result["cls_acc"]
     format_compliance = eval_format_compliance(parsed_records)
     print(f"    方向准确率 = {direction_acc:.4f}  格式遵循率 = {format_compliance:.4f}")
     print(f"    解析失败率 = {parse_fail:.4f}  耗时 {time.time() - t0:.1f}s")
+    # 方案 B 2026-10-16：sanity 5 指标 stdout 末行（watchdog 解析用）
+    print(f"    spearman = {spearman_val:.4f}  cls_acc = up:{cls_acc.get('up', 0.0):.4f} "
+          f"down:{cls_acc.get('down', 0.0):.4f} flat:{cls_acc.get('flat', 0.0):.4f}")
 
     # 4. Top-k 命中率
     print("\n[4] Top-k 命中率 ...")
@@ -361,6 +421,10 @@ def main():
         max_drawdown=bt["max_drawdown"],
         format_compliance_rate=format_compliance,
         parse_fail_rate=parse_fail,
+        spearman=spearman_val,
+        cls_acc_up=cls_acc.get("up", 0.0),
+        cls_acc_down=cls_acc.get("down", 0.0),
+        cls_acc_flat=cls_acc.get("flat", 0.0),
         elapsed_sec=time.time() - t0,
         timestamp=ts,
     )
@@ -386,6 +450,8 @@ def main():
 | 指标 | 值 |
 |---|---|
 | 方向准确率 | **{metrics.direction_accuracy:.4f}** |
+| Spearman（pred_pct vs real_pct） | **{metrics.spearman:.4f}** |
+| 三分类 acc (up/down/flat) | **{metrics.cls_acc_up:.4f} / {metrics.cls_acc_down:.4f} / {metrics.cls_acc_flat:.4f}** |
 | Top-5 命中率 | {metrics.top5_hit_rate:.4f} |
 | Top-10 命中率 | {metrics.top10_hit_rate:.4f} |
 | 回测夏普（年化） | **{metrics.sharpe_ratio:.3f}** |
@@ -393,6 +459,18 @@ def main():
 | 最大回撤 | {metrics.max_drawdown:.3f} |
 | alpaca 格式遵循率 | {metrics.format_compliance_rate:.4f} |
 | 解析失败率 | {metrics.parse_fail_rate:.4f} |
+
+## 方案 B Sanity 5 指标（2026-10-16 watchdog 判定用）
+
+判定公式：**acc ≥ 0.33 AND sp ≥ 0.33 AND cls_acc_up ≥ 0.33 AND cls_acc_down ≥ 0.33 AND cls_acc_flat ≥ 0.33**
+
+| 指标 | 值 | 阈值 | 通过 |
+|---|---:|---:|:---:|
+| direction_accuracy | {metrics.direction_accuracy:.4f} | 0.33 | {'✅' if metrics.direction_accuracy >= 0.33 else '❌'} |
+| spearman | {metrics.spearman:.4f} | 0.33 | {'✅' if metrics.spearman >= 0.33 else '❌'} |
+| cls_acc_up | {metrics.cls_acc_up:.4f} | 0.33 | {'✅' if metrics.cls_acc_up >= 0.33 else '❌'} |
+| cls_acc_down | {metrics.cls_acc_down:.4f} | 0.33 | {'✅' if metrics.cls_acc_down >= 0.33 else '❌'} |
+| cls_acc_flat | {metrics.cls_acc_flat:.4f} | 0.33 | {'✅' if metrics.cls_acc_flat >= 0.33 else '❌'} |
 
 ## 解读阈值（建议）
 
