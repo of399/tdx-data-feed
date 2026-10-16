@@ -24,18 +24,18 @@
 
 **目标**：让"因子是否显著""策略是否真的有效"在统计上可信；用今日全量回测（IC≈−0.012、IC 正向率 48.5%）做回归，验证工具能**正确拒绝噪声**而非制造伪显著。
 
-**改动文件**：`scripts/factor_significance.py`、`scripts/plan_e_backtest.py`（`_bootstrap_ci` 增强）
+**改动文件**：`scripts/factor_significance.py`、`scripts/plan_e_backtest.py`、`quant/multifactor/cv_utils.py`（④ 置换检验落点）
 
 | # | 任务 | 算法 / 签名 | 落点 |
 | ---: | --- | --- | --- |
 | 1 | **BH-FDR 多重检验校正** | `from statsmodels.stats.multitest import multipletests; reject, q, _, _ = multipletests(pvals, method='fdr_bh')` | `factor_significance.py` 显著性表新增 q-value 列 + "校正后仍显著因子数" |
 | 2 | **Deflated Sharpe Ratio** | Bailey & López de Prado (2014)：`z = √T·(SR−SR*)·[1−γ₃·SR+(γ₄−1)/4·SR²]⁻¹`；`p = 1−norm.cdf(z)`；`SR*=0`，`N≥180`（Optuna 150 + 27 网格 + 其他，保守取值） | `plan_e_backtest.py` 报告新增 DSR p-value |
 | 3 | **Newey-West HAC 标准误（IC 序列）** | `OLS(ic, const).fit(cov_type='HAC', cov_kwds={'maxlags':5})`；IC 强自相关，OLS 标准误会低估 | `plan_e_backtest.py` 新增 IC 均值显著性（HAC） |
-| 4 | **Bootstrap 假设检验**（替代仅 CI） | H₀：收益 ≈ 随机（打乱标签/时间）；`p = mean(boot_stat ≥ obs_stat)`，在现有 2000 次 bootstrap 上扩展 | `_bootstrap_ci` 增强 |
+| 4 | **置换检验**（P0-1 ④，非参数假设检验） | H₀：策略日盈亏顺序随机 → 无择时 alpha（≈ 随机抽样同分布）；对日收益序列做 b=2000 次**无放回时间重排**，经验 `p = mean(perm_stat ≥ obs_stat)`；默认统计量取**滞后-1 自相关**（均值/夏普对重排不变会令检验退化）；返回 `p_one`(单侧)/`p_two`(两尾 min 法则) | `quant/multifactor/cv_utils.py:permutation_return_test` + `plan_e_backtest.py` import 调用（区别于 `_bootstrap_ci` 分位 CI 与 `_bootstrap_pvalue` bootstrap-SE z 检验） |
 
 **验收标准**：
 - `factor_significance.py` 输出含"BH-FDR 校正后显著因子数"
-- `plan_e_backtest.py` 报告含 DSR p-value、Newey-West IC 显著性、bootstrap 检验 p-value
+- `plan_e_backtest.py` 报告含 DSR p-value、Newey-West（日收益 HAC）显著性、bootstrap 平均收益 H₀=0 检验 p-value、二项检验（胜率 H₀=50%）p-value；并新增 ④ 置换检验（打乱时间重排）经 `cv_utils.permutation_return_test` 计算，在风险提示中说明其判定口径（p≥0.05 ⇒ 不拒绝"无择时 alpha"）
 - 对今日全量回测复跑：DSR 与 Newey-West **判定不显著**（验证工具正确拒绝噪声）
 - `make lint` 通过
 
@@ -156,9 +156,10 @@
 ---
 ## 实施记录（2026-10-15 追加）
 
-### M1 P0-1 ✅（先于本记录）
+### M1 P0-1 ✅（①②③ 先于本记录；④ 置换检验 2026-10-16 补记）
 - `factor_significance.py`：BH-FDR(fdr_bh, α=0.05) 校正 + `q_value` 列 + 校正后仍显著因子数。
-- `plan_e_backtest.py`：Deflated Sharpe / Newey-West（日收益序列）/ bootstrap p / 二项检验。
+- `plan_e_backtest.py`：Deflated Sharpe / Newey-West（日收益序列）/ bootstrap p（H₀: 平均收益=0）/ 二项检验（H₀: 胜率=50%）/ **④ 置换检验**（`from quant.multifactor.cv_utils import permutation_return_test`；H₀ 策略日盈亏顺序随机 → 无择时 alpha，b=2000 无放回时间重排，默认统计量=滞后-1 自相关，返回 `p_one`/`p_two`，在风险提示中说明判定口径）。
+- **④ 关键实现说明**：置换检验与 `_bootstrap_ci`（分位 CI）、`_bootstrap_pvalue`（bootstrap-SE z 检验 H₀: 均值=0）**三者并列、互不相同**；默认统计量刻意取滞后-1 自相关而非均值/夏普，因后者对重排不变会使检验退化（p 恒为 1）。近 iid 噪声序列自相关≈0 ⇒ `p_two≈1`，工具正确"不拒绝"噪声。
 
 ### M2 P0-2 ✅ + multifactor IC Newey-West ✅（本次）
 - **cvxpy 1.9.3 安装 + ABI 冒烟通过**：`cvxpy 1.9.3 torch 2.11.0+cu128`、CLARABEL 求解 `optimal`，**未重演 torchvision 错配**。
