@@ -196,26 +196,34 @@ def save_positions(pos: dict):
 # ============== journal ==============
 
 def append_journal(records: list):
-    """追加记录到 journal.csv（实盘日志），统一标记 source=real"""
+    """追加记录到 journal.csv（实盘日志），统一标记 source=real
+
+    ⚠️ 注意:code 列在 CSV 中保留为字符串(如 '000001')。pd.read_csv 默认会推断为 int(丢前导 0),
+    用户读取时需显式 dtype={'code': str}。这是 pandas 行为,不是本函数问题。
+    """
     if not records:
         return
     df = pd.DataFrame(records)
     if 'source' not in df.columns:
         df['source'] = SOURCE_REAL
     if JOURNAL_FILE.exists():
-        old = pd.read_csv(JOURNAL_FILE)
+        old = pd.read_csv(JOURNAL_FILE, dtype={'code': str})  # 保留前导 0
         df = pd.concat([old, df], ignore_index=True)
     df.to_csv(JOURNAL_FILE, index=False, encoding='utf-8-sig')
 
 
 def append_sim_journal(records: list):
-    """追加模拟交易记录到独立的 journal_sim.csv（与实盘 journal.csv 完全分离）"""
+    """追加模拟交易记录到独立的 journal_sim.csv（与实盘 journal.csv 完全分离）
+
+    ⚠️ 注意:code 列在 CSV 中保留为字符串(如 '000001')。pd.read_csv 默认会推断为 int(丢前导 0),
+    用户读取时需显式 dtype={'code': str}。这是 pandas 行为,不是本函数问题。
+    """
     if not records:
         return
     df = pd.DataFrame(records)
     df['source'] = SOURCE_SIM
     if SIM_JOURNAL_FILE.exists():
-        old = pd.read_csv(SIM_JOURNAL_FILE)
+        old = pd.read_csv(SIM_JOURNAL_FILE, dtype={'code': str})  # 保留前导 0
         df = pd.concat([old, df], ignore_index=True)
     df.to_csv(SIM_JOURNAL_FILE, index=False, encoding='utf-8-sig')
 
@@ -583,6 +591,101 @@ def mode_buy(code: str, price: float, qty: int):
     print(f"  剩余现金: {pos['cash']:,.0f}")
 
 
+# ============== 方案 B 2026-10-16：--from-predict-list ==============
+
+def load_latest_predict_list(top_n: int = 50, threshold: float = 0.7,
+                             score_col: str = 'prob', price_col: str = 'close'):
+    """加载 data/predictions/predict_*.csv 中 mtime 最新的文件,按 score ≥ threshold 过滤,
+    取 Top N。返回 pd.DataFrame[code, price, score]。
+
+    ⚠️ 注意:阈值逻辑与 predict.py 一致——回归模型(prob 列实为预期 PnL)按 > 0;分类模型按 ≥ threshold。
+    本函数对两种都按 score >= threshold(若 threshold<0,等价于回归逻辑)。
+    """
+    pred_dir = ROOT / 'data' / 'predictions'
+    if not pred_dir.exists():
+        sys.exit(f"❌ --from-predict-list: {pred_dir} 不存在")
+    # mtime 倒序取第 1 个:glob 拿所有 predict_*.csv(含 _top*_thr* 子集)
+    candidates = sorted(pred_dir.glob('predict_*.csv'),
+                        key=lambda p: p.stat().st_mtime, reverse=True)
+    if not candidates:
+        sys.exit(f"❌ --from-predict-list: {pred_dir} 无 predict_*.csv")
+    latest = candidates[0]
+    print(f"  消费最新 predict 文件: {latest.name} (mtime={latest.stat().st_mtime:.0f})")
+    try:
+        df = pd.read_csv(latest)
+    except Exception as e:
+        sys.exit(f"❌ --from-predict-list 读取失败: {latest}\n  错误: {e}")
+    if score_col not in df.columns:
+        sys.exit(f"❌ --from-predict-list: {latest.name} 缺列 '{score_col}'")
+    if price_col not in df.columns:
+        sys.exit(f"❌ --from-predict-list: {latest.name} 缺列 '{price_col}'")
+    if 'code' not in df.columns:
+        sys.exit(f"❌ --from-predict-list: {latest.name} 缺列 'code'")
+    # 过滤 + top_n
+    df = df[df[score_col] >= threshold].copy()
+    df = df.sort_values(score_col, ascending=False).head(top_n)
+    df = df[['code', price_col, score_col]].rename(columns={price_col: 'price', score_col: 'score'})
+    # 关键:code 显式转 str(6位 zfill),避免 pandas iloc[0] 把 int64 转 float64 → '600519.0'
+    df['code'] = df['code'].astype(str).str.zfill(6)
+    print(f"  过滤: threshold={threshold} top_n={top_n} → {len(df)} 只入选")
+    if df.empty:
+        print("  (空集,正常退出,不写 journal)")
+        return df
+    return df
+
+
+def mode_from_predict_list(mode: str, top_n: int = 50, threshold: float = 0.7):
+    """消费最新 predict list → 模拟逐笔买入 → 写入 journal.csv (real) / journal_sim.csv (sim)。
+
+    资金分配:等额(INITIAL_CAPITAL / top_n, 100 元一手,按 100 股整数取整)。
+    ⚠️ 重要:--mode real 是 **paper-trading**(模拟真金白银流),不是真交易。
+    """
+    ensure_dirs()
+    picks = load_latest_predict_list(top_n=top_n, threshold=threshold)
+    if picks.empty:
+        return
+    # 等额资金分配
+    cash_per_pick = INITIAL_CAPITAL / max(len(picks), 1)
+    n_buys = 0
+    for _, row in picks.iterrows():
+        code = str(row['code']).zfill(6)
+        price = float(row['price'])
+        score = float(row['score'])
+        if price <= 0:
+            print(f"  ⚠ {code} price={price} 无效,跳过")
+            continue
+        # 100 股一手
+        qty = max(int(cash_per_pick / price / 100) * 100, 100)
+        if mode == 'simulate':
+            # 走模拟:直接写 journal_sim.csv(不经 positions)
+            append_sim_journal([{
+                'date': datetime.now().strftime('%Y-%m-%d'),
+                'code': code,  # 已是 str(6位 zfill),pandas 写入保留字符串
+                'action': 'BUY',
+                'qty': qty,
+                'price': price,
+                'amount': qty * price,
+                'pnl': 0,
+                'pnl_pct': 0,
+                'reason': 'PREDICT_LIST',
+                'hold_days': 0,
+                'entry_date': datetime.now().strftime('%Y-%m-%d'),
+                'signal_date': datetime.now().strftime('%Y-%m-%d'),
+                'source': SOURCE_SIM,
+                'score': score,
+            }])
+            n_buys += 1
+        else:
+            # mode == 'real' 走实盘 paper-trading:用 mode_buy(管理 positions + 写 journal.csv)
+            try:
+                mode_buy(code, price, qty)
+                n_buys += 1
+            except SystemExit as e:
+                print(f"  ⚠ {code} 买入失败: {e}")
+                continue
+    print(f"\n✓ 完成: {n_buys}/{len(picks)} 只成交,模式={mode}")
+
+
 def mode_sell(code: str, price: float, reason: str = 'MANUAL'):
     """手动卖出"""
     pos = load_positions()
@@ -748,11 +851,23 @@ def main():
     parser.add_argument('--exec-buckets', type=int, default=6,
                         help='拆单段数（默认 6 段，日内对应 ~40 分钟/段）')
     parser.add_argument('--no-freshness-check', action='store_true', help='跳过数据新鲜度校验')
+    # 方案 B 2026-10-16：--from-predict-list 信号→journal 自动消费
+    parser.add_argument('--from-predict-list', action='store_true',
+                        help='从 data/predictions/predict_*.csv 取最新文件作为买入信号源'
+                             '(默认 Top 50 + 阈值 0.7 过滤;--mode 决定分流到 journal.csv / journal_sim.csv)')
     args = parser.parse_args()
 
     if not args.no_freshness_check:
         from tdxfeed.freshness import require_fresh
         require_fresh(max_age_days=2)
+
+    # 方案 B 2026-10-16：--from-predict-list 信号→journal 路由(优先级最高,不走 daily/buy/etc)
+    if args.from_predict_list:
+        if args.mode not in ('real', 'simulate'):
+            sys.exit(f"❌ --from-predict-list 需要 --mode real 或 simulate,当前: {args.mode}")
+        print("=== 方案 B: predict list → journal 自动消费 ===")
+        mode_from_predict_list(args.mode)
+        return
 
     if args.mode == 'daily':
         mode_daily(args)
