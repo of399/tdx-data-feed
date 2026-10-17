@@ -1,5 +1,10 @@
 # tdx-data-feed 核心 Python 依赖
 # 装填: pip install -r requirements.txt
+#
+# Python: 3.14（本项目基于 py3.14；无 cp314 wheel 的包需源码编译,
+# 参考 flash-attn 回退 SDPA / torchvision ABI 错配教训——见 requirements.lock 精确锁定）
+# 安装: python3.14 -m venv venv && venv/bin/pip install -r requirements.txt
+# 精确复现环境: venv/bin/pip install -r requirements.lock
 
 # ---- 数据采集 ----
 baostock>=0.8.9

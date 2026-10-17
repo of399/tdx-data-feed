@@ -112,6 +112,8 @@ install:  ## 装 Python 依赖 + 初始化
 	$(PIP) install -r requirements.txt
 	@echo "$(CYAN)▶ 安装额外依赖（lightgbm + 训练）$(NC)"
 	$(PIP) install lightgbm llamafactory peft
+	@echo "$(CYAN)▶ 依赖一致性自检（审计 P0-6-2, 2026-10-17）$(NC)"
+	@$(PIP) check || echo "$(YELLOW)⚠ 依赖冲突(见上)。已知项: mootdx 声明 httpx<0.26 但实装 0.28(声明性冲突, 功能实测正常); 其余新冲突请对照 requirements.lock 排查$(NC)"
 	@echo "$(CYAN)▶ 创建日志目录$(NC)"
 	mkdir -p $(LOGS)
 	@echo "$(GREEN)✓ 安装完成$(NC)"

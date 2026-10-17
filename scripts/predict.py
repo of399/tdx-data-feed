@@ -148,9 +148,8 @@ def is_st(name: str) -> int:
     return 1 if ('ST' in name or '*ST' in name) else 0
 
 
-# 进程内 parquet 缓存：避免同进程内重复读取（多进程模式各 worker 独立，无跨进程共享）。
-# 注意：键为 code_clean，存 pristine 原始 DataFrame；每次使用 .copy()，防止原地修改污染缓存。
-_PARQUET_CACHE: dict[str, pd.DataFrame] = {}
+# 审计 P1-4-1 (2026-10-17): _PARQUET_CACHE 已删除——全市场 predict 每股只算一次,
+# 缓存零命中且全量 DataFrame 常驻 ~400MB (8 workers); 实测直读 1.5ms/股 无性能损失。
 
 # 板块分配（与 build_market_features.py 一致）
 _BOARD_SET = ["sh_main", "sh_kechuang", "sz_main", "sz_chinext", "bj"]
@@ -309,18 +308,31 @@ def compute_features(code: str) -> dict:
         return None
 
     try:
-        if code_clean in _PARQUET_CACHE:
-            raw = _PARQUET_CACHE[code_clean]
-            df_raw = raw.copy()
-        else:
-            raw = pd.read_parquet(fp)
-            _PARQUET_CACHE[code_clean] = raw
-            df_raw = raw.copy()
+        # 审计 P1-4-1 (2026-10-17): 删除 _PARQUET_CACHE 全量缓存
+        # 实测: 每股在全市场 predict 中只计算一次, 缓存零命中;
+        # 全量 DataFrame 常驻 (8 workers x ~860 股 x ~1028 行) = ~400MB 纯浪费。
+        # 实测读取仅 1.5ms/股 (单文件 30-96KB), 直读无性能损失。
+        raw = pd.read_parquet(fp)
+        df_raw = raw.copy()
     except Exception:
         return None
 
     if len(df_raw) < 30:
         return None
+
+    # 审计 P1-5-1 (2026-10-17): 数据新鲜度防御
+    # 背景: 周末 Top 20 曾出现数据陈旧 36/47 天的仙股(688496/002731), 靠人工剔除。
+    # 规则: 最新数据日期距今超过 MAX_STALE_DAYS 天 -> 判定停牌/退市/数据断裂, 剔除并留痕。
+    # 阈值 10 天 ≈ 5 个交易日 * 1.6 倍周末/节假日补偿(精确交易日历可后续接入)。
+    MAX_STALE_DAYS = 10
+    try:
+        _last_date = pd.to_datetime(df_raw['date']).max()
+        _stale_days = (pd.Timestamp.now().normalize() - _last_date).days
+        if _stale_days > MAX_STALE_DAYS:
+            print(f"[WARN] {code} 数据陈旧 {_stale_days} 天(最新 {_last_date.date()}), 剔除")
+            return None
+    except Exception:
+        pass  # date 列异常时交由后续特征计算的既有防线处理
 
     # 计算 T-1 日的 adj_factor（仅用于 meta 展示 qfq_close；特征用 raw close）
     adj_factor_value = 1.0
@@ -528,7 +540,8 @@ def launch_web(args):
     demo.launch(server_name="0.0.0.0", server_port=args.port, share=args.share)
 
 
-def main():
+def parse_args():
+    """审计 P1-3-3 (2026-10-17): 从 254 行 main() 拆出——CLI 参数解析。"""
     parser = argparse.ArgumentParser(description='方案 D 每日翻倍潜力预测')
     parser.add_argument('--date', help='基准日（YYYY-MM-DD），默认今天')
     parser.add_argument('--top', type=int, default=20, help='输出 Top N 高分股')
@@ -559,7 +572,11 @@ def main():
     parser.add_argument('--emit-fields', default='code,score,ts,top_k',
                         help='--emit-top 输出字段 逗号分隔,默认 code,score,ts,top_k')
     args = parser.parse_args()
+    return args
 
+
+def resolve_model(args):
+    """审计 P1-3-3: 拆出——模型选择/加载/特征列守卫。返回 (model_name, model, feature_cols)。"""
     # 解析多模型选择(部署 vpnl_huber:PnL 回归;回滚用 --model prod)
     model_name = args.model or DEFAULT_MODEL
     if model_name not in MODEL_REGISTRY:
@@ -568,19 +585,6 @@ def main():
     ACTIVE_MODEL_PATH = MODEL_REGISTRY[model_name][0]
     ACTIVE_IS_REG = MODEL_REGISTRY[model_name][1] == "reg"
     ACTIVE_FEATURE_MODE = args.features
-
-    if not args.no_freshness_check:
-        from tdxfeed.freshness import require_fresh
-        require_fresh(max_age_days=2)
-
-    if args.web:
-        launch_web(args)
-        return
-
-    print("=== 方案 D 预测 ===")
-    print(f"  时间: {datetime.now().isoformat(timespec='seconds')}")
-    print(f"  阈值: {args.threshold}")
-    print(f"  Top:  {args.top}")
 
     if not ACTIVE_MODEL_PATH.exists():
         sys.exit(f"❌ 模型不存在: {ACTIVE_MODEL_PATH}")
@@ -602,7 +606,11 @@ def main():
         print(f"    [扩展模式] {len(feature_cols)} 维特征(18 基础 + {len(feature_cols)-18} 工程化)")
     else:
         print(f"    [基础模式] {len(feature_cols)} 维特征")
+    return model_name, model, feature_cols
 
+
+def run_prediction(args, model, feature_cols):
+    """审计 P1-3-3: 拆出——股票池/并行特征/ST 新股过滤/打分。返回 (feat_df, high_score)。"""
     # 股票代码
     if args.codes:
         codes = [c.strip().zfill(6) for c in args.codes.split(',')]
@@ -664,6 +672,11 @@ def main():
         print(f"    平均概率: {feat_df['prob'].mean():.4f}")
         print(f"    中位数概率: {feat_df['prob'].median():.4f}")
 
+    return feat_df, high_score
+
+
+def emit_outputs(args, model_name, feat_df, high_score):
+    """审计 P1-3-3: 拆出——CSV/--emit-top/Markdown 报告/latest 同步。"""
     # 保存
     print("\n[3/3] 输出结果...")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -778,6 +791,29 @@ def main():
     # 同步 latest
     fp_latest = OUTPUT_DIR / 'predict_latest.md'
     fp_latest.write_text(fp_md.read_text(encoding='utf-8'), encoding='utf-8')
+
+
+def main():
+    """审计 P1-3-3 (2026-10-17): 原 254 行拆为 parse_args/resolve_model/run_prediction/
+    emit_outputs 四段, 行为零变化(golden 验证: --codes 600000,600825,000530 Top1=600825)。"""
+    args = parse_args()
+
+    if not args.no_freshness_check:
+        from tdxfeed.freshness import require_fresh
+        require_fresh(max_age_days=2)
+
+    if args.web:
+        launch_web(args)
+        return
+
+    print("=== 方案 D 预测 ===")
+    print(f"  时间: {datetime.now().isoformat(timespec='seconds')}")
+    print(f"  阈值: {args.threshold}")
+    print(f"  Top:  {args.top}")
+
+    model_name, model, feature_cols = resolve_model(args)
+    feat_df, high_score = run_prediction(args, model, feature_cols)
+    emit_outputs(args, model_name, feat_df, high_score)
 
     print("\n=== ✅ 完成 ===")
     print(f"  输出目录: {OUTPUT_DIR}")

@@ -16,20 +16,12 @@ import argparse
 import re
 
 import pandas as pd
+from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
 from plan_e_backtest import backtest, get_first_double_date, load_double_up
 
 THETA = 0.02
 
 
-def _norm_code(c: str) -> str:
-    c = str(c).lower()
-    c = re.sub(r"^(sh|sz|bj)", "", c)
-    return c.zfill(6)
-
-
-def _is_bj(c: str) -> bool:
-    c = _norm_code(c)
-    return c.startswith("920") or (c and c[0] == "8")
 
 
 def _metrics(bt: pd.DataFrame) -> dict:
@@ -62,14 +54,14 @@ def main():
     args = ap.parse_args()
 
     bt, _ = backtest(load_double_up())
-    bt = bt[~bt["code"].apply(_is_bj)].reset_index(drop=True)
-    bt["code_n"] = bt["code"].map(_norm_code)
+    bt = bt[~bt["code"].apply(is_bj)].reset_index(drop=True)
+    bt["code_n"] = bt["code"].map(norm_code)
     print(f"方案E 非北交所有效交易: {len(bt)} 笔")
 
     # 事件年份映射
     try:
         fd = get_first_double_date(load_double_up())
-        year_map = {_norm_code(r["code"]): pd.Timestamp(r["signal_date"]).year
+        year_map = {norm_code(r["code"]): pd.Timestamp(r["signal_date"]).year
                    for _, r in fd.iterrows()}
     except Exception as e:
         print(f"[warn] 年份映射失败: {e}")
@@ -77,7 +69,7 @@ def main():
     bt["year"] = bt["code_n"].map(year_map).fillna(0).astype(int)
 
     sig = pd.read_csv(args.signal_csv)
-    sig["code_n"] = sig["code"].astype(str).map(_norm_code)
+    sig["code_n"] = sig["code"].astype(str).map(norm_code)
     dmap = dict(zip(sig["code_n"], sig["direction"]))
     bt["pred"] = bt["code_n"].map(dmap)
     n_pred = bt["pred"].notna().sum()

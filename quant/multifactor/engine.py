@@ -15,7 +15,9 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from plan_e_backtest import DSR_N_TRIALS, deflated_sharpe_ratio  # noqa: E402  # P0-1 补完
+# 审计 P1 修复 (2026-10-17): 原顶层 `from plan_e_backtest import DSR_N_TRIALS, ...`
+# 造成循环导入: plan_e_backtest -> quant.multifactor.__init__ -> engine -> plan_e_backtest
+# (后者初始化未完成, DSR_N_TRIALS 尚未定义)。改为函数内延迟 import, 调用方不受影响。
 
 from .cost_model import CostConfig, portfolio_turnover_cost  # noqa: E402
 from .cv_utils import (  # noqa: E402  # P0-1 补完
@@ -53,6 +55,7 @@ OUTPUT_DIR = ROOT / "data" / "plan_e"
 # 组合层指标（独立实现，口径与项目一致）
 # --------------------------------------------------------------------------
 def _portfolio_metrics(nav_rets: list[tuple]) -> dict:
+    """审计 P1-3-4 补注: 由逐期 (date, ret, equity) 序列计算年化/夏普/回撤等指标。"""
     if not nav_rets:
         return {}
     s = pd.Series({d: r for d, r in nav_rets})
@@ -121,6 +124,7 @@ def _exec_next(open_ser, after_date):
 
 
 def _trailing_returns(codes, date, cache, window):
+    """审计 P1-3-4 补注: 截至某日的 trailing window 日收益序列(因子打分输入)。"""
     cols = []
     for c in codes:
         ser = cache[c]["close"]
@@ -136,6 +140,7 @@ def _trailing_returns(codes, date, cache, window):
 
 
 def _forward_returns(codes, exec_date, cache, n):
+    """审计 P1-3-4 补注: 自成交日起的前瞻 n 日收益(IC 评估标签, 防泄漏关键)。"""
     out = {}
     for c in codes:
         ser = cache[c]["close"]
@@ -192,6 +197,7 @@ def apply_lot_rounding(w: np.ndarray, prices: np.ndarray, nav: float,
 
 
 def _rank_ic(a, b):
+    """审计 P1-3-4 补注: 因子值与前瞻收益的 Spearman Rank IC。"""
     a = pd.to_numeric(a, errors="coerce")
     b = pd.to_numeric(b, errors="coerce")
     m = a.notna() & b.notna()
@@ -204,6 +210,7 @@ def _rank_ic(a, b):
 # 合成
 # --------------------------------------------------------------------------
 def _composite(class_scores: dict[str, pd.Series], icir_w: dict[str, float]) -> pd.Series:
+    """审计 P1-3-4 补注: 多因子 ICIR 加权复合打分。"""
     cats = [c for c in class_scores if class_scores[c].notna().any()]
     if not cats:
         return pd.Series(dtype=float)
@@ -222,6 +229,7 @@ def _composite(class_scores: dict[str, pd.Series], icir_w: dict[str, float]) -> 
 
 def _turnover_cost_frac(prev_codes, prev_w, sel_codes, w, nav_level, exec_date,
                         cost_cfg, cache):
+    """审计 P1-3-4 补注: 换手成本占 nav 比例(卖出+买入双边+冲击)。"""
     if not prev_codes or nav_level <= 0:
         return 0.0
     port_value = nav_level
@@ -252,8 +260,17 @@ def _turnover_cost_frac(prev_codes, prev_w, sel_codes, w, nav_level, exec_date,
 
 
 def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
+    """审计 P1-3-4 补注: 多因子组合回测主入口。
+
+    流程: 股票池筛选 -> 因子/IC 计算 -> 复合打分选股 -> 组合权重 ->
+    walk-forward 逐周模拟(含成本/整手) -> 指标 + 报告。
+    返回 (nav 序列 DataFrame, metrics dict)。
+    """
     np.random.seed(cfg.seed)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 审计 P1 修复 (2026-10-17): 延迟 import 破循环(见文件头注释)
+    from plan_e_backtest import DSR_N_TRIALS, deflated_sharpe_ratio  # noqa: E402
 
     # 1. 股票池 + 缓存（close/open/amount + 因子原始序列）
     # 仅纳入沪深 A 股个股（剔除指数 / ETF / 债券 / 北交所），且排除迁移备份 .bak；
@@ -557,6 +574,7 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
 
 
 def _yearly_breakdown(nav_rets):
+    """审计 P1-3-4 补注: 按自然年聚合收益/回撤。"""
     if not nav_rets:
         return {}
     s = pd.Series({d: r for d, r in nav_rets})
@@ -596,6 +614,8 @@ def _benchmark_returns(cache: dict, start, end) -> pd.Series | None:
 
 
 def _build_report(metrics, holdings_hist, ic_records, yearly, cfg, valp, ts, ic_by_year_df=None):
+    """审计 P1-3-4 补注: 汇总 metrics/持仓/IC 为 Markdown 报告。"""
+    from plan_e_backtest import DSR_N_TRIALS  # noqa: E402  # 审计 P1 修复: 延迟 import 破循环
     L = ["# 多因子组合回测报告（multifactor v1 · "
          f"{pd.Timestamp.now():%Y-%m-%d %H:%M}）\n", "## 一、核心指标\n",
          "| 指标 | 值 |\n|---|---|",

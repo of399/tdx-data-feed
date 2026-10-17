@@ -48,6 +48,7 @@ from eval_v4_vs_v7r import parse_output  # noqa: E402
 # 复用方案E 翻倍 universe 加载
 sys.path.insert(0, str(ROOT / "scripts"))
 from plan_e_backtest import get_first_double_date, load_double_up  # noqa: E402
+from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
 
 
 # ---------- 日期 / 窗口重建（与 transform/v4_gen.py 完全一致）----------
@@ -257,18 +258,13 @@ def compare(v4_csv: Path, v7r_csv: Path):
     # 统一代码格式：去 sh/sz/bj 前缀 + 补零到 6 位。
     # 信号 CSV 存裸 6 位，而回测侧 bt_valid["code"] 带 sh/sz/bj 前缀，
     # 必须先归一化再做集合交集，否则两组恒不相交（旧 bug：三组 LLM 过滤全 0 笔）。
-    def _norm_code(c):
-        c = str(c).lower()
-        c = re.sub(r"^(sh|sz|bj)", "", c)
-        return c.zfill(6)
-
     v4 = pd.read_csv(v4_csv)
     v7r = pd.read_csv(v7r_csv)
     # 三分类方向集：涨(1) / 非跌(!=-1,即涨+震荡) / 决断(±1,排除震荡)
     # 仅统计已成功解析方向(notna)的行，避免把解析失败的 NaN 误计入「非跌」。
     def _dir_set(df, pred):
         m = df["direction"].notna() & pred
-        return set(df[m]["code"].map(_norm_code))
+        return set(df[m]["code"].map(norm_code))
 
     v4_bull = _dir_set(v4, v4["direction"] == 1)
     v4_nobear = _dir_set(v4, v4["direction"] != -1)
@@ -282,11 +278,8 @@ def compare(v4_csv: Path, v7r_csv: Path):
 
     bt_valid, _ = backtest(load_double_up())
     # 限定非北交所事件池（与 LLM 评分分布一致，保证可比）
-    def _is_bj(c: str) -> bool:
-        c = _norm_code(c)
-        return c.startswith("920") or (c and c[0] == "8")
-    bt_valid = bt_valid[~bt_valid["code"].apply(_is_bj)].reset_index(drop=True)
-    bt_valid["code_n"] = bt_valid["code"].map(_norm_code)  # 归一化列，供交集/筛选
+    bt_valid = bt_valid[~bt_valid["code"].apply(is_bj)].reset_index(drop=True)
+    bt_valid["code_n"] = bt_valid["code"].map(norm_code)  # 归一化列，供交集/筛选
     print(f"方案E 基线（无LLM过滤，非北交所）有效交易: {len(bt_valid)} 笔", flush=True)
 
     def filt(s):

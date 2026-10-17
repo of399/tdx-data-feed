@@ -17,15 +17,11 @@ import argparse
 import re
 
 import pandas as pd
+from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
 from plan_e_backtest import backtest, load_double_up
 
 THETA = 0.02
 
-
-def _norm_code(c: str) -> str:
-    c = str(c).lower()
-    c = re.sub(r"^(sh|sz|bj)", "", c)
-    return c.zfill(6)
 
 
 def _metrics(bt: pd.DataFrame) -> dict:
@@ -53,8 +49,8 @@ def main():
 
     bt_valid, _ = backtest(load_double_up())
     bt_valid = bt_valid[~bt_valid["code"].apply(
-        lambda c: _norm_code(c).startswith("920") or (_norm_code(c) and _norm_code(c)[0] == "8"))].reset_index(drop=True)
-    bt_valid["code_n"] = bt_valid["code"].map(_norm_code)
+        lambda c: norm_code(c).startswith("920") or (norm_code(c) and norm_code(c)[0] == "8"))].reset_index(drop=True)
+    bt_valid["code_n"] = bt_valid["code"].map(norm_code)
     bt_valid["oracle"] = bt_valid["return_pct"].apply(
         lambda r: 1 if r > theta else (-1 if r < -theta else 0))
     print(f"方案E 非北交所有效交易: {len(bt_valid)} 笔（oracle θ={theta}）")

@@ -17,6 +17,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, "/home/jiuben/tdx-data-feed/scripts")
+from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
 sys.path.insert(0, "/home/jiuben/tdx-data-feed/training/eval")
 from llm_signal_plan_e import build_window
 from plan_e_backtest import backtest, load_double_up
@@ -25,11 +26,6 @@ ROOT = Path("/home/jiuben/tdx-data-feed")
 OLLAMA_URL = "http://127.0.0.1:11434"
 DIRECTION_TOKENS = {"涨", "上涨", "震荡", "横盘", "跌", "下跌"}
 
-
-def _norm_code(c):
-    c = str(c).lower()
-    c = re.sub(r"^(sh|sz|bj)", "", c)
-    return c.zfill(6)
 
 
 def call_conf(model: str, instruction: str, inp: str, timeout: int = 600):
@@ -66,11 +62,8 @@ def main():
         ROOT / "data" / "plan_e" / "confidence_rank_v4.md")
 
     bt_valid, _ = backtest(load_double_up())
-    def _is_bj(c):
-        c = _norm_code(c)
-        return c.startswith("920") or (c and c[0] == "8")
-    bt_valid = bt_valid[~bt_valid["code"].apply(_is_bj)].reset_index(drop=True)
-    bt_valid["code_n"] = bt_valid["code"].map(_norm_code)
+    bt_valid = bt_valid[~bt_valid["code"].apply(is_bj)].reset_index(drop=True)
+    bt_valid["code_n"] = bt_valid["code"].map(norm_code)
     cand = (bt_valid[["code_n", "signal_date"]]
             .drop_duplicates("code_n").reset_index(drop=True))
     print(f"候选有效交易(去重 code): {len(cand)}", flush=True)
