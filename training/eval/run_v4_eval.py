@@ -121,7 +121,11 @@ def load_model(ckpt_path: Path, base_model: str = BASE_MODEL_HF,
             device_map="auto",
             trust_remote_code=True,
         )
-    model = PeftModel.from_pretrained(base, str(ckpt_path), torch_dtype=torch.bfloat16)
+    # 修复 2026-10-17: 用绝对路径避免 peft 把 'train/output/...' 解析为 HF Repo ID
+    # 之前用 str(ckpt_path) 传入相对路径 → HFValidationError
+    # ckpt_path: Path 类型，Path.resolve() 强制转绝对路径
+    ckpt_abs = ckpt_path.resolve() if not ckpt_path.is_absolute() else ckpt_path
+    model = PeftModel.from_pretrained(base, str(ckpt_abs), torch_dtype=torch.bfloat16)
     model.eval()
     return tok, model
 
