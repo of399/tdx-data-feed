@@ -264,8 +264,8 @@ async def _cached_equiv(latex_a: str, latex_b: str) -> dict:
                 }
                 math_cache.set_cached(fixed_a, fixed_b, "equiv", result)
                 return result
-            except Exception:
-                pass
+            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")
         result = {
             "equivalent": None,
             "diff": None,
@@ -516,8 +516,8 @@ def _prove_equiv_with_precondition(
             reduced = reduce_inequalities(constraints)
             if reduced == S.true or reduced is True:
                 proved_with_assumption = True
-        except Exception:
-            pass
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
 
     if proved_with_assumption:
         return {
@@ -576,8 +576,8 @@ def _prove_equiv_with_precondition(
                     if not cons_val:
                         skip = True
                         break
-                except Exception:
-                    pass  # 无法判断则不 skip
+                except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                    print(f"[WARN] swallowed: {e!r}")  # 无法判断则不 skip
             if skip:
                 continue
             try:

@@ -145,8 +145,8 @@ class Writers:
                     if ratio > 50:
                         print(f'[单位告警] {symbol}: 新vol中位={nm:,.0f} vs 旧={om:,.0f} '
                               f'相差{ratio:.0f}倍，疑似 volume 单位不一致，请核对')
-            except Exception:
-                pass
+            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")
             merged = pd.concat([old, new], ignore_index=True)
             # 用稳定排序（mergesort）：new 追加在 old 之后，并列日期下
             # keep='last' 才能可靠地让新数据覆盖旧数据（quicksort 不稳定会随机保留）。

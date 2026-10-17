@@ -50,8 +50,8 @@ class ValuationProvider:
                 n = pd.read_parquet(PE_PB_FP, columns=["code"])["code"].nunique()
                 if n >= self.cfg.min_real_codes:
                     return "real"
-            except Exception:
-                pass
+            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")
         return "proxy"
 
     def _load_real(self) -> None:

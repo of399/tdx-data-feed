@@ -109,8 +109,8 @@ def _vault_stats() -> dict:
                         if t:
                             stats["tags"].add(t)
             stats["wikilinks"].update(re.findall(r"\[\[([^\]]+)\]\]", text))
-        except Exception:
-            pass
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
     return {
         "md_files": stats["md_files"],
         "tags": len(stats["tags"]),
@@ -174,8 +174,8 @@ def _vault_growth_check() -> str:
             mtime = datetime.fromtimestamp(md.stat().st_mtime, tz=UTC)
             if mtime >= cutoff:
                 recent += 1
-        except Exception:
-            pass
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
     return f"{recent} 个笔记在最近 {VAULT_GROWTH_DAYS} 天有改动"
 
 

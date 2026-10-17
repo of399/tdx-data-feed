@@ -20,8 +20,8 @@ class TdxClient:
                 if self.api.connect(ip, port):
                     self.connected = True
                     return True
-            except Exception:
-                pass
+            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")
             self.current_server = (self.current_server + 1) % len(self.servers)
             time.sleep(1)
 

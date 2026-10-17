@@ -12,15 +12,18 @@ pyarrow>=15.0.0
 # fastparquet>=2024.2.0  # 可选
 
 # ---- 训练 ----
-torch>=2.4.0
-transformers>=4.46.0
+torch>=2.4.0,<3
+transformers>=4.46.0,<5
 peft>=0.13.0
 accelerate>=1.0.0
 datasets>=3.0.0
-trl>=0.12.0
 bitsandbytes>=0.44.0
-llamafactory>=0.9.0
-deepspeed>=0.15.0
+llamafactory>=0.9.5,<0.10
+# 2026-10-17 P0-1 依赖清理（代码审计 docs/CODE_AUDIT_2026-10-17.md）：
+# - trl / deepspeed 已删：0 文件 import，单机 QLoRA 用 torchrun DDP 无需
+#   （training/config/tdx_verify_dual_qlora.yaml 注释实证"无需 deepspeed"）。
+#   如需多机分布式再装：pip install "deepspeed>=0.15" trl
+# - 关键包加上限 pin，防大版本漂移（polars 1→2 / llamafactory 0.9→0.10 均为 API 破坏源）
 
 # ---- 模型转换 ----
 gguf>=0.6.0          # 注意:master 版需手动覆盖以支持 DFLASH
@@ -33,7 +36,8 @@ scipy>=1.13.0
 statsmodels>=0.14.0
 
 # ---- Ollama 客户端 ----
-ollama>=0.3.3
+# 2026-10-17 P0-1: ollama 包已删——本机 Ollama 是 snap 独立服务(snap_launcher.sh serve)，
+# 代码 0 处 import ollama；HTTP 调用走 httpx。
 httpx>=0.27.0
 
 # ---- Web UI / API ----
@@ -58,14 +62,14 @@ pyyaml>=6.0.1
 python-dotenv>=1.0.0
 rich>=13.7.0
 tqdm>=4.66.0
-schedule>=1.2.0
+# 2026-10-17 P0-1: schedule 已删（0 文件 import，调度全走 systemd timer）
 
 # ---- 图表 ----
 matplotlib>=3.9.0
-seaborn>=0.13.0
+# 2026-10-17 P0-1: seaborn 已删（0 文件 import）
 
 # ---- 阶段1 特征/因子工程 (2026-10-10) ----
-polars>=1.0.0
+polars>=2.0.0,<3
 akquant>=0.3.65        # Rust+Python 量化框架,内置 Polars 因子表达式引擎 + akquant.talib(103 指标)
 optuna>=5.0.0          # 特征选择超参优化
-plotly>=5.0.0          # akquant 间接依赖,可视化
+# 2026-10-17 P0-1: plotly 显式声明已删——若 akquant 声明依赖, pip 会自动解析安装

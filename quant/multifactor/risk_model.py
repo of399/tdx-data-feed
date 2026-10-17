@@ -44,8 +44,8 @@ class IndustryMap:
                         break
                 code = raw.zfill(6)
                 self.map[code] = str(row.get("industry_name", "未知"))
-        except Exception:
-            pass
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
 
     def get(self, code: str) -> str:
         return self.map.get(str(code).zfill(6), "未知")

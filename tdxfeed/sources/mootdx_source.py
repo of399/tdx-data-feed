@@ -60,8 +60,8 @@ def _default_server() -> tuple[str, int] | None:
     if hq_hosts:
         try:
             return (hq_hosts[0][1], int(hq_hosts[0][2]))
-        except Exception:
-            pass
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
     return None
 
 

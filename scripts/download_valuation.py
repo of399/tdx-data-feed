@@ -155,8 +155,8 @@ def load_done_codes():
             import pandas as pd
             df = pd.read_parquet(PE_PB_PATH, columns=["code"])
             done.update(df["code"].astype(str).tolist())
-        except Exception:
-            pass
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
     return done
 
 

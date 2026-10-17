@@ -227,8 +227,8 @@ def build_trades(journal: pd.DataFrame) -> tuple[list[dict], list[dict]]:
                     "code": c, "entry_date": str(p.get("entry_date", "")),
                     "qty": int(p.get("qty", 0)), "entry_price": float(p.get("entry_price", 0)),
                 }
-        except Exception:
-            pass
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
     for _, b in buys.iterrows():
         c = str(b["code"]).zfill(6)
         ed = str(b.get("entry_date", ""))

@@ -111,8 +111,8 @@ def backup_old_model(old_path: Path, enabled: bool) -> Path | None:
     if bak.exists():
         try:
             os.chmod(bak, 0o644)  # 先解除可能存在的只读位
-        except OSError:
-            pass
+        except OSError as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
     shutil.copyfile(old_path, bak)
     os.chmod(bak, 0o644)  # 备份保持可写，便于下次覆盖
     log.info("旧模型已备份: %s -> %s", old_path.name, bak.name)

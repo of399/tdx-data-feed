@@ -126,11 +126,16 @@ venv:  ## 仅创建虚拟环境
 
 setup: install data-universe data-sync  ## 完整初始化（环境 + 数据）
 
-update:  ## 更新依赖到最新版
+update:  ## 更新依赖到最新版（受 requirements.txt 上限 pin 约束）
 	$(PIP) install --upgrade pip
 	$(PIP) install --upgrade -r requirements.txt
-	$(PIP) install --upgrade lightgbm llamafactory peft gguf
+	# 2026-10-17 P0-1: 移除无 pin 的单独升级行（lightgbm/llamafactory/peft/gguf
+	# 均已在 requirements.txt 声明, --upgrade 单独列名会绕过 pin 拉最新版 = 漂移源）
 	@echo "$(GREEN)✓ 依赖已更新$(NC)"
+
+sync-lock:  ## 锁定当前环境精确版本（代码审计 P0-1）
+	$(PIP) freeze > requirements.lock
+	@echo "$(GREEN)✓ requirements.lock 已生成 ($(shell wc -l < requirements.lock) 个包)$(NC)"
 
 # ============== 代码质量 ==============
 lint:  ## ruff check（不修改）

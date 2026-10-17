@@ -109,8 +109,8 @@ def check_tdxfeed_sync() -> dict:
                     if age > timedelta(days=2):
                         result['status'] = 'warn'
                         result['message'] = f'sync too old: {age}'
-            except Exception:
-                pass
+            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")
     except Exception as e:
         result['status'] = 'error'
         result['message'] = str(e)[:200]

@@ -531,16 +531,16 @@ def _audit_fallback(
     try:
         with _AUDIT_FALLBACK.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass  # audit 落盘失败不应影响主流程
+    except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+        print(f"[WARN] swallowed: {e!r}")  # audit 落盘失败不应影响主流程
 
     # 仅 canary 流量落 fallback-canary.jsonl（用于 A/B 比较）
     if group == "canary":
         try:
             with _AUDIT_CANARY.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
 
 
 def _llm_fallback_call(

@@ -268,8 +268,8 @@ def build_chain(
                     diff = simplify(new_expr - target_expr)
                     if diff == 0 and new_str != str(start_expr):
                         is_target = True
-            except Exception:
-                pass
+            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")
 
             if is_target:
                 new_node.is_target = True
@@ -462,8 +462,8 @@ def replay_dag(dag_dict: dict, var: str = "x") -> dict:
                         "got": str(new_expr),
                     }
                 )
-        except Exception:
-            pass
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
         steps_replayed += 1
 
     all_match = len(mismatches) == 0

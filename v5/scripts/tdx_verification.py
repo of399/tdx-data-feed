@@ -52,8 +52,8 @@ def run_math_sympy_tests() -> dict:
                 try:
                     passed = int(parts[parts.index("pass") - 1])
                     failed = int(parts[parts.index("fail") - 1])
-                except ValueError, IndexError:
-                    pass
+                except (ValueError, IndexError) as e:  # P0-2 2026-10-17: 静默吞错改留痕 + 修 py2 风格语法错(原文件从未可 import)
+                    print(f"[WARN] swallowed: {e!r}")
         return {
             "name": "math_sympy",
             "passed": passed,

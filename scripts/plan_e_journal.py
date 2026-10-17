@@ -468,8 +468,8 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
                     'entry_date': p['entry_date'],
                     'signal_date': p['signal_date'],
                 })
-            except Exception:
-                pass
+            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")
 
     # 保存（模拟交易写入独立的 journal_sim.csv，与实盘 journal.csv 完全分离）
     ensure_dirs()

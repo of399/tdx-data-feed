@@ -406,8 +406,8 @@ def main(argv=None) -> int:
             try:
                 optuna.delete_study(study_name=args.study_name, storage=STORAGE)
                 log.info("已清空旧 study: %s", args.study_name)
-            except (KeyError, ValueError):
-                pass  # 尚不存在，无需删除
+            except (KeyError, ValueError) as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")  # 尚不存在，无需删除
         study = optuna.create_study(
             study_name=args.study_name, direction="maximize",
             sampler=TPESampler(seed=42, multivariate=True),

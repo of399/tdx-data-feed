@@ -52,8 +52,8 @@ def extract_final():
             try:
                 d = json.loads(lines[-1])
                 loss = d.get("loss") or d.get("train_loss")
-            except Exception:
-                pass
+            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")
     ckpts = sorted(glob.glob(OUTDIR + "/checkpoint-*"),
                    key=lambda p: int(re.search(r"(\d+)", os.path.basename(p)).group(1)))
     final = ckpts[-1] if ckpts else OUTDIR

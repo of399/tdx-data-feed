@@ -208,8 +208,8 @@ def main():
         try:
             ts = scan_one(symbol, f)
             all_triggers.extend(ts)
-        except Exception:
-            pass
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
         if (i + 1) % 500 == 0:
             elapsed = time.time() - t0
             print(f"  [{i+1}/{len(files)}] {elapsed:.0f}s, triggers={len(all_triggers)}")

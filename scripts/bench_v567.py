@@ -81,8 +81,8 @@ class VramProbe:
                 v = int(out.stdout.strip().split("\n")[0])
                 if v > self.peak:
                     self.peak = v
-            except Exception:
-                pass
+            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")
             time.sleep(0.3)
 
     def start(self):

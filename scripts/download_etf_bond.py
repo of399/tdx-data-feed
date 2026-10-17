@@ -129,8 +129,8 @@ def main() -> None:
                         log.info("  [%d/%d] %s cached", i, len(targets), sym)
                     time.sleep(args.sleep)
                     continue
-            except Exception:
-                pass
+            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                print(f"[WARN] swallowed: {e!r}")
         result = fetch_one(sym, code)
         counters[result] = counters.get(result, 0) + 1
         if i % 100 == 0 or i == len(targets):

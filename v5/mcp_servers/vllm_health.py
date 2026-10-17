@@ -38,8 +38,8 @@ def is_vllm_available(timeout_s: float = 2.0) -> bool:
             r = c.get(f"{VLLM_URL}/v1/models")
             if r.status_code == 200:
                 return True
-    except Exception:
-        pass
+    except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+        print(f"[WARN] swallowed: {e!r}")
     return False
 
 

@@ -148,8 +148,8 @@ def estimate_growth_rate(jsonl_path: Path, days: int = 7) -> dict:
                         recent_lines += 1
                 except json.JSONDecodeError, ValueError:
                     continue
-    except OSError:
-        pass
+    except OSError as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+        print(f"[WARN] swallowed: {e!r}")
 
     lines_per_day = recent_lines / days if days else 0
     bytes_per_line = total_size / max(recent_lines, 1) if recent_lines else 0

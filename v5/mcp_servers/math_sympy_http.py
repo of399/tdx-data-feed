@@ -277,16 +277,16 @@ async def metrics():
         lines.append("# HELP cache_hit_ratio Cache hit ratio (0-1)")
         lines.append("# TYPE cache_hit_ratio gauge")
         lines.append(f'cache_hit_ratio{{cache="math"}} {round(m_hits / m_total, 4)}')
-    except Exception:
-        pass
+    except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+        print(f"[WARN] swallowed: {e!r}")
     try:
         d_cache = derivation_cache_stats()
         d_total = max(d_cache.get("total", 0), 1)
         d_hits = d_cache.get("total_hits", 0)
         if d_total > 1:  # 避免全部为 0 时显示
             lines.append(f'cache_hit_ratio{{cache="derivation"}} {round(d_hits / d_total, 4)}')
-    except Exception:
-        pass
+    except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+        print(f"[WARN] swallowed: {e!r}")
 
     # M3 W5: Canary 灰度 metrics（从 canary_state.json + audit 读）
     try:
@@ -324,8 +324,8 @@ async def metrics():
                     counts[f"{g}_total_s"] = counts.get(f"{g}_total_s", 0.0) + float(
                         e.get("total_elapsed_s", 0)
                     )
-                except Exception:
-                    pass
+                except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                    print(f"[WARN] swallowed: {e!r}")
             lines.append("# HELP canary_calls_total Total math-sympy-http calls by canary group")
             lines.append("# TYPE canary_calls_total counter")
             lines.append(f'canary_calls_total{{group="control"}} {counts.get("control", 0)}')
@@ -352,8 +352,8 @@ async def metrics():
                 total_s = counts.get(f"{g}_total_s", 0.0)
                 avg = (total_s / total) if total > 0 else 0.0
                 lines.append(f'canary_avg_duration_seconds{{group="{g}"}} {avg:.4f}')
-    except Exception:
-        pass
+    except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+        print(f"[WARN] swallowed: {e!r}")
 
     from fastapi.responses import PlainTextResponse
 
@@ -387,8 +387,8 @@ async def _run_tool(name: str, arguments: dict) -> dict:
 
                         state = _json.loads(state_file.read_text())
                         canary_ratio = float(state.get("ratio", 0.0))
-                except Exception:
-                    pass
+                except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                    print(f"[WARN] swallowed: {e!r}")
             if force_strategy or canary_ratio > 0:
                 # 走 fallback chain + LLM 兜底（execute_with_fallback 是 sync）
                 from mcp_math.strategy_selector import execute_with_fallback
