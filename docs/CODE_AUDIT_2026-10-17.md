@@ -153,6 +153,11 @@ adj_df = pd.read_parquet(adj_fp) # 全量复权 parquet（再 ~1000 行）
 
 ### P0 —— 高收益/低风险（纯加法，可立即做）
 
+> ✅ **P0 已于 2026-10-17 执行完毕**（commit `777ca8c`，35 文件 +344/-78）：
+> - P0-1：删 6 个 0-import 依赖（**二次验证修正**：akquant/gguf 有引用保留，初版正则漏了 `import pkg.sub`）+ 关键包上限 pin + `requirements.lock`（257 包）+ Makefile 漂移源移除 + 新增 `make sync-lock`
+> - P0-2：33/37 处吞错改留痕（排除 v5/tests 4 处故意异常路径）；意外发现 `tdx_verification.py:55` 原本就是 py2 语法错（死文件实锤）顺手修复；24 文件编译全过 + canary 冒烟 err=0
+> - P0-3：git mv 归档 transform/、tools/、根目录 3 游离脚本、_v111_analysis.py → `_archive/`；顶层目录 23→18
+
 | # | 建议 | 预期收益 | 潜在风险 |
 |---|---|---|---|
 | **P0-1** | **依赖清理 + 锁定**：requirements.txt 删 8 个 0-import 包；`pip freeze > requirements.lock`；关键包改精确 pin（polars==2.0.0 等）| 防环境漂移重演（py3.14 ABI 教训）；安装提速；认知负担↓ | 极低（删的都是没用的）|
