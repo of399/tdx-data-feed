@@ -258,6 +258,9 @@ def eval_direction(tok, model, samples: list, batch_size: int = 8, think: bool =
     """方向准确率：模型预测方向 vs 真实 output 中的方向"""
     preds, reals = [], []
     parsed_records = []
+    # R10 流式统计(2026-10-18): 每 100 条打印方向分布, 长评估可中途判定止损
+    # (此前汇总式输出, 8,008 条全量评估中途读不到任何结果 -> 被迫重跑 400 条)
+    cnt = {"up": 0, "down": 0, "flat": 0, "none": 0}
     n = len(samples)
     for i in range(0, n, batch_size):
         batch = samples[i:i + batch_size]
@@ -277,6 +280,13 @@ def eval_direction(tok, model, samples: list, batch_size: int = 8, think: bool =
                 "real_pct": real["pct"],
                 "parsed_ok": parsed["parsed_ok"],
             })
+            # 流式累计方向分布
+            cnt["up" if pred_dir == 1 else "down" if pred_dir == -1
+                else "flat" if pred_dir == 0 else "none"] += 1
+            done = len(preds)
+            if done % 100 == 0:
+                print(f"  [stream {done}/{n}] up={cnt['up']} down={cnt['down']} "
+                      f"flat={cnt['flat']} none={cnt['none']}", flush=True)
         if (i // batch_size) % 5 == 0:
             print(f"  [direction] {i + len(batch)}/{n}", flush=True)
 
