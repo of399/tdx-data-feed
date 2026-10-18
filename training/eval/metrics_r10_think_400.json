@@ -1,0 +1,18 @@
+{
+  "n_samples": 400,
+  "test_loss": 0.0,
+  "direction_accuracy": 0.06818181818181818,
+  "top5_hit_rate": 0.0,
+  "top10_hit_rate": 0.0,
+  "sharpe_ratio": 0.0,
+  "annual_return": 0.0,
+  "max_drawdown": 0.0,
+  "format_compliance_rate": 0.99,
+  "parse_fail_rate": 0.01,
+  "spearman": 0.0,
+  "cls_acc_up": 0.09665427509293681,
+  "cls_acc_down": 0.008064516129032258,
+  "cls_acc_flat": 0.0,
+  "elapsed_sec": 5847.145848274231,
+  "timestamp": "20261018_153658"
+}
