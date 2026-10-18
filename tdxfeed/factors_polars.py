@@ -134,6 +134,26 @@ def compute_window_features_extended_polars(
     dist_low = float((close[-1] - lo_min) / close[-1]) if close[-1] > 0 else 0.0
     amt_per_price = float(base["avg_amount_5d"] / base["prev_close"]) if base["prev_close"] > 0 else 0.0
 
+    # P0-2 涨停/连板特征 (2026-10-18, 与 features_5d 扩展版语义一致):
+    # 补"收盘封板"(含一字板) + 连板高度, 修正 limit_up_t1 一字板漏判。
+    close_full = df["close"].to_list()
+    limit_val = float(base["limit"])
+    if sig_idx >= 1:
+        limit_up_mask = [
+            i >= 1 and (close_full[i] / close_full[i - 1] - 1.0) >= limit_val - 0.001
+            if close_full[i - 1] else False
+            for i in range(len(close_full))
+        ]
+        is_limit_today = int(limit_up_mask[sig_idx]) if sig_idx < len(close_full) else 0
+        consec = 0
+        i = sig_idx
+        while i >= 1 and i < len(limit_up_mask) and limit_up_mask[i]:
+            consec += 1
+            i -= 1
+    else:
+        is_limit_today, consec = 0, 0
+    board_position = 1 if consec == 1 else (2 if consec == 2 else (3 if consec >= 3 else 0))
+
     return {
         **base,
         "acceleration": float(base["ret_5d"] - base["ret_3d"]),
@@ -144,4 +164,7 @@ def compute_window_features_extended_polars(
         "dist_to_5d_high": dist_high,
         "dist_to_5d_low": dist_low,
         "amt_per_price": amt_per_price,
+        "is_limit_up_today": is_limit_today,
+        "consecutive_boards": consec,
+        "board_position": board_position,
     }

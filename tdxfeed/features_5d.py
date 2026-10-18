@@ -186,6 +186,24 @@ def compute_window_features_extended(
     dist_low = float((close.iloc[-1] - low_min) / close.iloc[-1]) if close.iloc[-1] > 0 else 0.0
     amt_per_price = float(base["avg_amount_5d"] / base["prev_close"]) if base["prev_close"] > 0 else 0.0
 
+    # P0-2 涨停/连板特征 (2026-10-18, 打板策略升级分析):
+    # 现有 limit_up_t1 用 open→close 判日内涨幅, 会漏判"一字板"(开盘即涨停 open=close→0)。
+    # 打板核心是连板接力, 故补收盘封板判定 + 连板高度。
+    close_full = df["close"]
+    if sig_idx >= 1:
+        # 收盘封板: 当日 close 相对前日 close >= limit（含一字板）
+        limit_up_mask = (close_full.pct_change() >= base["limit"] - 0.001)
+        is_limit_today = int(limit_up_mask.iloc[sig_idx])
+        # 连板数: 从 sig_idx 往前数连续封板天数
+        consec = 0
+        i = sig_idx
+        while i >= 1 and limit_up_mask.iloc[i]:
+            consec += 1
+            i -= 1
+    else:
+        is_limit_today, consec = 0, 0
+    board_position = 1 if consec == 1 else (2 if consec == 2 else (3 if consec >= 3 else 0))
+
     return {
         **base,
         "acceleration": accel,
@@ -196,4 +214,7 @@ def compute_window_features_extended(
         "dist_to_5d_high": dist_high,
         "dist_to_5d_low": dist_low,
         "amt_per_price": amt_per_price,
+        "is_limit_up_today": is_limit_today,
+        "consecutive_boards": consec,
+        "board_position": board_position,
     }

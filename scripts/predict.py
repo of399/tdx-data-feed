@@ -792,13 +792,16 @@ def emit_outputs(args, model_name, feat_df, high_score):
             f.write(f"| ≥ 0.6 | {len(feat_df[feat_df['prob']>=0.6])} 只 |\n\n")
 
         f.write(f"## 🎯 Top {args.top} 高分股\n\n")
-        f.write(f"| Rank | 代码 | {score_label} | 收盘 | 前复权 | T-1 涨幅 | 5 日涨幅 | 量比 | 涨停限制 |\n")
-        f.write("|---:|:---:|---:|---:|---:|---:|---:|---:|---:|\n")
+        f.write(f"| Rank | 代码 | {score_label} | 收盘 | 前复权 | T-1 涨幅 | 5 日涨幅 | 量比 | 涨停限制 | 连板 |\n")
+        f.write("|---:|:---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
         for _, r in feat_df.head(args.top).iterrows():
+            # P1-2 可执行性标注 (2026-10-18): 连板>=3 高位接力一字板风险高
+            consec = int(r.get('consecutive_boards', 0) or 0)
+            board_tag = f"{consec}⚠" if consec >= 3 else str(consec)
             f.write(f"| {r['rank']} | {r['code']} | **{r['prob']:.4f}** | "
                     f"{r['close']:.2f} | {r['qfq_close']:.2f} | "
                     f"{r['pct_t1']*100:+.2f}% | {r['ret_5d']*100:+.2f}% | "
-                    f"{r['vol_ratio_t1']:.2f} | {r['limit']*100:.0f}% |\n")
+                    f"{r['vol_ratio_t1']:.2f} | {r['limit']*100:.0f}% | {board_tag} |\n")
 
         if len(high_score) > 0:
             if ACTIVE_IS_REG:
