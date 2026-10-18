@@ -1,0 +1,99 @@
+# tdx_v9r.yaml — v9 修复版（v9r）从零 QLoRA 训练
+# =====================================================================
+# 版本治理: 见 docs/VERSIONING.md (2026-10-18 用户决策: 修复版叫 v9r, 不开 v10)
+# 根因报告: docs/V9_MODE_COLLAPSE_ROOT_CAUSE_2026-10-17.md
+#
+# 相对 tdx_v9_from_scratch.yaml 的修复清单(4 项, 每项标注根因编号):
+#   修复 A (根因1, 最重要): + enable_thinking: false
+#     v8 配置注释实证: "v8 首训几乎全预测跌, 关 thinking 修正训练/推理不一致";
+#     v9 漏掉这行 -> llamafactory 默认开 thinking -> 训练-推理不一致 ->
+#     模型坍缩到"震荡"(flat, 33% 最稳答案)。
+#     R10 对照实验(2026-10-18): 同一 ckpt-1400 用 --think 开思考链推理,
+#     若 direction_acc 显著回升则获铁证(结果见 logs/r10_think_eval.log)。
+#   修复 B (根因2): lora_rank 16 -> 8, lora_alpha 32 -> 16
+#     rank 翻倍 = 容量 2x, 多余容量学"prompt 格式"而非"信号->label"(对齐 v8)。
+#   修复 C (根因3): cutoff_len 512 -> 1280
+#     截断过激丢失 20 日模式; v8 注释实证"实测 max=1361 token"(对齐 v8)。
+#   修复 D (根因4): packing true -> false
+#     v8 未用 packing; cutoff 放宽后 packing 拼接行为未验证, 保守关闭。
+#
+# focal loss 决策(修复 2 缺口的处置, 2026-10-18):
+#   llamafactory 0.9.5 无原生 focal loss 支持(源码 grep 零命中);
+#   v4fwd 已 1:1:1 完美平衡(50748 行各 33.33%), focal 的 class_weight 分量无用,
+#   γ focusing 在根因表仅排第 5 位(中下)。
+#   -> 暂不实施。若 4 项修复后 ckpt-100 sanity(direction_acc)仍 < 0.20,
+#      再攻坚 custom trainer focal(需重写 compute_loss, 工程量 1-2 天)。
+#   这样 v9r 保持"最小变更验证根因"的实验纯度。
+#
+# 训练前检查清单(必做):
+#   1. systemctl stop ollama  (释放 25GB CPU mem, v9 OOM 教训)
+#   2. GPU0 僵尸显存 ~2GB 需清理(nvidia-smi 查无进程但占用的残留)
+#   3. 早停规则: ckpt-100 后 direction_acc < 0.20 立即停训(VERSIONING.md 六)
+#   4. 每 2-3h 查一次训练进度(不盲信 watchdog, v9 盲训 9h 教训)
+#
+# 启动(双卡 8bit 训练路径同 v9):
+#   venv/bin/python training/scripts/train_lora.py training/config/tdx_v9r.yaml
+
+# === 模型与数据(与 v9 相同, 数据修复 1 已生效) ==========================
+model_name_or_path: /home/jiuben/models/Qwen3-14B
+adapter_name_or_path: null                  # 从零(v9 adapter 已坍缩污染, 不可续训)
+finetuning_type: lora
+template: qwen
+trust_remote_code: true
+enable_thinking: false                      # ★ 修复 A (根因1, v8 关键修复补上)
+
+dataset_dir: /home/jiuben/tdx-data-feed/train/data
+dataset: tdx_v4fwd_train                    # 重切分后 1:1:1 平衡(修复 1 已完成)
+eval_dataset: tdx_v4fwd_val
+max_samples: 50748
+
+# === LoRA 超参(修复 B: 回到 v8 容量) =====================================
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+lora_rank: 8                                # ★ 修复 B (v9 误 16)
+lora_alpha: 16                              # ★ 修复 B (v9 误 32)
+lora_dropout: 0.05
+
+# === 训练超参(与 v9 相同, lr/warmup/steps/load_best 均非根因) ============
+output_dir: /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v9r
+overwrite_output_dir: false
+do_train: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+num_train_epochs: 3.0
+max_steps: 2000
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+weight_decay: 0.0
+max_grad_norm: 1.0
+seed: 42
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+
+# === 序列(修复 C+D: 回到 v8 长度, 关 packing) ============================
+cutoff_len: 1280                            # ★ 修复 C (v9 误 512 截断过半)
+packing: false                              # ★ 修复 D (v8 未用, 保守关闭)
+
+# === 精度与显存(与 v9 相同) ==============================================
+quantization_bit: 4
+quantization_type: nf4
+double_quantization: true
+flash_attn: sdpa
+gradient_checkpointing: true
+optim: paged_adamw_32bit
+
+# === 日志与 checkpoint(与 v9 相同, save 200 步对齐早停检查粒度) ==========
+logging_steps: 20
+save_steps: 200
+save_total_limit: 3
+save_strategy: steps
+eval_strategy: steps
+eval_steps: 200
+per_device_eval_batch_size: 1
+
+# === 监控 ================================================================
+report_to: none
+dataloader_num_workers: 0
+remove_unused_columns: false
+bf16: true

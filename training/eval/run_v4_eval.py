@@ -177,11 +177,17 @@ def parse_output(text: str) -> dict:
     return result
 
 
-def infer_batch(tok, model, samples: list, max_new_tokens: int = 256):
+def infer_batch(tok, model, samples: list, max_new_tokens: int = 256, think: bool = False):
     """批量推理（auto batching 处理变长 input）
     必须与训练模板一致：训练用 LLaMA-Factory `template: qwen`（即 Qwen3 chat 模板）。
     若用裸 Alpaca 字符串，模型会把输入 JSON 当作前缀补全、不按指令作答。
     末尾追加 <no_think> 关闭 Qwen3 长链推理，直接给出技术分析（提速且方向词仍在回答前部）。
+
+    think=True (R10 根因对照实验, 2026-10-18): 不追加 <no_think>, 让模型走思考链
+    输出(解析器 L148 已剥离 Thinkmap... 注: 原剥离 Thinkmap/Thinkmap 正则见 parse_output)。
+    用于验证 v9 mode collapse 的"训练-推理不一致"根因:
+    v9 训练时 enable_thinking 未关(默认开), 若 think 模式评估准确率显著回升,
+    则证实根因 1, v9r 的 enable_thinking: false 修复方向获得铁证。
     """
     import torch
     tok.padding_side = "left"  # 生成时需 left-padding，避免右 padding 干扰
@@ -190,7 +196,8 @@ def infer_batch(tok, model, samples: list, max_new_tokens: int = 256):
         content = s["instruction"]
         if s.get("input"):
             content = content + "\n" + s["input"]
-        content = content + "\n<no_think>"
+        if not think:
+            content = content + "\n<no_think>"
         messages = [{"role": "user", "content": content}]
         prompts.append(
             tok.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
@@ -247,14 +254,14 @@ def _compute_per_class_acc(parsed_records: list) -> dict:
     return out
 
 
-def eval_direction(tok, model, samples: list, batch_size: int = 8) -> dict:
+def eval_direction(tok, model, samples: list, batch_size: int = 8, think: bool = False) -> dict:
     """方向准确率：模型预测方向 vs 真实 output 中的方向"""
     preds, reals = [], []
     parsed_records = []
     n = len(samples)
     for i in range(0, n, batch_size):
         batch = samples[i:i + batch_size]
-        outs = infer_batch(tok, model, batch)
+        outs = infer_batch(tok, model, batch, think=think)
         for s, o in zip(batch, outs, strict=False):
             parsed = parse_output(o)
             real = parse_output(s.get("output", ""))
@@ -385,6 +392,9 @@ def main():
     parser.add_argument("--sanity-level", type=str, default="L3",
                         choices=["L1", "L2", "L3"],
                         help="sanity 阈值分级（默认 L3,严格）")
+    parser.add_argument("--think", action="store_true",
+                        help="R10 根因对照实验(2026-10-18): 不追加 <no_think>, "
+                             "走思考链推理验证 v9 训练-推理不一致根因")
     args = parser.parse_args()
 
     EVAL_OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -417,7 +427,7 @@ def main():
     # 3. 方向准确率 + 格式遵循率
     print("\n[3] 方向准确率 + 格式遵循率 ...")
     t0 = time.time()
-    direction_result = eval_direction(tok, model, samples, args.batch_size)
+    direction_result = eval_direction(tok, model, samples, args.batch_size, think=args.think)
     direction_acc = direction_result["acc"]
     parsed_records = direction_result["parsed_records"]
     parse_fail = direction_result["parse_fail"]
