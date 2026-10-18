@@ -50,6 +50,10 @@ def norm_code(code: str) -> str:
 
     data/parquet/daily 文件名实为裸代码（600825）+ 北交所 bj 前缀（bj920000），
     而非 sh/sz 前缀；统一归一后 name_map / ST 集合 / 翻倍样本匹配才一致。
+
+    审计 Round2 复核注记(2026-10-18): 与 scripts/_common.norm_code 语义不同——
+    本版仅"剥前缀"(无 lower/zfill), 输入是内部生成的文件名/裸代码;
+    _common 版是"规范化"(lower+zfill6)给 CLI 用户输入用。契约不同, 勿盲目统一。
     """
     return re.sub(r"^(sh|sz|bj)", "", code)
 

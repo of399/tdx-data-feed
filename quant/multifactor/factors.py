@@ -24,6 +24,9 @@ SENT_DIR = ROOT / "data" / "sentiment"
 # 日 K 加载（内联最小实现，与 factor_engine 口径一致）
 # --------------------------------------------------------------------------
 def norm_code(code: str) -> str:
+    # 审计 Round2 复核注记(2026-10-18): 与 scripts/_common.norm_code 语义不同——
+    # 本版仅"剥前缀"(无 lower/zfill), 调用方传内部生成的裸代码/文件名;
+    # _common 版是"规范化"(lower+zfill6)给 CLI 输入用。契约不同, 勿盲目统一。
     return re.sub(r"^(sh|sz|bj)", "", str(code))
 
 
