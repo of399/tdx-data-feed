@@ -415,6 +415,24 @@ def load_all_stocks(codes: list, max_workers: int = 8) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def load_names() -> dict:
+    """加载代码 -> 名称映射（all_a_stocks.json 实为 code->name 结构）。
+
+    审计 P1-5 补丁 (2026-10-18): 用于实时 ST 二次校验。
+    背景: 特征层 is_st 基于训练时名称判断, 名称映射已更新为 *ST 但特征未同步
+    -> 300338(*ST开元)/301139(*ST元道) 漏进 Top 20。
+    """
+    fp = ROOT / 'data' / 'all_a_stocks.json'
+    try:
+        with open(fp, encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, dict) and data and not any(k in data for k in ('codes', 'stocks')):
+            return {str(k).zfill(6): str(v) for k, v in data.items()}
+    except Exception:
+        pass
+    return {}
+
+
 def load_universe() -> list:
     """加载全 A 股代码清单"""
     fp = ROOT / 'data' / 'all_a_stocks.json'
@@ -634,11 +652,30 @@ def run_prediction(args, model, feature_cols):
     if not args.no_skip_st:
         before = len(feat_df)
         feat_df = feat_df[feat_df['is_st'] == 0]
-        print(f"    过滤 ST: {before} → {len(feat_df)}")
+        # 实时名称 ST 二次校验（审计 P1-5 补丁 2026-10-18）:
+        # 特征层 is_st 滞后(名称映射已更新 *ST 但特征未同步) -> 用最新名称兜底
+        names = load_names()
+        n_extra = 0
+        if names:
+            st_mask = feat_df['code'].map(
+                lambda c: 'ST' in names.get(str(c).zfill(6), '').upper())
+            n_extra = int(st_mask.sum())
+            if n_extra:
+                feat_df = feat_df[~st_mask]
+        msg = f"    过滤 ST: {before} → {len(feat_df)}"
+        if n_extra:
+            msg += f" (实时名称再剔除 {n_extra} 只)"
+        print(msg)
     if not args.no_skip_new:
         before = len(feat_df)
         feat_df = feat_df[feat_df['is_new'] == 0]
         print(f"    过滤新股: {before} → {len(feat_df)}")
+    # 面值 <1 元剔除（审计 P1-5 补丁 2026-10-18）: 收盘价低于 1 元退市线
+    if 'close' in feat_df.columns:
+        before = len(feat_df)
+        feat_df = feat_df[feat_df['close'] >= 1.0]
+        if len(feat_df) < before:
+            print(f"    面值过滤(<1元): {before} → {len(feat_df)}")
 
     # 短期止血：禁用 is_gem 特征（强制置 0，匹配旧模型训练分布 is_gem=0 常量）
     if args.no_gem:
