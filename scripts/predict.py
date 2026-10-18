@@ -98,6 +98,8 @@ MODEL_REGISTRY = {
     "vpnl_huber_ind": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_industry.txt", "reg"),
     "vpnl_huber_mkt": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_market.txt", "reg"),  # 需当日市场特征
     "vpnl_huber_stage1": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_stage1.txt", "reg"),  # ★ Step 7 新模型(21维精选+候选因子)
+    # 打板专用：29 维特征（26 旧 + 3 新涨停特征），二分类目标 = 次日收盘涨停
+    "daban":             (ROOT / "data" / "double_up" / "d_signal_5d_model_daban.txt", "cls"),
 }
 DEFAULT_MODEL = "vpnl_huber_stage1"  # ★ 上线:Stage1 Huber PnL 回归(21维精选+候选因子,需 --features polars)
 ACTIVE_MODEL_PATH = MODEL_REGISTRY[DEFAULT_MODEL][0]
@@ -576,7 +578,8 @@ def parse_args():
     parser.add_argument('--no-freshness-check', action='store_true', help='跳过数据新鲜度校验')
     parser.add_argument('--model', default=None,
                         help='模型选择: prod/v9/v10_dart/vpnl/vpnl_asym/vpnl_huber/'
-                             'vpnl_huber_ind/vpnl_huber_mkt/vpnl_huber_stage1(默认 vpnl_huber_stage1)')
+                             'vpnl_huber_ind/vpnl_huber_mkt/vpnl_huber_stage1/'
+                             'daban(默认 vpnl_huber_stage1)')
     parser.add_argument('--features', default='polars', choices=['legacy', 'polars'],
                         help='特征管线: legacy(26 基础维) / polars(26 基础维+9 候选因子,默认,'
                              'vpnl_huber_stage1 必需)')
