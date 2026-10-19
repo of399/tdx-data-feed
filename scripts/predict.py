@@ -333,8 +333,8 @@ def compute_features(code: str) -> dict:
         if _stale_days > MAX_STALE_DAYS:
             print(f"[WARN] {code} 数据陈旧 {_stale_days} 天(最新 {_last_date.date()}), 剔除")
             return None
-    except Exception:
-        pass  # date 列异常时交由后续特征计算的既有防线处理
+    except Exception as e:
+        print(f"[WARN] {code} date 列解析异常, freshness 检查跳过: {e!r}")
 
     # 计算 T-1 日的 adj_factor（仅用于 meta 展示 qfq_close；特征用 raw close）
     adj_factor_value = 1.0
@@ -430,8 +430,10 @@ def load_names() -> dict:
             data = json.load(f)
         if isinstance(data, dict) and data and not any(k in data for k in ('codes', 'stocks')):
             return {str(k).zfill(6): str(v) for k, v in data.items()}
-    except Exception:
-        pass
+    except Exception as e:
+        # 审计 Round3 修复: 原静默 pass 会致 ST 实时校验静默失效
+        # (load_names 返回空 -> 名称二次校验被跳过 -> ST 股重新漏网)
+        print(f"[WARN] 名称映射读取失败, 实时 ST 校验将失效: {e!r}")
     return {}
 
 

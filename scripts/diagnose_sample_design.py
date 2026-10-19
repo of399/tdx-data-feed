@@ -56,7 +56,8 @@ def diag_one(item: tuple) -> dict | None:
     code, fp = item
     try:
         df = pd.read_parquet(fp)
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] {code} 读取失败: {e!r}")
         return None
     if len(df) < 30:
         return None
@@ -141,13 +142,13 @@ def main() -> int:
     print(f"  正样本(T+1收盘涨停)       : {tot['n_pos']:,}")
     print(f"  → 自然正样本率            : {tot['n_pos']/max(tot['n_total'],1)*100:.2f}%")
     print()
-    print(f"  [T 日状态 = 能不能买到]  ← 这才是「不可交易」噪声")
+    print("  [T 日状态 = 能不能买到]  ← 这才是「不可交易」噪声")
     print(f"  ├ T 日一字板(开=高=低=收) : {tot['n_t_yizi']:,}  (其中正样本 {tot['n_t_yizi_pos']:,})")
     print(f"  ├ T 日开盘即涨停          : {tot['n_t_olimit']:,}  (其中正样本 {tot['n_t_olimit_pos']:,})")
     print(f"  └ 剔除 T 日一字板后正样本率: {(tot['n_pos']-tot['n_t_yizi_pos'])/max(tot['n_total']-tot['n_t_yizi'],1)*100:.2f}%")
     print(f"     剔除 T 日开盘涨停后正样本率: {(tot['n_pos']-tot['n_t_olimit_pos'])/max(tot['n_total']-tot['n_t_olimit'],1)*100:.2f}%")
     print()
-    print(f"  [T+1 日状态 = 能不能卖出] ← 一字板可顺利卖出获利, 非噪声")
+    print("  [T+1 日状态 = 能不能卖出] ← 一字板可顺利卖出获利, 非噪声")
     print(f"  └ T+1 一字板(含于正样本)   : {tot['n_t1_yizi']:,}  ({tot['n_t1_yizi']/max(tot['n_pos'],1)*100:.2f}% of 正样本)")
 
     def _agg(keyfunc) -> dict:
@@ -174,7 +175,6 @@ def main() -> int:
             p = v["n_pos"]
             ty = v["n_t_yizi"]
             to = v["n_t_olimit"]
-            tpop = v["n_t_yizi_pos"]
             top = v["n_t_olimit_pos"]
             rem = p - top
             remtot = t - to

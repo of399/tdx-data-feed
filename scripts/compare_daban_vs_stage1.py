@@ -39,9 +39,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 
+from _common import compute_window_features_extended  # noqa: E402
 from features_5d import get_limit  # noqa: E402
 from train_daban_model import SPLIT_DATE, iter_stock_files  # noqa: E402
-from _common import compute_window_features_extended  # noqa: E402
+
 from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
 
 MODEL_STAGE1 = ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_stage1.txt"
@@ -68,7 +69,8 @@ def process_stock(item: tuple) -> dict | None:
     code, fp, recent = item
     try:
         df = pd.read_parquet(fp)
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] {code} 读取失败: {e!r}")
         return None
     if len(df) < 30:
         return None
@@ -78,12 +80,8 @@ def process_stock(item: tuple) -> dict | None:
     limit_val = get_limit(code)
     close = df["close"].values.astype(float)
     openp = df["open"].values.astype(float)
-    high = df["high"].values.astype(float)
-    low = df["low"].values.astype(float)
     n = len(df)
 
-    cols_s1 = m1.feature_name()
-    cols_db = m2.feature_name()
     cand_src = [c for c in CAND_COLS if c in df.columns]
     df_pl = pl.from_pandas(df[cand_src].reset_index(drop=True)) if len(cand_src) >= 5 else None
 
