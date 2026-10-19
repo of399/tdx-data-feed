@@ -27,7 +27,12 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 
-from features_5d import compute_window_features_extended, get_limit  # noqa: E402
+from features_5d import (  # noqa: E402
+    compute_window_features_extended,
+    get_limit,
+    is_limit_up_ret,
+    is_open_limit_up,
+)
 
 PARQUET = ROOT / "data" / "parquet" / "daily"
 OUT_DIR = ROOT / "data" / "double_up"
@@ -96,11 +101,11 @@ def build_dataset(limit: int = 0, exclude_open_limit: bool = False) -> pd.DataFr
             # 该样本实盘不可执行。此类样本既不作正样本也不作负样本, 直接剔除。
             if exclude_open_limit:
                 prev_c = close[sig_idx - 1]
-                if prev_c > 0 and (openp[sig_idx] / prev_c - 1.0) >= (limit_val - 0.001):
+                if is_open_limit_up(openp[sig_idx], prev_c, limit_val):
                     n_excluded += 1
                     continue
             ret_next = close[sig_idx + 1] / cur_close - 1.0
-            if ret_next >= limit_val - 0.001:
+            if is_limit_up_ret(ret_next, limit_val):
                 pos_idx.append(sig_idx)
             else:
                 neg_idx.append(sig_idx)

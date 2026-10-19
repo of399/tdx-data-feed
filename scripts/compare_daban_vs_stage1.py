@@ -40,7 +40,11 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 
 from _common import compute_window_features_extended  # noqa: E402
-from features_5d import get_limit  # noqa: E402
+from features_5d import (  # noqa: E402
+    get_limit,
+    is_limit_up_ret,
+    is_open_limit_up,
+)
 from train_daban_model import SPLIT_DATE, iter_stock_files  # noqa: E402
 
 from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
@@ -50,22 +54,9 @@ MODEL_DABAN = ROOT / "data" / "double_up" / "d_signal_5d_model_daban.txt"
 
 CAND_COLS = ("date", "open", "high", "low", "close", "volume", "amount")
 
-_M_STAGE1 = None
-_M_DABAN = None
-
-
-def _models():
-    """worker 内加载两模型（幂等）。"""
-    global _M_STAGE1, _M_DABAN
-    if _M_STAGE1 is None:
-        _M_STAGE1 = lgb.Booster(model_file=str(MODEL_STAGE1))
-    if _M_DABAN is None:
-        _M_DABAN = lgb.Booster(model_file=str(MODEL_DABAN))
-    return _M_STAGE1, _M_DABAN
-
 
 def process_stock(item: tuple) -> dict | None:
-    """单只股票 -> 可交易窗口内的 (date, label, 两模型打分)。"""
+    """单只股票 -> 可交易窗口内的特征样本（打分统一在 main 中进行）。"""
     code, fp, recent = item
     try:
         df = pd.read_parquet(fp)
@@ -75,7 +66,6 @@ def process_stock(item: tuple) -> dict | None:
     if len(df) < 30:
         return None
 
-    m1, m2 = _models()
     df = df.sort_values("date").reset_index(drop=True)
     limit_val = get_limit(code)
     close = df["close"].values.astype(float)
@@ -99,10 +89,10 @@ def process_stock(item: tuple) -> dict | None:
 
         # 标签（次日收盘涨停）
         ret_next = close[sig_idx + 1] / cur - 1.0
-        is_pos = 1 if ret_next >= (limit_val - 0.001) else 0
+        is_pos = 1 if is_limit_up_ret(ret_next, limit_val) else 0
 
         # 可交易口径：T 日开盘价未达涨停价（否则一字/准一字，实盘买不进）
-        if prev > 0 and ((openp[sig_idx] / prev - 1.0) >= (limit_val - 0.001)):
+        if is_open_limit_up(openp[sig_idx], prev, limit_val):
             n_excluded += 1
             continue
         if is_pos:

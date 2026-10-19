@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
-from .features_5d import get_limit
+from .features_5d import get_limit, is_limit_up_ret
 
 __all__ = [
     "compute_window_features_extended_polars",
@@ -77,8 +77,9 @@ def compute_window_features_polars(
         "ret_5d": float(c[-1] / c[0] - 1.0),
         "ret_3d": float(c[-1] / c[-4] - 1.0) if len(c) >= 4 else 0.0,
         "max_5d_pct": float(max(pct)),
-        "limit_up_5d": int(sum(1 for x in pct if x >= limit - 0.001)),
-        "limit_up_t1": int(sig_close / sig_open - 1.0 >= limit - 0.001) if sig_open > 0 else 0,
+        "limit_up_5d": int(sum(1 for x in pct if is_limit_up_ret(x, limit))),
+        "limit_up_t1": (int(is_limit_up_ret(sig_close / sig_open - 1.0, limit))
+                        if sig_open > 0 else 0),
         "pct_t1": float(sig_close / sig_open - 1.0) if sig_open > 0 else 0.0,
         "avg_amount_5d": float(amt_mean),
         "vol_ratio_t1": float(a[-1] / amt_mean) if amt_mean > 0 else 1.0,
@@ -140,7 +141,8 @@ def compute_window_features_extended_polars(
     limit_val = float(base["limit"])
     if sig_idx >= 1:
         limit_up_mask = [
-            i >= 1 and (close_full[i] / close_full[i - 1] - 1.0) >= limit_val - 0.001
+            i >= 1
+            and is_limit_up_ret(close_full[i] / close_full[i - 1] - 1.0, limit_val)
             if close_full[i - 1] else False
             for i in range(len(close_full))
         ]

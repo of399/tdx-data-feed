@@ -29,7 +29,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-__all__ = ["get_limit", "compute_window_features", "compute_window_features_extended", "LIMIT_MAP"]
+__all__ = [
+    "LIMIT_MAP",
+    "compute_window_features",
+    "compute_window_features_extended",
+    "get_limit",
+    "is_limit_up_ret",
+    "is_open_limit_up",
+    "is_yizi",
+]
 
 # 涨停限制常量（与训练脚本一致）
 LIMIT_MAP: dict[str, float] = {"main": 0.095, "gem": 0.195, "bse": 0.295}
@@ -57,6 +65,35 @@ def get_limit(code: str) -> float:
     ):
         return LIMIT_MAP["gem"]
     return LIMIT_MAP["main"]
+
+
+def is_limit_up_ret(ret: float, limit: float) -> bool:
+    """涨幅是否达到涨停限制（ret 口径）。
+
+    审计 P1 公共化（2026-10-19）：此前 `ret >= limit - 0.001` 这一判定在
+    5 个文件中重复（train_daban_model / diagnose_sample_design /
+    compare_daban_vs_stage1 / verify_daban_hit / factors_polars），
+    任一处微调不同步即造成口径漂移，故收敛至此。
+
+    容差 0.001：规避浮点误差（如 0.0999999 vs 0.10）。
+    """
+    return ret >= (limit - 0.001)
+
+
+def is_open_limit_up(open_: float, prev_close: float, limit: float) -> bool:
+    """开盘即涨停判定（不可交易口径）。
+
+    当日开盘价已达涨停价 → 一字或准一字板 → 打板者通常买不进。
+    T 日（信号日/买入日）命中此条的样本实盘不可执行，应剔除。
+    """
+    if prev_close <= 0:
+        return False
+    return is_limit_up_ret(open_ / prev_close - 1.0, limit)
+
+
+def is_yizi(open_: float, high: float, low: float, close: float) -> bool:
+    """一字板判定：四价合一（开=高=低=收）。"""
+    return open_ == high == low == close
 
 
 def compute_window_features(

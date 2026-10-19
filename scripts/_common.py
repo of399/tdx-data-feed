@@ -20,6 +20,9 @@ from tdxfeed.features_5d import (  # noqa: E402
     compute_window_features,
     compute_window_features_extended,
     get_limit,
+    is_limit_up_ret,
+    is_open_limit_up,
+    is_yizi,
 )
 
 
@@ -45,6 +48,9 @@ __all__ = [
     "compute_window_features_extended",
     "get_limit",
     "is_bj",
+    "is_limit_up_ret",
+    "is_open_limit_up",
+    "is_yizi",
     "norm_code",
     "parse_date",
     "parse_date_series",

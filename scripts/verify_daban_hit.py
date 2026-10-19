@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 
-from features_5d import get_limit  # noqa: E402
+from features_5d import get_limit, is_limit_up_ret  # noqa: E402
 
 PARQUET_DIR = ROOT / "data" / "parquet" / "daily"
 
@@ -70,7 +70,7 @@ def hit_one(code: str, verify_date: str) -> tuple[bool, float, str]:
         return False, float("nan"), "前收为0"
 
     ret = close / prev_close - 1.0
-    return ret >= (limit_val - 0.001), ret, str(df["date_str"].iloc[idx])
+    return is_limit_up_ret(ret, limit_val), ret, str(df["date_str"].iloc[idx])
 
 
 def main() -> int:

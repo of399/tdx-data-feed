@@ -29,7 +29,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 
-from features_5d import get_limit  # noqa: E402
+from features_5d import (  # noqa: E402
+    get_limit,
+    is_limit_up_ret,
+    is_open_limit_up,
+    is_yizi,
+)
 from train_daban_model import iter_stock_files  # noqa: E402
 
 
@@ -87,17 +92,17 @@ def diag_one(item: tuple) -> dict | None:
         out["n_total"] += 1
 
         prev_close = close[sig_idx - 1]
-        is_pos = (nxt_close / cur_close - 1.0) >= (limit_val - 0.001)
+        is_pos = is_limit_up_ret(nxt_close / cur_close - 1.0, limit_val)
 
         # T 日（信号日，即买入日）状态 —— 决定「能不能买到」
         o, h, l, c = openp[sig_idx], high[sig_idx], low[sig_idx], cur_close
-        t_yizi = (o == h == l == c) and prev_close > 0 and (
-            (c / prev_close - 1.0) >= (limit_val - 0.001))
-        t_olimit = prev_close > 0 and ((o / prev_close - 1.0) >= (limit_val - 0.001))
+        t_yizi = is_yizi(o, h, l, c) and is_limit_up_ret(
+            c / prev_close - 1.0 if prev_close > 0 else -1.0, limit_val)
+        t_olimit = is_open_limit_up(o, prev_close, limit_val)
 
         # T+1 日状态 —— 决定「能不能卖出」（一字板可卖出）
         j = sig_idx + 1
-        t1_yizi = (openp[j] == high[j] == low[j] == close[j]) and is_pos
+        t1_yizi = is_yizi(openp[j], high[j], low[j], close[j]) and is_pos
 
         if t_yizi:
             out["n_t_yizi"] += 1
