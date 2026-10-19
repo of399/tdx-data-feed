@@ -66,6 +66,7 @@
 
 import argparse
 import json
+import os
 import sys
 import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -101,7 +102,25 @@ MODEL_REGISTRY = {
     # 打板专用：29 维特征（26 旧 + 3 新涨停特征），二分类目标 = 次日收盘涨停
     "daban":             (ROOT / "data" / "double_up" / "d_signal_5d_model_daban.txt", "cls"),
 }
-DEFAULT_MODEL = "vpnl_huber_stage1"  # ★ 上线:Stage1 Huber PnL 回归(21维精选+候选因子,需 --features polars)
+# ============== 模型切换配置（2026-10-19 切流，daban 小仓位启用）==============
+# 切换依据：历史累积验证 334 交易日 / 199,283 样本，分年度稳定领先
+#   · AUC        : daban 0.8090 vs stage1 0.7526（+0.0563）
+#   · Top5 命中率: daban 24.52%/21.70% vs stage1 11.64%/11.70%（约 2 倍）
+# 详见 docs/COMPARE_EXTENDED_2026-10-19.md
+#
+# 生效范围：仅 predict.py 主流程；plan_e（规则策略）不加载模型，不受影响。
+#
+# 仓位模式与模型绑定（小仓位 = 少而精；大仓位 = 稳健优先）：
+POSITION_MODE_MODEL = {
+    "small": "daban",              # 小仓位：专用二分类模型（次日涨停），Top 5
+    "full":  "vpnl_huber_stage1",  # 大仓位：稳健回归模型（波段 PnL），Top 20
+}
+DEFAULT_POSITION_MODE = "small"
+DEFAULT_MODEL = POSITION_MODE_MODEL[DEFAULT_POSITION_MODE]  # ★ 切流后默认 = daban
+# 小仓位场景默认 Top N（打板策略：少而精，命中率随 TopN 缩小显著提升）
+DEFAULT_TOP = 5
+# 回退用模型（异常时自动回退到此，保证流程不中断）
+FALLBACK_MODEL = "vpnl_huber_stage1"
 ACTIVE_MODEL_PATH = MODEL_REGISTRY[DEFAULT_MODEL][0]
 ACTIVE_IS_REG = MODEL_REGISTRY[DEFAULT_MODEL][1] == "reg"
 # Step 7：特征管线模式（legacy=26 基础维; polars=26 基础维+9 候选因子，新模型 vpnl_huber_stage1 必需）
@@ -566,10 +585,16 @@ def parse_args():
     """审计 P1-3-3 (2026-10-17): 从 254 行 main() 拆出——CLI 参数解析。"""
     parser = argparse.ArgumentParser(description='方案 D 每日翻倍潜力预测')
     parser.add_argument('--date', help='基准日（YYYY-MM-DD），默认今天')
-    parser.add_argument('--top', type=int, default=20, help='输出 Top N 高分股')
+    parser.add_argument('--top', type=int, default=None,
+                        help='输出 Top N 高分股（默认由仓位模式决定: '
+                             'small->5, full->20；显式指定则优先）')
     parser.add_argument('--threshold', type=float, default=0.7, help='高分阈值')
     parser.add_argument('--codes', help='指定股票代码（逗号分隔）')
     parser.add_argument('--workers', type=int, default=8, help='并行进程数')
+    parser.add_argument('--position-mode', default=DEFAULT_POSITION_MODE,
+                        choices=['small', 'full'],
+                        help='仓位模式: small=小仓位(默认, daban+Top5) / '
+                             'full=大仓位(vpnl_huber_stage1+Top20)')
     parser.add_argument('--no-skip-bj', action='store_true', help='不跳过北交所')
     parser.add_argument('--no-skip-st', action='store_true', help='不跳过 ST')
     parser.add_argument('--no-skip-new', action='store_true', help='不跳过新股')
@@ -579,9 +604,10 @@ def parse_args():
     parser.add_argument('--share', action='store_true', help='gradio share 公网隧道')
     parser.add_argument('--no-freshness-check', action='store_true', help='跳过数据新鲜度校验')
     parser.add_argument('--model', default=None,
-                        help='模型选择: prod/v9/v10_dart/vpnl/vpnl_asym/vpnl_huber/'
-                             'vpnl_huber_ind/vpnl_huber_mkt/vpnl_huber_stage1/'
-                             'daban(默认 vpnl_huber_stage1)')
+                        help='模型选择(最高优先): prod/v9/v10_dart/vpnl/vpnl_asym/'
+                             'vpnl_huber/vpnl_huber_ind/vpnl_huber_mkt/'
+                             'vpnl_huber_stage1/daban(默认由 --position-mode 决定: '
+                             'small->daban, full->vpnl_huber_stage1)')
     parser.add_argument('--features', default='polars', choices=['legacy', 'polars'],
                         help='特征管线: legacy(26 基础维) / polars(26 基础维+9 候选因子,默认,'
                              'vpnl_huber_stage1 必需)')
@@ -599,23 +625,70 @@ def parse_args():
 
 
 def resolve_model(args):
-    """审计 P1-3-3: 拆出——模型选择/加载/特征列守卫。返回 (model_name, model, feature_cols)。"""
-    # 解析多模型选择(部署 vpnl_huber:PnL 回归;回滚用 --model prod)
-    model_name = args.model or DEFAULT_MODEL
+    """审计 P1-3-3: 拆出——模型选择/加载/特征列守卫。返回 (model_name, model, feature_cols)。
+
+    2026-10-19 切流后的模型解析优先级（从高到低）：
+      1. `--model X`      显式指定（最高优先，用于回退/调试）
+      2. `TDX_MODEL=X`    环境变量覆盖（不改代码即可临时回退）
+      3. 仓位模式绑定     `--position-mode small|full` → daban / vpnl_huber_stage1
+
+    异常处理：目标模型文件缺失或加载失败时，**自动回退到 FALLBACK_MODEL** 并告警，
+    保证主流程不中断（回退行为一致、可验证）。
+    """
+    # 1) 显式 --model
+    if args.model:
+        model_name = args.model
+        source = "--model 显式指定"
+    # 2) 环境变量覆盖
+    elif os.environ.get("TDX_MODEL"):
+        model_name = os.environ["TDX_MODEL"]
+        source = "TDX_MODEL 环境变量"
+    # 3) 仓位模式绑定
+    else:
+        model_name = POSITION_MODE_MODEL[args.position_mode]
+        source = f"--position-mode {args.position_mode}"
+
     if model_name not in MODEL_REGISTRY:
         sys.exit(f"❌ 未知模型: {model_name}; 可选: {', '.join(MODEL_REGISTRY)}")
+
+    # 小仓位场景提示（生效边界声明）
+    if args.position_mode == "small" and model_name == "daban":
+        print(f"  [小仓位模式] 模型=daban(次日涨停二分类) Top={args.top} "
+              f"(历史 Top5 命中率 21.7~24.5%)")
+    elif args.position_mode == "full" and model_name == FALLBACK_MODEL:
+        print(f"  [大仓位模式] 模型={FALLBACK_MODEL}(波段PnL回归) Top={args.top} (稳健优先)")
+
     global ACTIVE_MODEL_PATH, ACTIVE_IS_REG, ACTIVE_FEATURE_MODE
     ACTIVE_MODEL_PATH = MODEL_REGISTRY[model_name][0]
     ACTIVE_IS_REG = MODEL_REGISTRY[model_name][1] == "reg"
     ACTIVE_FEATURE_MODE = args.features
 
+    # 异常回退：目标模型不可用 -> 回退 FALLBACK_MODEL
     if not ACTIVE_MODEL_PATH.exists():
-        sys.exit(f"❌ 模型不存在: {ACTIVE_MODEL_PATH}")
+        print(f"  [WARN] 模型文件缺失: {ACTIVE_MODEL_PATH}（来源: {source}）")
+        if model_name != FALLBACK_MODEL:
+            print(f"  [WARN] 自动回退到 {FALLBACK_MODEL}，保证主流程不中断")
+            model_name = FALLBACK_MODEL
+            ACTIVE_MODEL_PATH = MODEL_REGISTRY[model_name][0]
+            ACTIVE_IS_REG = MODEL_REGISTRY[model_name][1] == "reg"
+        else:
+            sys.exit(f"❌ 回退模型也不存在: {ACTIVE_MODEL_PATH}")
 
     # 加载模型
-    print(f"  加载模型[{model_name}]: {ACTIVE_MODEL_PATH}")
+    print(f"  加载模型[{model_name}]: {ACTIVE_MODEL_PATH}（来源: {source}）")
     print(f"    类型: {'回归(PnL 预期)' if ACTIVE_IS_REG else '分类(概率)'}")
-    model = lgb.Booster(model_file=str(ACTIVE_MODEL_PATH))
+    try:
+        model = lgb.Booster(model_file=str(ACTIVE_MODEL_PATH))
+    except Exception as e:
+        print(f"  [WARN] 模型加载失败: {e!r}")
+        if model_name != FALLBACK_MODEL:
+            print(f"  [WARN] 自动回退到 {FALLBACK_MODEL}")
+            model_name = FALLBACK_MODEL
+            ACTIVE_MODEL_PATH = MODEL_REGISTRY[model_name][0]
+            ACTIVE_IS_REG = MODEL_REGISTRY[model_name][1] == "reg"
+            model = lgb.Booster(model_file=str(ACTIVE_MODEL_PATH))
+        else:
+            sys.exit(f"❌ 回退模型也加载失败: {e!r}")
     print(f"    期望特征数: {model.num_feature()}")
     print(f"    树数: {model.num_trees()}")
 
@@ -843,6 +916,10 @@ def main():
     emit_outputs 四段, 行为零变化(golden 验证: --codes 600000,600825,000530 Top1=600825)。"""
     args = parse_args()
 
+    # Top N 与仓位模式联动（显式 --top 优先）
+    if args.top is None:
+        args.top = 20 if args.position_mode == "full" else DEFAULT_TOP
+
     if not args.no_freshness_check:
         from tdxfeed.freshness import require_fresh
         require_fresh(max_age_days=2)
@@ -853,6 +930,8 @@ def main():
 
     print("=== 方案 D 预测 ===")
     print(f"  时间: {datetime.now().isoformat(timespec='seconds')}")
+    print(f"  仓位模式: {args.position_mode} "
+          f"(模型: {POSITION_MODE_MODEL[args.position_mode]})")
     print(f"  阈值: {args.threshold}")
     print(f"  Top:  {args.top}")
 
