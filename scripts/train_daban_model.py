@@ -131,11 +131,12 @@ def build_dataset(limit: int = 0, exclude_open_limit: bool = False) -> pd.DataFr
     return pd.DataFrame(rows)
 
 
-def train(df: pd.DataFrame) -> dict:
+def train(df: pd.DataFrame, model_out: Path | None = None) -> dict:
     df = df.sort_values("date").reset_index(drop=True)
     train_df = df[df["date"] < SPLIT_DATE]
     test_df = df[df["date"] >= SPLIT_DATE]
     print(f"train {len(train_df)} / test {len(test_df)} (切分 {SPLIT_DATE})")
+    model_out = MODEL_OUT if model_out is None else model_out
 
     feat_cols = [c for c in df.columns if c not in ("code", "date", "label")]
     pos = int(train_df["label"].sum())
@@ -162,8 +163,8 @@ def train(df: pd.DataFrame) -> dict:
     model = lgb.train(params, dtr, num_boost_round=500,
                       valid_sets=[dte], valid_names=["test"],
                       callbacks=[lgb.early_stopping(30, verbose=False)])
-    model.save_model(str(MODEL_OUT), num_iteration=model.best_iteration)
-    print(f"模型保存: {MODEL_OUT} (best_iter={model.best_iteration})")
+    model.save_model(str(model_out), num_iteration=model.best_iteration)
+    print(f"模型保存: {model_out} (best_iter={model.best_iteration})")
 
     imp = sorted(zip(feat_cols, model.feature_importance("gain")),
                  key=lambda x: -x[1])
@@ -173,7 +174,8 @@ def train(df: pd.DataFrame) -> dict:
             "best_iter": model.best_iteration}
 
 
-def write_report(r: dict) -> None:
+def write_report(r: dict, report_out: Path | None = None) -> None:
+    report_out = REPORT_OUT if report_out is None else report_out
     lines = [f"# 打板专用模型训练报告 ({datetime.now():%Y-%m-%d %H:%M})", "",
              f"- 样本: train {r['train_n']} / test {r['test_n']} (切分 {SPLIT_DATE})",
              f"- scale_pos_weight: {r['scale']:.1f}",
@@ -182,8 +184,8 @@ def write_report(r: dict) -> None:
              "## 特征重要性 Top 15", "", "| 特征 | gain |", "|---|---:|"]
     for name, g in r["imp"][:15]:
         lines.append(f"| {name} | {g:.0f} |")
-    REPORT_OUT.write_text("\n".join(lines), encoding="utf-8")
-    print(f"报告: {REPORT_OUT}")
+    report_out.write_text("\n".join(lines), encoding="utf-8")
+    print(f"报告: {report_out}")
 
 
 def main() -> int:
@@ -191,14 +193,21 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="抽样股票数(冒烟)")
     ap.add_argument("--exclude-open-limit", action="store_true",
                     help="剔除 T 日开盘即涨停(不可买入)样本 [默认关, 保持可复现]")
+    ap.add_argument("--tag", default="",
+                    help="输出文件后缀, 如 'tradable' -> d_signal_5d_model_daban_tradable.txt "
+                         "(留空=覆盖现役模型, 仅在确认切换时才应使用)")
     args = ap.parse_args()
+
+    # 输出路径：默认走现役路径(保持可复现)；带 --tag 则独立输出，保护对照组
+    model_out = MODEL_OUT if not args.tag else OUT_DIR / f"d_signal_5d_model_daban_{args.tag}.txt"
+    report_out = REPORT_OUT if not args.tag else OUT_DIR / f"daban_train_report_{args.tag}.md"
 
     df = build_dataset(args.limit, exclude_open_limit=args.exclude_open_limit)
     if df.empty:
         print("❌ 无样本", file=sys.stderr)
         return 1
-    r = train(df)
-    write_report(r)
+    r = train(df, model_out=model_out)
+    write_report(r, report_out=report_out)
     print(f"\n=== ✅ 完成 === OOS AUC={r['auc']:.4f}")
     print("  验收: AUC > 0.60 才考虑切换实盘(替代 vpnl_huber_stage1)")
     return 0

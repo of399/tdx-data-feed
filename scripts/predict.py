@@ -503,6 +503,17 @@ def run_predict(args):
         feat_df = feat_df[feat_df['is_st'] == 0]
     if not args.no_skip_new:
         feat_df = feat_df[feat_df['is_new'] == 0]
+    if not args.no_skip_open_limit:
+        # 与训练侧 --exclude-open-limit 同口径（is_open_limit_up）：
+        # T 日(信号日/买入日)开盘价已达涨停价 -> 一字/准一字板 -> 打板者无法买入，
+        # 实盘不可执行。训练时此类样本已被剔除，推理侧必须同步过滤，
+        # 否则模型仍会把"T 日一字板"股排到 Top N（2026-10-20 实测 Top5 中 2 只如此）。
+        # gap_t1 = open[T] / close[T-1] - 1（factors_candidates.py），容差与 is_limit_up_ret 一致。
+        _open_limit_mask = feat_df['gap_t1'] >= (feat_df['limit'] - 0.001)
+        _n_ol = int(_open_limit_mask.sum())
+        if _n_ol:
+            print(f"  过滤 T 日开盘即涨停(不可买入): {len(feat_df)} -> {len(feat_df) - _n_ol} (剔除 {_n_ol} 只)")
+        feat_df = feat_df[~_open_limit_mask]
     X = feat_df[feature_cols].fillna(0)
     feat_df['prob'] = model.predict(X)
     feat_df = feat_df.sort_values('prob', ascending=False).reset_index(drop=True)
@@ -529,7 +540,7 @@ def launch_web(args):
             _model = lgb.Booster(model_file=str(ACTIVE_MODEL_PATH))
         return _model
 
-    def predict(codes_text, threshold, top_n, skip_bj, skip_st, skip_new):
+    def predict(codes_text, threshold, top_n, skip_bj, skip_st, skip_new, skip_open_limit=True):
         a = argparse.Namespace(
             codes=(codes_text.strip() or None),
             threshold=float(threshold),
@@ -538,6 +549,7 @@ def launch_web(args):
             no_skip_bj=(not skip_bj),
             no_skip_st=(not skip_st),
             no_skip_new=(not skip_new),
+            no_skip_open_limit=(not skip_open_limit),
             # Step 7 修复：Web 命名空间补充 date 默认值（与 main 约定一致：None=今天）。
             # run_predict 当前不读 args.date，但补全可避免任何路径缺失属性导致 AttributeError。
             date=None,
@@ -572,11 +584,12 @@ def launch_web(args):
             skip_bj = gr.Checkbox(value=True, label="跳过北交所")
             skip_st = gr.Checkbox(value=True, label="跳过 ST")
             skip_new = gr.Checkbox(value=True, label="跳过新股")
+            skip_open_limit = gr.Checkbox(value=True, label="过滤一字板(开盘即涨停,买不进)")
             btn = gr.Button("预测", variant="primary")
         summary = gr.Textbox(label="统计", interactive=False)
         out = gr.Dataframe(label="Top 结果", interactive=False)
         btn.click(fn=predict,
-                  inputs=[codes_tb, threshold, top_n, skip_bj, skip_st, skip_new],
+                  inputs=[codes_tb, threshold, top_n, skip_bj, skip_st, skip_new, skip_open_limit],
                   outputs=[out, summary])
     demo.launch(server_name="0.0.0.0", server_port=args.port, share=args.share)
 
@@ -598,6 +611,8 @@ def parse_args():
     parser.add_argument('--no-skip-bj', action='store_true', help='不跳过北交所')
     parser.add_argument('--no-skip-st', action='store_true', help='不跳过 ST')
     parser.add_argument('--no-skip-new', action='store_true', help='不跳过新股')
+    parser.add_argument('--no-skip-open-limit', action='store_true',
+                        help='不过滤 T 日开盘即涨停(一字/准一字板, 实盘买不进)')
     parser.add_argument('--no-gem', action='store_true', help='禁用 is_gem 特征(强制置 0),避免重训前 OOD 偏差（短期止血，重训后可移除）')
     parser.add_argument('--web', action='store_true', help='启动 Web UI (gradio)，交互式选股预测')
     parser.add_argument('--port', type=int, default=7860, help='Web UI 端口')
@@ -748,6 +763,19 @@ def run_prediction(args, model, feature_cols):
         before = len(feat_df)
         feat_df = feat_df[feat_df['is_new'] == 0]
         print(f"    过滤新股: {before} → {len(feat_df)}")
+    # T 日(信号日/买入日)开盘即涨停剔除（与训练侧 --exclude-open-limit 同口径）:
+    # 开盘价已达涨停价 -> 一字/准一字板 -> 打板者无法买入, 实盘不可执行。
+    # 训练时此类样本已被剔除(2026-10-19 现役模型即如此训练), 推理侧必须同步过滤,
+    # 否则模型仍会把"T 日一字板"股排到 Top N。
+    # 实测依据: 2026-10-20 未过滤时 Top5 中 002724/003029 均为 T 日一字板(买不进)。
+    # gap_t1 = open[T] / close[T-1] - 1（factors_candidates.py），容差与 is_limit_up_ret 一致。
+    if not args.no_skip_open_limit and 'gap_t1' in feat_df.columns:
+        before = len(feat_df)
+        _ol_mask = feat_df['gap_t1'] >= (feat_df['limit'] - 0.001)
+        n_ol = int(_ol_mask.sum())
+        if n_ol:
+            feat_df = feat_df[~_ol_mask]
+            print(f"    过滤 T 日开盘即涨停(一字板/买不进): {before} → {len(feat_df)}")
     # 面值 <1 元剔除（审计 P1-5 补丁 2026-10-18）: 收盘价低于 1 元退市线
     if 'close' in feat_df.columns:
         before = len(feat_df)
