@@ -81,14 +81,10 @@ def get_all_codes():
         return None
 
 def sym_of(code):
-    """按代码前缀映射 Sina 合法 symbol：sh/sz + 代码。"""
+    """按代码前缀映射 Sina 合法 symbol：仅沪深股票返回 sh/sz + 代码。"""
     g = group(code)
     if g in ("sh", "sz"):
         return g + code
-    if g == "etf":
-        return ("sh" if code.startswith(("51", "58", "56", "52", "53")) else "sz") + code
-    if g == "bond":
-        return ("sh" if code.startswith("11") else "sz") + code
     return None
 
 
@@ -185,12 +181,11 @@ def main():
     codes = get_all_codes()
     if not codes:
         codes = get_core_stocks() + list(INDICES.keys())
-    # 过滤：按前缀分组，跳过 other（北交所等先排除）
+    # 仅同步沪深股票（北交所/ETF/债券已于 2026-10-21 下线）
     syms = []
     for c in codes:
         c = c.zfill(6)
-        g = group(c)
-        if g == "other":
+        if group(c) not in ("sh", "sz"):
             continue
         sym = sym_of(c)
         if sym:
