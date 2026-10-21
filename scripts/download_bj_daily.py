@@ -58,6 +58,7 @@ def fetch_one(code: str, max_retries: int = 3) -> str:
 
 
 def main():
+    raise SystemExit('已移除：北交所数据已于 2026-10-21 下线，本脚本不再使用')
     LOG.unlink(missing_ok=True)
     log('=== 北交所日 K 下载启动 (akshare) ===')
 

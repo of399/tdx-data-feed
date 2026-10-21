@@ -115,6 +115,7 @@ def save_one(code_short, rows):
 
 
 def main():
+    raise SystemExit('已移除：ETF 数据已于 2026-10-21 下线，本脚本不再使用')
     ap = argparse.ArgumentParser()
     ap.add_argument('--codes-file', default=str(ETF_CODES), help='一行一个 6 位 code')
     ap.add_argument('--limit', type=int, default=None)

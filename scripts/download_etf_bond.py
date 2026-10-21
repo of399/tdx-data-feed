@@ -92,6 +92,7 @@ def fetch_one(symbol: str, code: str) -> str:
 
 
 def main() -> None:
+    raise SystemExit("已移除：ETF 数据已于 2026-10-21 下线，本脚本不再使用")
     ap = argparse.ArgumentParser(description="下载 ETF / 可转债 日 K")
     ap.add_argument("--only", choices=["etf", "all"], default="etf")
     ap.add_argument("--limit", type=int, default=0, help="最多处理 N 只")

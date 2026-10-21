@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""补全日线到 TARGET 只：pytdx 枚举全市场 -> 筛选股票/ETF -> Sina 源拉日线。
+"""补全日线到 TARGET 只：pytdx 枚举全市场 -> 仅筛选沪深股票 -> Sina 源拉日线。
 用法: python download_universe.py --target 10000
 """
 import argparse
@@ -23,8 +23,6 @@ def sym_of(code):
     g = group(code)
     if g in ("sh", "sz"):
         return g + code
-    if g == "etf":
-        return ("sh" if code.startswith(("51", "58", "56", "52", "53")) else "sz") + code
     return None
 
 def get_codes():
@@ -58,8 +56,8 @@ def main():
     ap.add_argument("--target", type=int, default=10000)
     args = ap.parse_args()
     codes = get_codes()
-    cand = [c for c in codes if group(c) in ("sh", "sz", "etf")]
-    order = {"sh": 0, "sz": 1, "etf": 2}
+    cand = [c for c in codes if group(c) in ("sh", "sz")]
+    order = {"sh": 0, "sz": 1}
     cand.sort(key=lambda c: order[group(c)])
     existing = set(os.path.basename(p)[:-8] for p in glob.glob(OUT + "*.parquet") if ".bak" not in p)
     print(f"候选 {len(cand)} 只, 已有 daily {len(existing)} 只", flush=True)

@@ -126,3 +126,11 @@ data/v4fwd/backup_*/
 
 # 自动恢复脚本日志(2026-10-16 INCIDENT, 每次执行产生新文件)
 logs/auto_train_recover_*.log
+
+# 第三方 CloudBase 规则包(外部插件投影, 与本项目约定无关; 必须写在上方
+# !.codebuddy/rules/** 之后, gitignore last-match-wins)
+.codebuddy/rules/tcb/
+
+# 数据下线备份(213MB tar 与股票池快照, 按"数据不进 git"原则留在本地)
+_archive/*.tar.gz
+_archive/all_a_stocks_*.json

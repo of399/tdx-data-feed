@@ -6,7 +6,7 @@
   - 从 data/parquet/daily/*.parquet 派生全市场正股 symbols（不依赖 vipdoc 目录）
   - 支持 --period 15 / 60
   - 支持 --codes-file 指定缺失清单（精确补齐指定 code）
-  - 复用 min_sync2.py 已有的 fetch_sina / save_rows_parquet
+  - 复用 kline.py 已有的 fetch_sina / save_rows_parquet
   - fail-fast：连续 N 段失败 或 总时间超 M 分钟立即退出
   - 断点续跑：文件存在且 size > 0 自动跳过
   - 缺口台账：写入 /tmp/min_backfill_<period>_<ts>.jsonl
@@ -67,9 +67,7 @@ def list_all_daily_codes():
 def already_have(period: int, code: str):
     """检查 file 是否已存在且非空"""
     fp = OUT / f'min{period}' / f'{code}.parquet'
-    if fp.exists() and fp.stat().st_size > 0:
-        return True
-    return False
+    return bool(fp.exists() and fp.stat().st_size > 0)
 
 
 def append_journal(journal_fp: Path, row: dict):
@@ -153,8 +151,6 @@ def main():
             break
 
         code = sym[2:]
-        prefix = sym[:2]
-        out_fp = OUT / f'min{period}' / f'{code}.parquet'
         t1 = time.time()
         err = None
         try:
