@@ -81,7 +81,7 @@ Qwen3-14B 在中文能力 / 显存占用 / 微调友好度上达到最佳平衡�
 
 ### 背景
 
-需要全 A 股 5565 只股的日 K + 复权因子 + 财务数据。涉及沪深（sh/sz）和北交所（bj）两个市场。
+需要 A 股日 K + 复权因子 + 财务数据。最初覆盖全 A 股 5,565 只（沪深 5,221 + 北交所 344）；**2026-10-21 北交所下线，当前仅维护沪深 5,221 只**。
 
 ### 备选方案
 
@@ -97,14 +97,14 @@ Qwen3-14B 在中文能力 / 显存占用 / 微调友好度上达到最佳平衡�
 
 - **沪深日 K**：`baostock`（稳定，复权准确，免费无限制）
 - **沪深复权因子**：`baostock` query_history_k_data_plus(adjustflag="2")
-- **北交所日 K**：`akshare.stock_zh_a_hist`（带 920XXX 前缀）
-- **北交所复权因子**：`akshare` 新浪源（baostock 不支持 920XXX）
+- ~~北交所日 K：`akshare.stock_zh_a_hist`（带 920XXX 前缀）~~ **2026-10-21 下线**
+- ~~北交所复权因子：`akshare` 新浪源~~ **2026-10-21 下线**
 
 ### 权衡
 
 - ✅ 全免费，无 API 限制
 - ✅ baostock 复权因子精度高
-- ⚠ akshare 北交所偶发断连（已在 `test_bjs_akshare.py` 加冒烟测试）
+- ⚠ akshare 北交所偶发断连（北交所数据已于 2026-10-21 下线）
 - ❌ 需要维护两套数据源
 
 ### 结论
@@ -117,7 +117,7 @@ Qwen3-14B 在中文能力 / 显存占用 / 微调友好度上达到最佳平衡�
 
 ### 背景
 
-每天产生 5565+8035=13600 个新文件，需要选择高效、可压缩、支持 pandas 的存储格式。
+当前维护 5,221 个复权因子 + 5,235 个日 K 文件，需要选择高效、可压缩、支持 pandas 的存储格式。
 
 ### 备选方案
 
@@ -138,8 +138,8 @@ Qwen3-14B 在中文能力 / 显存占用 / 微调友好度上达到最佳平衡�
 
 ### 权衡
 
-- ✅ Parquet 列式存储，pandas 读取快（8035 文件 < 1 分钟）
-- ✅ snappy 压缩比 ~10x（5565 文件约 200MB）
+- ✅ Parquet 列式存储，pandas 读取快（5,235 文件 < 1 分钟）
+- ✅ snappy 压缩比 ~10x（5,221 文件约 200MB）
 - ❌ 不能直接 cat 看（需 parquet-tools）
 
 ### 结论
@@ -285,7 +285,7 @@ Ollama + GGUF f16 是当前最省心的部署方案。
 ### 权衡
 
 - ✅ AUC 0.81 + 特征重要性可解释（prev_close > avg_amount_5d > close_pos_5d）
-- ✅ 训练 30s，推理 7620 只 < 1 分钟
+- ✅ 训练 30s，推理 5,221 只 < 1 分钟
 - ✅ 平衡数据避免过拟合
 - ❌ 无法直接给出非线性交互解释
 - ⚠ 数据分布变化（监管 / 市场风格）需重训
@@ -444,7 +444,7 @@ systemd user timer 是 Linux 服务器上的最佳实践。
 ├─────────────────────────────────────────────────────┤
 │ L3 量化分析层 · find_*.py + plan_*.py + LightGBM    │
 ├─────────────────────────────────────────────────────┤
-│ L2 数据存储层 · parquet + JSON (8035 + 5565)         │
+│ L2 数据存储层 · parquet + JSON (5235 + 5221)         │
 ├─────────────────────────────────────────────────────┤
 │ L1 数据采集层 · tdxfeed/ + scripts/download_*.py    │
 └─────────────────────────────────────────────────────┘
@@ -474,9 +474,9 @@ systemd user timer 是 Linux 服务器上的最佳实践。
 |---|---|---|
 | tdxfeed.cli sync | 拉取单股日 K（sina/akshare/tencent 三源兜底）| systemd timer + 手动 |
 | download_adj_factor_b.py | 批量下载沪深复权因子（baostock）| 手动 |
-| download_adj_factor_bj.py | 下载北交所复权因子（akshare 新浪）| 手动 |
-| download_bj_daily.py | 下载北交所日 K | 手动 |
-| download_universe.py | 全 A 股代码清单 | 首次部署 |
+| download_adj_factor_bj.py | **已下线**（北交所数据 2026-10-21 移除）| — |
+| download_bj_daily.py | **已下线**（北交所数据 2026-10-21 移除）| — |
+| download_universe.py | 沪深 A 股代码清单 | 首次部署 |
 | download_adj_factor_watch.py | watchdog 自动重启挂死进程 | 手动启动 |
 
 ### 量化分析（L3）
@@ -511,7 +511,7 @@ systemd user timer 是 Linux 服务器上的最佳实践。
 
 | 模块 | 模式 | 职责 |
 |---|---|---|
-| predict.py | CLI | 全市场 7620 只预测 |
+| predict.py | CLI | 全市场 5,221 只预测 |
 | plan_e_journal.py | daily/weekly/status/buy/sell/simulate | 实盘跟踪 6 模式 |
 | canary_health_check.py | -/quiet | 6 项健康检查 |
 
@@ -526,11 +526,11 @@ baostock/akshare
        ↓
 download_adj_factor_b.py
        ↓
-data/adj_factor/{code}.parquet (5565)
+data/adj_factor/{code}.parquet (5221)
        ↓
 tdxfeed.cli sync
        ↓
-data/parquet/daily/{code}.parquet (8035)
+data/parquet/daily/{code}.parquet (5235)
        ↓
 find_double_up_c.py
        ↓
@@ -631,7 +631,7 @@ L1 采集 ──→ L2 存储 ──→ L3 分析 ──→ L4 训练 ──→ 
 | 维度 | 决策 |
 |---|---|
 | LLM | Qwen3-14B（中文 + 显存友好）|
-| 数据源 | baostock（沪深）+ akshare（北交所）|
+| 数据源 | baostock / akshare（仅沪深；北交所已下线）|
 | 存储 | Parquet（数据）+ JSON（元信息）+ CSV（特征）|
 | 训练 | LLaMA-Factory + LoRA r=8/16 |
 | 部署 | Ollama + GGUF f16 |

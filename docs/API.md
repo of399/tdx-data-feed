@@ -63,13 +63,13 @@ python scripts/download_universe.py [--target 10000]
 
 #### 输入
 
-无（直接调用通联数据 API）
+无（通过 pytdx 枚举沪深市场后筛选股票）
 
 #### 输出
 
 | 类型 | 路径 | 格式 |
 |---|---|---|
-| 主输出 | `data/all_a_stocks.json` | JSON（5565 只股票清单）|
+| 主输出 | `data/all_a_stocks.json` | JSON（5,221 只沪深股票清单）|
 
 #### Responses
 
@@ -83,14 +83,14 @@ python scripts/download_universe.py [--target 10000]
 
 ```bash
 python scripts/download_universe.py --target 6000
-# 输出：data/all_a_stocks.json (5565 只)
+# 输出：data/all_a_stocks.json (5,221 只)
 ```
 
 #### 错误
 
 | 错误 | 原因 | 解决 |
 |---|---|---|
-| ConnectionError | 通联网络断 | 重试 |
+| ConnectionError | pytdx 行情服务器连接失败 | 重试或更换服务器 |
 | JSONDecodeError | 接口返回异常 | 等待 30s 重试 |
 
 ---
@@ -116,7 +116,7 @@ python scripts/find_double_up_c.py
 
 | 类型 | 路径 |
 |---|---|
-| 数据 | `data/parquet/daily/*.parquet` (8035 文件)|
+| 数据 | `data/parquet/daily/*.parquet` (5,235 文件)|
 
 #### 输出
 
@@ -249,7 +249,7 @@ python scripts/top10_deep_dive.py
 
 #### 关键发现
 
-- 北交所占比 4/10
+- 北交所占比 4/10（历史复盘；北交所数据已下线）
 - 平均连板 5.6 个
 - 集中在医药 / 科技 / 新能源
 
@@ -261,7 +261,7 @@ python scripts/top10_deep_dive.py
 
 **operationId**: `predictDaily`
 **脚本**: `scripts/predict.py`
-**功能**: 方案 D 全市场 7620 只预测
+**功能**: 方案 D 全市场 5,221 只预测
 **命令语法**:
 
 ```bash
@@ -277,7 +277,7 @@ python scripts/predict.py [options]
 | `--threshold` | float | 否 | 0.7 | 高分阈值（0-1）|
 | `--codes` | string | 否 | 全 A | 指定股票代码（逗号分隔）|
 | `--workers` | int | 否 | 8 | 并行进程数 |
-| `--no-skip-bj` | flag | 否 | False | 不跳过北交所 920XXX |
+| `--no-skip-bj` | flag | 否 | False | 保留参数；北交所数据已下线，无对应标的 |
 | `--no-skip-st` | flag | 否 | False | 不跳过 ST 股 |
 | `--no-skip-new` | flag | 否 | False | 不跳过新股（< 30 日）|
 
@@ -294,7 +294,7 @@ python scripts/predict.py [options]
 
 | 类型 | 路径 | 说明 |
 |---|---|---|
-| 全部预测 | `data/predictions/predict_YYYYMMDD_HHMMSS.csv` | 7620 行 |
+| 全部预测 | `data/predictions/predict_YYYYMMDD_HHMMSS.csv` | 5,221 行 |
 | Top N | `data/predictions/predict_top{N}_YYYYMMDD_HHMMSS.csv` | - |
 | 高分 | `data/predictions/predict_high_YYYYMMDD_HHMMSS.csv` | threshold+ |
 | 报告 | `data/predictions/predict_YYYYMMDD_HHMMSS.md` | Markdown |
@@ -347,8 +347,7 @@ python scripts/predict.py --top 30 --threshold 0.7
 # 指定日期
 python scripts/predict.py --date 2026-09-20 --top 50
 
-# 含北交所
-python scripts/predict.py --no-skip-bj --top 30
+# 北交所数据已下线，--no-skip-bj 不再有实际效果
 ```
 
 #### 错误

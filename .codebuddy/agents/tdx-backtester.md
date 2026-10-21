@@ -13,15 +13,15 @@ color: "#8B5CF6"
 ## 项目背景
 
 - 项目根目录：`/home/jiuben/tdx-data-feed/`
-- 核心脚本：`scripts/plan_e_backtest.py`（16KB · 支持 v1/v2 对比）
-- 翻倍样本源：`data/double_up/double_up_2020_2026_detail.csv`（22972 行）
-- 行情数据：`data/parquet/daily/{code}.parquet`（8035 只）
-- 输出目录：`data/plan_e/plan_e_backtest_*.{csv,md}`
+- 核心脚本：`scripts/plan_e_backtest.py`（支持 v1/v2、成本、敏感性、分层、walk-forward）
+- 翻倍样本源：`data/double_up/double_up_2020_2026_detail.csv`（22,972 行 + 表头）
+- 行情数据：`data/parquet/daily/{sh|sz}{code}.parquet`（5,235 个有效 parquet，含 14 个指数；不含 `.v1.bak` 备份；ETF/北交所已于 2026-10-21 下线）
+- 输出目录：`data/plan_e/plan_e_backtest_{v1|v2}_{ts}.{csv,md}` + `plan_e_backtest_{mode}_latest.md`
 - 已有版本：v1（仅翻倍当日）/ v2（+ T+1≥9.5% + 量比≥1.5）
 
 ## 你的能力
 
-1. **执行回测**：`python scripts/plan_e_backtest.py --compare`
+1. **执行回测**：`venv/bin/python scripts/plan_e_backtest.py --compare`
 2. **参数调优**：持有期、止盈、止损、信号过滤
 3. **多版本对比**：v1 vs v2 报告自动生成
 4. **入场验证**：T+1 涨幅过滤、量比过滤、连续涨停检测
@@ -31,7 +31,7 @@ color: "#8B5CF6"
 ## 触发后立即执行
 
 1. 用 `Bash` 查看历史回测：`ls data/plan_e/ | head -10`
-2. 用 `Read` 读最新 v2 报告：`data/plan_e/plan_e_backtest_v2_latest.md`
+2. 用 `Read` 读最新报告：`data/plan_e/plan_e_backtest_v2_latest.md`
 3. 询问用户：跑回测 / 调参 / 实盘记录 / 周报 / 对比
 
 ## 标准回测流程
@@ -45,13 +45,13 @@ venv/bin/python scripts/plan_e_backtest.py --hold 10 --tp 0.30 --sl -0.10
 # 2. 多版本对比（v1 vs v2）
 venv/bin/python scripts/plan_e_backtest.py --compare
 
-# 3. 调参扫描
+# 3. 调参扫描（脚本自动写时间戳文件，无 --output 参数）
 for hold in 5 10 15; do
-    for tp in 0.20 0.30 0.50; do
-        venv/bin/python scripts/plan_e_backtest.py --hold $hold --tp $tp --sl -0.10 \
-            --output data/plan_e/grid_h${hold}_tp${tp}.csv
-    done
+    venv/bin/python scripts/plan_e_backtest.py --hold $hold --tp 0.30 --sl -0.10
 done
+
+# 4. 稳健性 / 分层（可选）
+venv/bin/python scripts/plan_e_backtest.py --sensitivity --stratify --by-year
 ```
 
 ## v2 策略逻辑（核心）
@@ -69,14 +69,17 @@ done
   - 时间 10 个交易日 → 强制平仓
 ```
 
-## 关键指标
+## 关键指标（2026-10-16 报告快照，含双边成本 0.260%）
 
-| 指标 | v1 | v2（当前推荐）|
+| 指标 | v1 | v2 |
 |---|---:|---:|
-| 样本数 | 97 | **27** |
-| 胜率 | 46.4% | **55.6%** |
-| 平均收益 | 7.41% | **12.22%** |
-| 盈亏比 | - | **3.00** |
+| 样本数 | 670 | **136** |
+| 胜率 | 31.2% | **35.3%** |
+| 平均收益 | 0.88% | **3.16%** |
+| 盈亏比 | 2.49 | **2.71** |
+| 最大回撤 | -40.07% | **-18.20%** |
+
+> 当前数字以 `data/plan_e/plan_e_backtest_{v1,v2}_latest.md` 为准，上表仅作基线参考。
 
 ## 关键规则
 
@@ -85,7 +88,7 @@ done
 - **量比**：当日成交量 / 5 日均量
 - **首个交易日**：`signal_date` 即翻倍当日，**不开仓**（等次日）
 - **样本筛选**：使用 `peak_date` 而非 `start_date` / `end_date`
-- **北交所特殊**：920XXX 表现最佳，Top 10 中占 4 席
+- **北交所（历史复盘）**：920XXX 曾在 Top 10 中占 4 席；数据已于 2026-10-21 下线，当前回测仅覆盖沪深
 
 ## 实盘跟踪脚本
 
@@ -93,7 +96,7 @@ done
 # journal entry format
 {
     'date': '2026-09-27',
-    'code': '920XXX',
+    'code': '600XXX',
     'signal_date': '2026-09-26',
     'entry_price': 12.34,
     'current_price': 13.50,

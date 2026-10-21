@@ -2,9 +2,9 @@
 
 > **A股量化研究平台** — 数据采集 → LoRA 微调 → 每日预测 → 策略回测 → 实盘跟踪
 >
-> **维护者**：jiuben · **最后更新**：2026-09-27（v2 数据治理 + README 修订）· **状态**：canary 6/6 ✅ · Ollama 4/4 tdx 模型 ✅ · **v2 schema 100% 合规** ✅
+> **维护者**：jiuben · **最后更新**：2026-10-21（健康检查 + 数据计数/模型对齐）· **状态**：canary 7/7 ✅ · Ollama 4 个 tdx 模型 ✅ · **v2 schema 100% 合规** ✅
 
-> **一句话**：把全 A 股 8035 只日 K + 5565 复权因子 → 翻倍样本 → Qwen3-14B LoRA 微调 → Ollama 部署 → 方案 E 实盘策略
+> **一句话**：把沪深 A 股 5,235 个日 K parquet（5,221 只个股 + 14 个指数）+ 5,221 复权因子 → 翻倍样本 → Qwen3-14B LoRA 微调 → Ollama 部署 → 方案 E 实盘策略
 
 ---
 
@@ -48,27 +48,28 @@ python scripts/predict.py --codes 600519,000001,300750 --top 3
 python scripts/predict.py --web --port 7860
 ```
 
-**结果**：3 只股票的预测概率 + 18 维特征分析报告。
+**结果**：3 只股票的预测分数（daban 涨停概率 / stage1 预期 PnL）+ 模型特征分析报告。
 
 ### 📊 项目关键数字（速查）
 
 | 维度 | 数字 |
 |---|---|
-| 数据规模 | 8035 日 K + 5565 复权因子 + 22972 翻倍样本 + 1.67M 财务 |
-| 已训练模型 | v5 (eval_loss 0.1958) / v6 (0.2883) / **v7 (0.1914)** ← 最优 |
-| Ollama 部署 | 4 个模型（v5/v6/v7/fast-14b）|
-| 方案 E v2 | 胜率 55.6% / 平均收益 12.22% / 盈亏比 3.00 / 27 样本 |
-| 方案 D 预测 | 7620 只全市场 1 分钟完成 |
+| 数据规模 | 5,235 日 K parquet（5,221 沪深个股 + 14 指数；另有 5,232 个 `.v1.bak` 备份）+ 5,221 复权因子 + 22,972 翻倍样本 + 1.67M 财务 |
+| LLM 研究线 | v5 / v6 / v7 / v7r / v9r（**非生产预测路径**）|
+| Ollama 部署 | 7 个模型（4 个 tdx：`v4fwd` / `v7r-q8` / `v7r1115` / `fast:14b`；另 `deepseek-r1:14b` / `qwen3:14b` / `nomic-embed-text`）|
+| 方案 E v2 | 胜率 35.3% / 平均收益 3.16% / 盈亏比 2.71 / 136 样本（2026-10-16 报告）|
+| 方案 D 预测 | 5,221 只股票并行打分（默认 daban Top5）|
 | 容器化 | 10 service · 8 数据卷 · 250 GB |
-| IDE 工作空间 | 4 Agent + 3 Rule + 1 Skill + 1 MCP + 2 Memory |
+| IDE 工作空间 | 4 Agent + 4 Rule + 1 Skill + 2 IDE MCP + 22 Memory（+ 4 个仅记忆的 automation）|
 
 ---
 
-### 🧹 数据治理状态（2026-09-28）
+### 🧹 数据治理状态（2026-10-21）
 
+- **ETF / 北交所数据下线**：删除 1,652 个 ETF/基金日 K、344 个北交所日 K 及对应 adj_factor / derived / min15 / min60 / legacy lday；`all_a_stocks.json` 由 5,565 降至 5,221；StockVault 344 篇 920 笔记同步删除。归档：`_archive/removed_etf_bj_20261021.tar.gz`。
 - **债券数据下线**：`download_universe.py` / `download_etf_bond.py` / `backfill_adj_etf.py` 已移除债券处理；已删除 `data/parquet/daily/` 下 317 个债券落盘文件与 `data/convertible_bond_codes.txt`。**后续不再保留债券数据**。
 - **大文件出 git（D7）**：`v5/audit/` 下约 80 MB 审计大文件（parquet/csv/lora/suggestion-md）已 `git rm --cached` 并加入 `.gitignore`（磁盘保留，仅停止跟踪，避免仓库继续膨胀）。
-- **min5 补齐（D1）**：`min_sync2.py --mode market-5d`（Sina scale=5，全市场）补齐 `data/parquet/min5/`；Eastmoney 全历史接口当前连接不稳定。
+- **min5 补齐（D1）**：历史脚本 `min_sync2.py` 已归档至 `_archive/`（不再可调用）；现有 `data/parquet/min5/` 数据保留，分钟线补齐用 `scripts/backfill_minutes.py`（15/60 分钟）。
 - **v5/v6/v7 推理对标（F1）**：`scripts/bench_v567.py` 输出 BLEU/ROUGE + 翻倍分类准确率 + P95 延迟 + 显存峰值，结果见 `data/bench_v567.json`。
 - **脚本归档（W1）**：分类目录见 `scripts/INDEX.md`（未做物理移动，避免破坏现有管线）。
 
@@ -152,21 +153,21 @@ baostock / akshare（外部数据源）
 
 | 项 | 内容 |
 |---|---|
-| 目标 | 7620 只股票打分，Top 30 输出 |
+| 目标 | 全市场打分；small 默认 Top 5，full 模式 Top 20 |
 | 输入 | 日 K + 复权因子 + 翻倍样本 |
-| 模型 | LightGBM（已训练，joblib 序列化）|
-| 特征 | 18 维（ret_5d / ret_20d / vol_ratio_t1 / pct_t1 / ...）|
+| 模型 | LightGBM：默认 `daban`（29 维，次日涨停分类）；大仓位 `vpnl_huber_stage1`（21 维，PnL 回归）|
+| 特征 | 由模型 `feature_name()` 动态决定（daban 29 / stage1 21 / prod 18）|
 | 输出 | `data/predictions/predict_YYYYMMDD_HHMMSS.csv` + `.md` |
 | 脚本 | `scripts/predict.py`（新增 `--web` Gradio UI）|
-| 调度 | `systemd/predict-daily.timer`（18:30 每日）|
+| 调度 | `systemd/predict-daily.timer`（工作日 18:05）|
 
 #### 🎯 方案 E：翻倍当日跟随策略（回测 + 实盘）
 
 | 项 | 内容 |
 |---|---|
 | 目标 | 翻倍当日 + T+1 涨停 + 量比放大 → 跟随 10 日 |
-| v1 规则 | 仅翻倍当日 → 胜率 46.4% |
-| **v2 规则** | + T+1 ≥ 9.5% + 量比 ≥ 1.5 → **胜率 55.6%** |
+| v1 规则 | 仅翻倍当日 → 胜率 31.2% |
+| **v2 规则** | + T+1 ≥ 9.5% + 量比 ≥ 1.5 → **胜率 35.3%**（2026-10-16 报告）|
 | 关键指标 | 胜率 / 平均收益 / 盈亏比 / 夏普 / 最大回撤 |
 | 回测脚本 | `scripts/plan_e_backtest.py --compare` |
 | 实盘脚本 | `scripts/plan_e_journal.py --mode daily` |
@@ -196,7 +197,7 @@ baostock / akshare（外部数据源）
 ```
 predict.py
   └─▶ data/double_up/d_signal_5d_model.txt    （LightGBM 模型）
-  └─▶ data/double_up/d_signal_5d_features.csv （18 维特征 schema）
+  └─▶ data/double_up/d_signal_5d_features.csv （18 维基础特征 schema，历史训练集）
   └─▶ data/parquet/daily/{code}.parquet       （日 K）
   └─▶ data/adj_factor/{code}.parquet          （复权因子）
 
@@ -294,28 +295,21 @@ print(f'tensors={len(r.tensors)} metadata={len(r.fields)} arch={r.fields[\"gener
 # 沪深数据（脚本分散；实际用 tdxfeed.full_sync 主链路）
 python -m tdxfeed.full_sync                  # 主力（Sina → akshare → Tencent）
 
-# 北交所数据
-python scripts/download_bj_daily.py          # akshare → data/parquet/daily/bj*.parquet
-
 # 复权因子（沪深）
 python scripts/download_adj_factor_b.py      # baostock, 2020-01-01 起
-
-# 复权因子（北交所）
-python scripts/download_adj_factor_bj.py     # akshare
 
 # 后复权因子（hfq，2026-09 新增）
 python scripts/download_hfq_factor.py        # → data/hfq_factor/
 
-# ETF + 可转债日 K（2026-09 新增）
-python scripts/download_etf_bond.py          # Sina → ~1500 只
+# 北交所 / ETF 数据已于 2026-10-21 下线，相关脚本仅保留弃用提示
 
 # 翻倍样本
 python scripts/find_double_up_c_v2.py
 
 # 验证（v2 schema：date date32 + 7/5 列）
 python scripts/check_schema.py                # 应输出 合规率 100%
-ls data/parquet/daily | wc -l                # ≥ 8035（v2 实际 8035）
-ls data/adj_factor | wc -l                   # ≥ 5565（v2 实际 5565）
+find data/parquet/daily -maxdepth 1 -name '*.parquet' ! -name '*.v1.bak.parquet' | wc -l   # 5,235
+find data/adj_factor -maxdepth 1 -name '*.parquet' | wc -l      # 5,221
 test -f data/double_up/double_up_2020_2026_detail.csv  # 应存在
 ```
 
@@ -323,11 +317,11 @@ test -f data/double_up/double_up_2020_2026_detail.csv  # 应存在
 >
 > | 数据集 | 文件数 | 列数 | date 类型 |
 > |---|---|:---:|---|
-> | `data/parquet/daily/` | **8,035** | 7 | `date32[day]` ✓ |
-> | `data/adj_factor/` | **5,565** | 5 | `date32[day]` ✓ |
-> | `data/hfq_factor/` | 325+（持续中） | 5 | `date32[day]` ✓ |
-> | `data/parquet/min15/` | 4,693 | - | `timestamp` |
-> | `data/parquet/min60/` | 300 | - | `timestamp` |
+> | `data/parquet/daily/` | **5,235** | 7 | `date32[day]` ✓ |
+> | `data/adj_factor/` | **5,221** | 5 | `date32[day]` ✓ |
+> | `data/hfq_factor/` | 5,221 | 5 | `date32[day]` ✓ |
+> | `data/parquet/min15/` | 5,221 | - | `timestamp` |
+> | `data/parquet/min60/` | 5,221 | - | `timestamp` |
 >
 > v1→v2 迁移脚本：`scripts/migrate_v1_to_v2.py`（默认 dry-run，`--apply` 真正写入；备份 `.v1.bak.parquet`）
 
@@ -413,6 +407,8 @@ systemctl --user list-timers --all
 | 后复权 hfq | 无 | `data/hfq_factor/`（baostock adjustflag=3）|
 | 复权因子缺口 | 2,470 只（实际全是 ETF/可转债）| 已用 Sina + `adj_factor=1` 占位解决 |
 
+> 注：ETF/北交所数据已于 2026-10-21 下线，上表为 v2 治理期历史记录，不代表当前数据集。
+
 #### 3.8.2 新增 / 修订脚本
 
 | 脚本 | 用途 | 命令 |
@@ -421,7 +417,7 @@ systemctl --user list-timers --all
 | `scripts/migrate_v1_to_v2.py` | v1→v2 date32 迁移（备份原文件 `.v1.bak.parquet`） | `venv/bin/python scripts/migrate_v1_to_v2.py --apply` |
 | `scripts/verify_v2.py` | 端到端验证（schema + predict 抽样 + canary）| `venv/bin/python scripts/verify_v2.py` |
 | `tdxfeed/incremental.py` | 增量更新（Tencent 主源 + Akshare + Sina 兜底，写 v2 schema）| `venv/bin/python -m tdxfeed.incremental` |
-| `scripts/download_etf_bond.py` | ETF/可转债日 K（替代不存在的 `download_baostock.py`）| `venv/bin/python scripts/download_etf_bond.py` |
+| `scripts/download_etf_bond.py` | **已下线**（ETF 数据 2026-10-21 移除；脚本仅保留弃用提示）| — |
 | `scripts/download_hfq_factor.py` | 后复权因子下载 | `venv/bin/python scripts/download_hfq_factor.py` |
 | `tdxfeed/symbols.py` | 扩展 `group()` / `sym_of_sina()` / `market_of()`（含 bj 类别与 ETF/可转债前缀）| （库）|
 
@@ -486,7 +482,8 @@ mv data/parquet/daily/sh600000.v1.bak.parquet data/parquet/daily/sh600000.parque
 # Ollama 配置
 export OLLAMA_HOST=localhost
 export OLLAMA_PORT=11434
-export TDX_OLLAMA_MODEL=qwen3-14b-tdx-v7
+export TDX_LLM_BACKEND=ollama          # runtime.py 走 Ollama；不设则加载本地 transformers+peft
+export TDX_OLLAMA_MODEL=qwen3-14b-tdx-v7r-q8
 
 # 数据路径
 export TDX_HOME=/home/jiuben/tdx-data-feed
@@ -551,16 +548,17 @@ source venv/bin/activate
 python scripts/predict.py --codes 600519 --top 1
 ```
 
-**输出**：`data/predictions/predict_*.md` 含概率 + 18 维特征。
+**输出**：`data/predictions/predict_*.md` 含分数（daban 为涨停概率 / stage1 为预期 PnL）+ 模型特征。
 
-### 示例 2：全市场 Top 30（1 分钟）
+### 示例 2：全市场预测（默认 daban Top 5）
 
 ```bash
-python scripts/predict.py --top 30 --threshold 0.7
+python scripts/predict.py                              # small：daban 29 维，Top 5，阈值 0.7
+python scripts/predict.py --position-mode full         # full：stage1 回归，Top 20
 ls -la data/predictions/predict_latest.md
 ```
 
-**输出**：1159 只过 0.7 阈值 + Top 30 报告。
+**输出**：`predict_top5_*.csv` + 全部股票 CSV + Markdown 报告（阈值分布以本次报告为准）。
 
 ### 示例 3：方案 E v1 vs v2 对比（3 分钟）
 
@@ -569,7 +567,7 @@ python scripts/plan_e_backtest.py --compare
 cat data/plan_e/plan_e_compare_*.md
 ```
 
-**输出**：v1 46.4% vs v2 55.6% 胜率对比 + 27 笔明细。
+**输出**：v1 31.2% vs v2 35.3% 胜率对比（2026-10-16 报告：670 vs 136 笔）。
 
 ### 示例 4：方案 E 参数扫描
 
@@ -587,7 +585,7 @@ done
 
 ```bash
 curl -s http://localhost:11434/api/generate -d '{
-  "model": "qwen3-14b-tdx-v7",
+  "model": "qwen3-14b-tdx-v7r-q8:latest",
   "prompt": "用一句话分析 600519 茅台当前估值",
   "stream": false,
   "options": {"stop": [], "repeat_penalty": 1.0}
@@ -638,7 +636,7 @@ python scripts/predict.py --codes 600519 --top 1
 
 # 3. 调 Ollama 深度分析
 curl -s http://localhost:11434/api/generate -d '{
-  "model": "qwen3-14b-tdx-v7",
+  "model": "qwen3-14b-tdx-v7r-q8:latest",
   "prompt": "深度分析 600519 茅台近 30 日资金面、技术面、基本面",
   "stream": false
 }'
@@ -656,31 +654,31 @@ python scripts/plan_e_backtest.py --vol-ratio 2.0    # 量比要求
 ### 场景 4：重训模型（增量数据）
 
 ```bash
-# 1. 拉新数据
-python scripts/download_baostock.py --incremental
+# 1. 拉新数据（生产入口）
+venv/bin/python -m tdxfeed.full_sync
 
-# 2. 重训
-nohup venv/bin/llamafactory-cli train train/v7_lora.yaml > /tmp/v7.log 2>&1 &
+# 2. 重训（续训配置）
+nohup venv/bin/llamafactory-cli train training/config/tdx_v7_resume.yaml > /tmp/v7.log 2>&1 &
 
 # 3. 合并 + GGUF + 部署
-python -c "
+venv/bin/python -c "
 import torch
 from transformers import AutoModelForCausalLM
 from peft import PeftModel
 base = AutoModelForCausalLM.from_pretrained(
     '/home/jiuben/models/Qwen3-14B',
     torch_dtype=torch.bfloat16, device_map='cpu', low_cpu_mem_usage=True)
-model = PeftModel.from_pretrained(base, 'train/output/qwen3-14b-tdx-v7/checkpoint-500')
+model = PeftModel.from_pretrained(base, 'train/output/qwen3-14b-tdx-v7-resume/checkpoint-1115')
 merged = model.merge_and_unload()
-merged.save_pretrained('models/Qwen3-14B-tdx-v7-merged')
+merged.save_pretrained('models/Qwen3-14B-tdx-v7r-merged')
 "
 
 venv/bin/python /home/jiuben/llama.cpp/convert_hf_to_gguf.py \
-  models/Qwen3-14B-tdx-v7-merged \
-  --outfile models/Qwen3-14B-tdx-v7-merged-f16.gguf --outtype f16
+  models/Qwen3-14B-tdx-v7r-merged \
+  --outfile models/Qwen3-14B-v7r-merged-f16.gguf --outtype f16
 
-ollama rm qwen3-14b-tdx-v7:latest
-ollama create qwen3-14b-tdx-v7 -f /home/jiuben/models/Modelfile-v7
+ollama rm qwen3-14b-tdx-v7r:latest
+ollama create qwen3-14b-tdx-v7r -f /home/jiuben/models/Modelfile-v7r
 ```
 
 ### 场景 5：跨机器部署
@@ -904,9 +902,9 @@ sudo systemctl restart docker
 
 | Agent | 触发词 | 职责 |
 |---|---|---|
-| `tdx-data-collector` | 下载股票数据 / baostock / akshare | 数据采集 |
+| `tdx-data-collector` | 下载股票数据 / akshare / 增量同步 | 数据采集 |
 | `tdx-model-trainer` | 训练 / LoRA /合并 / GGUF / 部署 Ollama | 模型训练与合并 |
-| `tdx-predictor` | 每日预测 / Top 30 / predict.py | 全市场预测 |
+| `tdx-predictor` | 每日预测 / Top 5 / predict.py | 全市场预测 |
 | `tdx-backtester` | 方案E / 胜率 / v1 vs v2 / 实盘 | 策略回测 |
 
 **使用方式**：
@@ -1120,16 +1118,14 @@ tail -f logs/canary.log
 | 脚本 | 命令 | 备注 |
 |---|---|---|
 | 数据采集（主力）| `python -m tdxfeed.full_sync` | Sina → akshare → Tencent 多源兜底 |
-| 北交所日 K | `python scripts/download_bj_daily.py` | akshare → `data/parquet/daily/bj*.parquet` |
 | 沪深复权因子 | `python scripts/download_adj_factor_b.py` | baostock 2020-01-01 起 |
-| 北交所复权因子 | `python scripts/download_adj_factor_bj.py` | akshare |
 | 后复权因子 | `python scripts/download_hfq_factor.py` | → `data/hfq_factor/`（v2 新增）|
-| ETF/可转债日 K | `python scripts/download_etf_bond.py` | Sina ~1500 只（v2 新增）|
+| 北交所 / ETF 日 K | — | **已下线（2026-10-21）**，脚本仅保留弃用提示 |
 | **增量更新** | `python -m tdxfeed.incremental` | **v2 新增**：Tencent 主源，写 date32 |
 | **schema 合规扫描** | `python scripts/check_schema.py` | **v2 新增** |
 | **v1→v2 迁移** | `python scripts/migrate_v1_to_v2.py --apply` | **v2 新增**：备份 `.v1.bak.parquet` |
 | **端到端验证** | `python scripts/verify_v2.py` | **v2 新增**：schema + predict 抽样 + canary |
-| 方案 D 预测 | `python scripts/predict.py` | Top 30 / threshold 0.7 |
+| 方案 D 预测 | `python scripts/predict.py` | small=daban/Top5；full=stage1/Top20 |
 | 方案 E 回测 | `python scripts/plan_e_backtest.py --compare` | v1 vs v2 |
 | 方案 E 实盘 | `python scripts/plan_e_journal.py` | simulate / paper / live |
 | 健康检查 | `python scripts/canary_health_check.py` | 6 项 |
@@ -1141,7 +1137,7 @@ tail -f logs/canary.log
 ollama list
 
 curl -s http://localhost:11434/api/generate -d '{
-  "model": "qwen3-14b-tdx-v7",
+  "model": "qwen3-14b-tdx-v7r-q8:latest",
   "prompt": "分析 600519 茅台",
   "stream": false,
   "options": {"stop": [], "repeat_penalty": 1.0}
@@ -1156,8 +1152,8 @@ curl -s http://localhost:11434/api/generate -d '{
 | gguf master | 覆盖（避免 DFLASH）| 已覆盖（master 已删 DFLASH，但 GGUFWriter/Reader 实现差异仍必要）| ✓ |
 | Ollama | 0.3.10+ | snap 0.x（HTTP 200，PID 7583）| ✓ |
 | Ollama 模型 | 4 个 tdx | 4 个 tdx（v5/v6/v7/fast:14b）+ 4 个其他（deepseek-r1, qwen3:32b/14b, nomic-embed）| ⚠️ |
-| data/parquet/daily | ≥ 5000 | 8035（v2 date32 合规率 100%）| ✓ |
-| data/adj_factor | ≥ 5000 | 5565（v2 date32 合规率 100%）| ✓ |
+| data/parquet/daily | ≥ 5000 | 5,235（5,221 沪深个股 + 14 指数；v2 date32 合规率 100%）| ✓ |
+| data/adj_factor | ≥ 5000 | 5,221（v2 date32 合规率 100%）| ✓ |
 | systemd timer | 5 个 | 5 个（canary-health/tdxfeed-sync/predict-daily/plan-e-journal/plan-e-weekly）| ✓ |
 | predict-daily 时间 | 18:30 | 18:05 | ⚠️ |
 | plan-e-journal 时间 | 18:35 | 18:10 | ⚠️ |
@@ -1185,12 +1181,12 @@ curl -s http://localhost:11434/api/generate -d '{
 # === 一键查看系统状态 ===
 systemctl --user list-timers --all
 ollama list
-ls data/parquet/daily | wc -l
+find data/parquet/daily -maxdepth 1 -name '*.parquet' | wc -l
 tail logs/canary.log
 cat data/predictions/predict_latest.md | head -40
 
-# === 一键跑完整预测 ===
-python scripts/predict.py --top 30
+# === 一键跑完整预测（默认 small：daban Top5）===
+python scripts/predict.py
 
 # === 一键跑方案 E ===
 python scripts/plan_e_backtest.py --compare
@@ -1216,5 +1212,5 @@ docker compose logs -f tdx-app
 
 ---
 
-> **最后更新**：2026-09-27 · **维护者**：jiuben
-> **系统健康度**：canary 6/6 通过 · Ollama 4/4 模型 · 数据 8035/5565 文件 · 项目级 IDE 配置 14 个文件
+> **最后更新**：2026-10-21 · **维护者**：jiuben
+> **系统健康度**：canary 7/7 通过 · Ollama 已部署 7 个模型（4 个 tdx）· 数据 5,235 日K / 5,221 复权因子 · 项目级 IDE 配置 38 个文件

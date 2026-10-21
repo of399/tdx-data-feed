@@ -15,7 +15,7 @@
 #
 # 分类:
 #   开发      install / lint / fix / format / test
-#   数据      data-universe / data-sync / data-adj / data-bj
+#   数据      data-universe / data-sync / data-adj
 #   分析      analyze-double-up / analyze-signal-d / analyze-top10
 #   训练      train-v5 / train-v6 / train-v7
 #   部署      deploy-v5 / deploy-v6 / deploy-v7
@@ -220,18 +220,13 @@ data-adj:  ## 下载沪深复权因子
 	$(PYTHON) $(SCRIPTS)/download_adj_factor_b.py
 	@echo "$(GREEN)✓ 复权因子下载完成$(NC)"
 
-data-bj:  ## 下载北交所日 K + 复权因子
-	$(PYTHON) $(SCRIPTS)/download_bj_daily.py
-	$(PYTHON) $(SCRIPTS)/download_adj_factor_bj.py
-	@echo "$(GREEN)✓ 北交所数据下载完成$(NC)"
-
 data-watch:  ## 启动 watchdog 自动重启挂死进程
 	$(PYTHON) $(SCRIPTS)/download_adj_factor_watch.py &
 
 data-status:  ## 查看数据同步状态
 	$(PYTHON) -m tdxfeed.cli status
 	@echo "$(CYAN)股票清单: $(shell jq 'length' $(DATA)/all_a_stocks.json 2>/dev/null || echo 'N/A') 只$(NC)"
-	@echo "$(CYAN)日 K: $(shell ls $(DATA)/parquet/daily/ 2>/dev/null | wc -l) 文件$(NC)"
+	@echo "$(CYAN)日 K: $(shell find $(DATA)/parquet/daily -maxdepth 1 -name '*.parquet' ! -name '*.v1.bak.parquet' 2>/dev/null | wc -l) 文件$(NC)"
 	@echo "$(CYAN)复权因子: $(shell ls $(DATA)/adj_factor/ 2>/dev/null | wc -l) 文件$(NC)"
 
 # ============== 量化分析 ==============

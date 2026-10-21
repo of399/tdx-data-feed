@@ -52,11 +52,9 @@ source venv/bin/activate
 python -m tdxfeed.full_sync
 # 增量更新（Tencent 主源）
 python -m tdxfeed.incremental --limit 100
-# 复权因子 / 后复权 / ETF·可转债 / 北交所
+# 复权因子 / 后复权（ETF/北交所已于 2026-10-21 下线）
 python scripts/download_adj_factor_b.py
 python scripts/download_hfq_factor.py
-python scripts/download_etf_bond.py
-python scripts/download_bj_daily.py
 # 翻倍样本
 python scripts/find_double_up_c_v2.py
 ```
@@ -66,7 +64,7 @@ python scripts/find_double_up_c_v2.py
 每日全市场打分由 **LightGBM**（18 维特征，joblib 序列化）完成，**不调用任何大模型**，毫秒级、确定性、零推理成本：
 
 ```bash
-# 全市场 Top 30（~1 分钟，7620 只）
+# 全市场 Top 30（~1 分钟，5,221 只）
 python scripts/predict.py --top 30 --threshold 0.7
 # 指定标的
 python scripts/predict.py --codes 600519,000001,300750 --top 3
@@ -151,7 +149,7 @@ systemctl --user list-timers --all
 | 输出 | 每只股票翻倍概率 + 特征贡献 |
 | 调度 | `predict-daily.timer`（18:05）|
 
-**为什么不依赖 LLM**：① 确定性（同输入同输出，可审计）；② 速度（7620 只 1 分钟）；③ 零边际成本（无需 GPU 推理）；④ 隐私（无文本外发）。方案 D 是"生产主力"，LLM 不参与。
+**为什么不依赖 LLM**：① 确定性（同输入同输出，可审计）；② 速度（5,221 只 1 分钟）；③ 零边际成本（无需 GPU 推理）；④ 隐私（无文本外发）。方案 D 是"生产主力"，LLM 不参与。
 
 ### 3.2 方案 E：分析环节使用 qwen3-14b-tdx-v7
 

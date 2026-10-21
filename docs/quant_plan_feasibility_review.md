@@ -50,7 +50,7 @@ tdx-data-feed/
 │   ├── writers.py      # parquet 落盘 + 增量合并（非破坏）
 │   ├── full_sync.py    # 日线全量刷新（Sina 主源）
 │   └── ...
-├── data/parquet/daily/ # 8035 只日K（schema 冻结）
+├── data/parquet/daily/ # 5,235 个日K文件（schema 冻结）
 ├── scripts/            # 55 个 Python 入口
 ├── models/             # LoRA / GGUF
 └── docs/               # 设计文档

@@ -13,11 +13,11 @@ You are working in the tdx-data-feed project. Apply these conventions strictly:
 | 路径 | 用途 | 备注 |
 |---|---|---|
 | `scripts/` | 所有 Python 入口脚本 | 单文件 < 30 KB |
-| `scripts/predict.py` | 方案 D 每日预测 | 7620 只约 1 分钟 |
+| `scripts/predict.py` | 方案 D 每日预测 | 5,221 只约 1 分钟 |
 | `scripts/plan_e_backtest.py` | 方案 E 回测 | 支持 --compare |
 | `train/` | 训练数据 / 输出 | 含 `data/` `output/` `v*/` |
-| `data/parquet/daily/` | 日 K 行情 | 8035 个文件，零填充 6 位 |
-| `data/adj_factor/` | 复权因子 | 5565 个文件 |
+| `data/parquet/daily/` | 日 K 行情 | 5,235 个文件，零填充 6 位 |
+| `data/adj_factor/` | 复权因子 | 5,221 个文件 |
 | `data/double_up/` | 翻倍样本 | 22972 行 |
 | `data/predictions/` | 每日预测 | `predict_YYYYMMDD_HHMMSS.{csv,md}` |
 | `data/plan_e/` | 方案 E 回测 | v1/v2 对比 |
@@ -33,8 +33,7 @@ You are working in the tdx-data-feed project. Apply these conventions strictly:
 
 ## 命名规范
 
-- **股票代码**：6 位数字，零填充（`600519` 而非 `6005`）
-- **北交所**：前缀 `920XXX` 或 `bj920XXX`
+- **股票代码**：6 位数字，零填充（`600519` 而非 `6005`）；仅沪深（北交所数据已下线）
 - **文件名日期**：`YYYYMMDD` 或 `YYYYMMDD_HHMMSS`（按精度递增）
 - **Agent 名**：`kebab-case`（如 `tdx-data-collector`）
 - **Skill 名**：`kebab-case`（如 `tdx-quant-workflow`）

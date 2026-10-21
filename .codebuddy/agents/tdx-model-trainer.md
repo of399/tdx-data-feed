@@ -38,12 +38,13 @@ color: "#F59E0B"
 ## 标准训练流程（v7 模式）
 
 ```bash
-# 1. 训练（续训）
+# 1. 训练（续训，配置：training/config/tdx_v7_resume.yaml）
 cd /home/jiuben/tdx-data-feed
-nohup venv/bin/llamafactory-cli train train/v7_lora.yaml > /tmp/v7-train.log 2>&1 &
+ls training/config/tdx_v7_resume.yaml   # 不存在则不要启动
+nohup venv/bin/llamafactory-cli train training/config/tdx_v7_resume.yaml > /tmp/v7-train.log 2>&1 &
 
 # 2. LoRA merge（CPU 模式，节省显存）
-python -c "
+venv/bin/python -c "
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
@@ -81,7 +82,7 @@ ollama create qwen3-14b-tdx-v7 -f /home/jiuben/models/Modelfile-v7
 
 - **gguf 工具链**：venv 的 gguf 0.19.0 缺 DFLASH，**必须**从 llama.cpp master 源码覆盖
 - **Modelfile stop token**：必须显式 `PARAMETER repeat_penalty 1.0`，否则模型生成 1 token 即停
-- **续训**：v7 在 v5 上续训，checkpoint 500 步（不是 resume，用 `adapter_name_or_path`）
+- **续训**：`training/config/tdx_v7_resume.yaml` 用 `adapter_name_or_path` 从 v7/checkpoint-500 续训，输出到 `train/output/qwen3-14b-tdx-v7-resume/`（不是 `resume_from_checkpoint`）；merge 时把示例路径换成实际 checkpoint
 - **GPU OOM**：merge 必须 `device_map="cpu"` + `low_cpu_mem_usage=True`
 - **推理测试**：用 `curl -s http://localhost:11434/api/generate`（设 `stop=[]`）
 

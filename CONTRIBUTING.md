@@ -110,7 +110,7 @@ ignore = ["E501"]  # 行长度由 formatter 控制
 | 模块名 | snake_case | `find_double_up_c.py` |
 | 类名 | PascalCase | `class FeatureExtractor:` |
 | 函数名 | snake_case | `def compute_features():` |
-| 变量名 | snake_case | `n_stocks = 8035` |
+| 变量名 | snake_case | `n_stocks = 5235` |
 | 常量 | UPPER_SNAKE | `INITIAL_CAPITAL = 100000` |
 | 私有函数 | _leading_underscore | `def _validate():` |
 | 私有变量 | _leading_underscore | `self._cache` |
@@ -236,10 +236,9 @@ make format   # ruff format
 
 ```bash
 # 好的 commit
-git commit -m "feat(predict): 新增 --no-skip-bj 参数
+git commit -m "feat(predict): 新增 --no-skip-st 参数
 
-允许保留北交所股票在预测范围内（默认跳过 920XXX）。
-对北交所占比高的样本集有用。
+允许保留 ST 股票在预测范围内（默认跳过 ST）。
 
 Closes #123"
 
@@ -640,8 +639,8 @@ gh pr create
 
 | 指标 | 值 |
 |---|---:|
-| 日 K 文件 | 8035 |
-| 复权因子 | 5565 |
+| 日 K 文件 | 5,235 |
+| 复权因子 | 5,221 |
 | 翻倍样本 | 22972 |
 | 方案 D AUC | 0.8144 |
 | 方案 E 胜率 | 55.6% |
