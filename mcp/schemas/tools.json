@@ -1,0 +1,371 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tdx-data-feed MCP Server Pool Tools Schema",
+  "version": "0.5.0",
+  "updated": "2026-10-21",
+  "servers": {
+    "tdx-parquet-reader": {
+      "description": "读 Parquet 数据（行情/财务/股本）",
+      "command": "venv/bin/python mcp/servers/parquet_reader.py",
+      "tools": [
+        {
+          "name": "read_daily_kline",
+          "description": "读日 K 线 Parquet",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string", "description": "标的代码，如 sh600000"},
+              "start": {"type": "string", "description": "起始日期（YYYYMMDD 或 YYYY-MM-DD）"},
+              "end": {"type": "string", "description": "结束日期（YYYYMMDD 或 YYYY-MM-DD）"},
+              "limit": {"type": "integer", "description": "仅返回最后 N 条"}
+            },
+            "required": ["code"]
+          }
+        },
+        {
+          "name": "read_finance",
+          "description": "读财务摘要（核心 300 + 补集，1.67M 行；精确指标名优先，模糊多义报错）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string", "description": "标的代码（None=全部）"},
+              "periods": {"type": "integer", "default": 8, "description": "每个 code 取最近 N 期"},
+              "metric": {"type": "string", "description": "精确指标名，如 营业总收入 / 归母净利润 / 净资产收益率(ROE)"}
+            }
+          }
+        },
+        {
+          "name": "read_xdxr",
+          "description": "读股本变动（除权除息）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string"}
+            }
+          }
+        },
+        {
+          "name": "list_codes",
+          "description": "列代码清单",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pattern": {"type": "string", "description": "代码前缀，如 sh6 / sz000"},
+              "market": {"type": "string", "enum": ["sh", "sz"]},
+              "has_data": {"type": "boolean", "default": true}
+            }
+          }
+        }
+      ]
+    },
+    "tdx-calc": {
+      "description": "金融计算（技术指标 / 复权；NaN 统一转为 null）",
+      "command": "venv/bin/python mcp/servers/calc.py",
+      "tools": [
+        {
+          "name": "calc_ma",
+          "description": "简单 / 指数移动均线",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "prices": {"type": "array", "items": {"type": "number"}},
+              "window": {"type": "integer", "default": 5},
+              "type": {"type": "string", "enum": ["sma", "ema"], "default": "sma"}
+            },
+            "required": ["prices"]
+          }
+        },
+        {
+          "name": "calc_macd",
+          "description": "MACD；golden_cross 为事件数组：1=当日金叉 / -1=当日死叉 / 0=无事件，above_dea 为状态数组",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "prices": {"type": "array", "items": {"type": "number"}},
+              "fast": {"type": "integer", "default": 12},
+              "slow": {"type": "integer", "default": 26},
+              "signal": {"type": "integer", "default": 9}
+            },
+            "required": ["prices"]
+          }
+        },
+        {
+          "name": "calc_kdj",
+          "description": "KDJ",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "high": {"type": "array", "items": {"type": "number"}},
+              "low": {"type": "array", "items": {"type": "number"}},
+              "close": {"type": "array", "items": {"type": "number"}},
+              "n": {"type": "integer", "default": 9}
+            },
+            "required": ["high", "low", "close"]
+          }
+        },
+        {
+          "name": "calc_rsi",
+          "description": "RSI",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "prices": {"type": "array", "items": {"type": "number"}},
+              "n": {"type": "integer", "default": 14}
+            },
+            "required": ["prices"]
+          }
+        },
+        {
+          "name": "calc_boll",
+          "description": "布林带",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "prices": {"type": "array", "items": {"type": "number"}},
+              "n": {"type": "integer", "default": 20},
+              "k": {"type": "number", "default": 2}
+            },
+            "required": ["prices"]
+          }
+        },
+        {
+          "name": "calc_adj_factor",
+          "description": "复权因子（前/后）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "xdxr_events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "date": {"type": "string"},
+                    "songzhuan": {"type": "number"},
+                    "rights": {"type": "number"},
+                    "bonus": {"type": "number"}
+                  }
+                }
+              },
+              "end_date": {"type": "string"}
+            },
+            "required": ["xdxr_events"]
+          }
+        }
+      ]
+    },
+    "tdx-vault": {
+      "description": "StockVault 检索（索引由 scripts/build_vault_index.py 构建；向量存于 sidecar .vectors.npy，缺失或 rows_hash 不匹配时 lexical 兜底）",
+      "command": "venv/bin/python mcp/servers/vault.py",
+      "tools": [
+        {
+          "name": "search",
+          "description": "检索文档；返回 mode 标明实际通道（vector / lexical / no_match / empty），lexical 时带 hint。category 限定 vault 一级目录，path_prefix 限定路径前缀，exclude_category 排除目录（个股/新闻类查询应排除 09-理论讲义），全留空为全库",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {"type": "string"},
+              "top_k": {"type": "integer", "default": 5},
+              "category": {"type": "string", "description": "vault 一级目录，如 09-理论讲义 / 04-策略与方案"},
+              "path_prefix": {"type": "string", "description": "笔记相对路径前缀，如 09-理论讲义/01-投资学"},
+              "exclude_category": {"type": ["string", "array"], "items": {"type": "string"}, "description": "要排除的 vault 一级目录"}
+            },
+            "required": ["query"]
+          }
+        },
+        {
+          "name": "add_doc",
+          "description": "追加文档到索引（不生成向量，追加后本进程内向量检索失效并退回 lexical；要恢复请重跑 build_vault_index.py --embed）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "text": {"type": "string"},
+              "meta": {"type": "object"}
+            },
+            "required": ["text"]
+          }
+        },
+        {
+          "name": "list_cats",
+          "description": "列出文档分类及文档数",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ]
+    },
+    "tdx-news": {
+      "description": "实时新闻 / 公告（akshare：东财个股新闻、巨潮公告、财新要闻；5 分钟内存缓存）",
+      "command": "venv/bin/python mcp/servers/news.py",
+      "tools": [
+        {
+          "name": "search_stock_news",
+          "description": "检索个股近期新闻（东财；优先按股票名称匹配）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string", "description": "沪深代码，如 sh600000 / 600000"},
+              "days": {"type": "integer", "default": 7, "description": "回看天数（1-365）"},
+              "limit": {"type": "integer", "default": 20, "description": "最多返回条数（1-100）"},
+              "refresh": {"type": "boolean", "default": false, "description": "跳过 5 分钟缓存"}
+            },
+            "required": ["code"]
+          }
+        },
+        {
+          "name": "search_announcements",
+          "description": "检索个股近期公告（巨潮资讯）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string", "description": "沪深代码，如 sh600000 / 600000"},
+              "days": {"type": "integer", "default": 30, "description": "回看天数（1-365）"},
+              "limit": {"type": "integer", "default": 20, "description": "最多返回条数（1-100）"},
+              "refresh": {"type": "boolean", "default": false, "description": "跳过 5 分钟缓存"}
+            },
+            "required": ["code"]
+          }
+        },
+        {
+          "name": "market_news",
+          "description": "市场要闻（财新；失败时回退新闻联播）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "limit": {"type": "integer", "default": 20, "description": "最多返回条数（1-100）"},
+              "refresh": {"type": "boolean", "default": false, "description": "跳过 5 分钟缓存"}
+            }
+          }
+        }
+      ]
+    },
+    "tdx-finance-deep": {
+      "description": "财务深度数据（核心 300 本地 finance.parquet；其余按需 akshare + 7 天磁盘缓存）",
+      "command": "venv/bin/python mcp/servers/finance_deep.py",
+      "tools": [
+        {
+          "name": "get_metrics",
+          "description": "查询财务指标（核心 300 本地，其余按需拉取；支持指标名模糊匹配）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string", "description": "沪深代码，如 sh600000 / 600000"},
+              "metrics": {
+                "description": "指标名、列表或 '*'（默认核心 10 项）",
+                "oneOf": [
+                  {"type": "string"},
+                  {"type": "array", "items": {"type": "string"}}
+                ]
+              },
+              "periods": {"type": "integer", "default": 8, "description": "最近 N 期（1-40）"},
+              "refresh": {"type": "boolean", "default": false, "description": "跳过 7 天缓存"}
+            },
+            "required": ["code"]
+          }
+        },
+        {
+          "name": "get_statement",
+          "description": "查询三大报表（资产负债表 / 利润表 / 现金流量表）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string", "description": "沪深代码，如 sh600000 / 600000"},
+              "statement": {
+                "type": "string",
+                "default": "balance",
+                "enum": ["balance", "income", "cashflow", "资产负债表", "利润表", "现金流量表"]
+              },
+              "periods": {"type": "integer", "default": 8, "description": "最近 N 期（1-40）"},
+              "fields": {
+                "description": "字段名/关键词/列表；缺省返回全部字段",
+                "oneOf": [
+                  {"type": "string"},
+                  {"type": "array", "items": {"type": "string"}}
+                ]
+              },
+              "refresh": {"type": "boolean", "default": false, "description": "跳过 7 天缓存"}
+            },
+            "required": ["code"]
+          }
+        },
+        {
+          "name": "list_statement_fields",
+          "description": "列出报表字段（用于发现可用字段）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "statement": {
+                "type": "string",
+                "default": "balance",
+                "enum": ["balance", "income", "cashflow", "资产负债表", "利润表", "现金流量表"]
+              },
+              "code": {"type": "string", "default": "sh600000", "description": "样本代码（银行与制造业字段不同）"},
+              "refresh": {"type": "boolean", "default": false}
+            }
+          }
+        }
+      ]
+    },
+    "tdx-backtest": {
+      "description": "单股回测引擎（前复权、信号收盘触发、次日开盘成交、T+1、含费用滑点）",
+      "command": "venv/bin/python mcp/servers/backtest.py",
+      "tools": [
+        {
+          "name": "list_strategies",
+          "description": "列出内置策略与默认参数",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "run_backtest",
+          "description": "按内置策略回测单只股票（前复权、T+1 开盘成交）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string", "description": "沪深代码，如 sh600000 / 600000"},
+              "strategy": {
+                "type": "string",
+                "default": "ma_cross",
+                "enum": ["buy_hold", "ma_cross", "macd_cross", "breakout", "rsi_reversion"]
+              },
+              "start": {"type": "string", "description": "起始日期 YYYYMMDD / YYYY-MM-DD"},
+              "end": {"type": "string", "description": "结束日期"},
+              "params": {"type": "object", "description": "策略参数 + take_profit/stop_loss/max_hold/cooldown"},
+              "fee_bps": {"type": "number", "default": 2.5},
+              "stamp_bps": {"type": "number", "default": 5.0},
+              "slippage_bps": {"type": "number", "default": 5.0},
+              "include_equity_curve": {"type": "boolean", "default": true}
+            },
+            "required": ["code"]
+          }
+        },
+        {
+          "name": "run_signal_backtest",
+          "description": "按显式信号日期回测（用于预测/选股信号验证）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string", "description": "沪深代码"},
+              "signals": {"type": "array", "items": {"type": "string"}, "description": "信号日期数组（YYYYMMDD 或 YYYY-MM-DD）"},
+              "start": {"type": "string"},
+              "end": {"type": "string"},
+              "hold_days": {"type": "integer", "default": 5},
+              "take_profit": {"type": "number", "description": "止盈比例，如 0.2"},
+              "stop_loss": {"type": "number", "description": "止损比例，如 0.1"},
+              "cooldown": {"type": "integer", "default": 0},
+              "fee_bps": {"type": "number", "default": 2.5},
+              "stamp_bps": {"type": "number", "default": 5.0},
+              "slippage_bps": {"type": "number", "default": 5.0},
+              "include_equity_curve": {"type": "boolean", "default": true}
+            },
+            "required": ["code", "signals"]
+          }
+        }
+      ]
+    }
+  },
+  "tool_count": 22,
+  "total_tools": 22
+}

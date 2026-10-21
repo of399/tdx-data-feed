@@ -29,12 +29,40 @@ from agents.runtime import SkillRuntime
 # === 意图路由规则 ===========================================================
 INTENT_PATTERNS = [
     # 优先级从高到低
-    (re.compile(r'财务|营收|净利润|净利润|ROE|毛利|EPS|pe|pb|报表|资产负债|现金流'), "financial-summary"),
+    (re.compile(r'财务|营收|净利润|ROE|毛利|EPS|pe|pb|市盈率|市净率|报表|资产负债|现金流'), "financial-summary"),
     (re.compile(r'复权|除权除息|前复权|后复权|送转|分红'), "adj-factor"),
     (re.compile(r'新闻|公告|政策|舆情|消息|利好|利空'), "news-summary"),
     (re.compile(r'指标|形态|金叉|死叉|锤子|十字星|超买|超卖|均线|MACD|KDJ|RSI'), "indicator-match"),
     # 默认：含代码 → 主分析
     (re.compile(r'((sh|sz|bj)\d{6})'), "kline-analysis"),
+]
+
+# === 理论讲义（财经七书）路由 ================================================
+# 只在「查询里没有股票代码」且命中概念性提问词时才走 theory-reference，
+# 否则「600519 的护城河是什么」这类个股问题会被讲义抢走。
+CODE_RE = re.compile(r'(?<!\d)(?:sh|sz|bj)?\d{6}(?!\d)', re.IGNORECASE)
+
+THEORY_PATTERN = re.compile(
+    r'什么是|定义|原理|公式|推导|假设|证明|含义|概念|名词解释|知识点|考点|复习|'
+    r'怎么理解|如何理解|有何区别|的区别|'
+    r'讲义|教材|课本|第[一二三四五六七八九十百\d]+章|'
+    r'投资学|公司理财|宏观经济学|金融市场|货币金融学|计量经济学|会计学|例题精解|'
+    r'异方差|自相关|多重共线性|协整|资本资产定价|套利定价|有效市场|MM定理|'
+    r'菲利普斯曲线|IS-LM|索洛|久期|凸性|期权定价|资本预算|加权平均资本成本'
+)
+
+# 顺序敏感：长名在前，避免「金融市场」抢先匹配「金融市场与金融机构」
+BOOK_ALIASES = [
+    ("金融市场与金融机构", "金融市场与金融机构"),
+    ("金融市场", "金融市场与金融机构"),
+    ("货币金融学", "货币金融学"),
+    ("计量经济学", "计量经济学"),
+    ("宏观经济学", "宏观经济学"),
+    ("公司理财", "公司理财"),
+    ("投资学", "投资学"),
+    ("会计学", "会计学"),
+    ("例题精解", "例题精解"),
+    ("附录", "附录"),
 ]
 
 
@@ -59,6 +87,8 @@ class Orchestrator:
     # -----------------------------------------------------------------
     def route(self, query: str) -> str:
         """基于规则的意图路由"""
+        if not CODE_RE.search(query) and THEORY_PATTERN.search(query):
+            return "theory-reference"
         for pattern, skill in INTENT_PATTERNS:
             if pattern.search(query):
                 return skill
@@ -98,6 +128,11 @@ class Orchestrator:
                 return m
         return None
 
+    def extract_book(self, query: str) -> str:
+        """从查询提取讲义书名；命中 0 本或多本时返回 all（跨书比较不宜锁死单本）"""
+        found = {book for alias, book in BOOK_ALIASES if alias in query}
+        return found.pop() if len(found) == 1 else "all"
+
     # -----------------------------------------------------------------
     # 主入口
     # -----------------------------------------------------------------
@@ -130,6 +165,10 @@ class Orchestrator:
             if not code:
                 return self._err("指标分析需要股票代码", intent, t0)
             result = self.runtime.execute_skill("indicator-match", {"code": code})
+        elif intent == "theory-reference":
+            result = self.runtime.execute_skill("theory-reference", {
+                "query": query, "book": self.extract_book(query),
+            })
         elif intent == "kline-analysis":
             if not code:
                 return self._err("K线分析需要股票代码", intent, t0)
@@ -186,6 +225,9 @@ if __name__ == "__main__":
         "sh600000 的复权因子",
         "sz000858 有锤子形态吗？MACD 金叉吗？",
         "sh600000 最近有什么新闻？",
+        "什么是异方差？对回归推断有什么影响",
+        "投资学里的有效市场假说定义是什么",
+        "sh600519 的护城河是什么？ROE 怎么样",
     ]
     for q in tests:
         print(f"\n>>> 用户: {q}")

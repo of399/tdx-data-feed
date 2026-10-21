@@ -1,0 +1,82 @@
+# theory-reference skill — 财经七书讲义理论检索
+# ==============================================
+# 纯工具型：只走 tdx-vault.search（限定 category=09-理论讲义），不调 LLM。
+# 用途：把教材理论/公式/例题与实盘指标对照（如算 ROE 时查杜邦分解的教材口径）。
+
+name: theory-reference
+version: "0.1.0"
+description: |
+  在「财经七书学习讲义·模块精讲版」中检索概念、公式与例题，返回原文片段与笔记路径。
+  覆盖：投资学 / 公司理财 / 宏观经济学 / 金融市场与金融机构 / 货币金融学 /
+  计量经济学 / 会计学 + 例题精解 + 附录（公式速查、术语表、易错点、自测题）。
+  数据源：data/vault_store.jsonl 中 category=09-理论讲义 的 chunk
+  （scripts/import_theory_notes.py 导入 → scripts/build_vault_index.py 索引）。
+
+llm:
+  model_id: none                       # 纯检索，零 GPU；返回原文片段而非生成摘要，避免理论幻觉
+  inference: null
+
+tools:
+  - mcp:tdx-vault.search               # category + path_prefix 限定讲义库
+  - mcp:tdx-vault.list_cats            # 可选：确认讲义 chunk 已入索引
+
+input_schema:
+  type: object
+  properties:
+    query:
+      type: string
+      description: 概念或问题关键词，如 "CAPM 证券市场线"、"经营现金流 折旧 税盾"、"异方差 标准误"
+    book:
+      type: string
+      enum: [all, 投资学, 公司理财, 宏观经济学, 金融市场与金融机构,
+             货币金融学, 计量经济学, 会计学, 例题精解, 附录]
+      default: all
+      description: 限定分册（映射为 vault path_prefix）
+    top_k:
+      type: integer
+      default: 5
+      description: 返回片段数
+  required: [query]
+
+output_schema:
+  type: object
+  properties:
+    query:
+      type: string
+    book:
+      type: string
+    hits:
+      type: array
+      description: "[{title, path, score, text, related_skills}, ...]，text 为讲义原文片段"
+    related_skills:
+      type: array
+      description: 命中片段 frontmatter 里的 related_skills 去重汇总（该理论可接到哪些数据技能）
+    n_matched:
+      type: integer
+      description: 过滤后参与检索的 chunk 数
+    mode:
+      type: string
+      description: vector / lexical / no_match
+    summary:
+      type: string
+
+# book → vault 路径前缀（runtime 直接读取，不写死在代码里）
+book_paths:
+  all: "09-理论讲义"
+  投资学: "09-理论讲义/01-投资学"
+  公司理财: "09-理论讲义/02-公司理财"
+  宏观经济学: "09-理论讲义/03-宏观经济学"
+  金融市场与金融机构: "09-理论讲义/04-金融市场与金融机构"
+  货币金融学: "09-理论讲义/05-货币金融学"
+  计量经济学: "09-理论讲义/06-计量经济学"
+  会计学: "09-理论讲义/07-会计学"
+  例题精解: "09-理论讲义/08-例题精解与实操补充"
+  附录: "09-理论讲义/09-附录"
+
+priority: 40
+timeout_sec: 20                        # 向量模式下首次查询要付 Ollama 冷加载 ~7s，10s 不够
+fallback_skill: null                   # 检索不到就如实报信息不足，不降级到别的库
+
+metrics:
+  - latency_ms
+  - hit_count

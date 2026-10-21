@@ -1,15 +1,15 @@
 # tdx-data-feed 工作流全景文档
 
-> 生成：2026-09-27 · 最近更新：2026-10-16（基于 `docs/WORKFLOW_REVIEW_2026-10-16.md` 回填，消除 7 处过时陈述）
+> 生成：2026-09-27 · 最近更新：2026-10-21（对齐 daban 默认模型、5,235 日K、ETF/北交所下线、MCP 三服务与 systemd 调度现状）
 > 范围：tdx-data-feed 完整系统（含数据采集 → LoRA 微调 → 妖股识别 → 模型评估 → 量化信号 → 报告产出全链路）
 >
-> 阅读路径：第 1 章建立心智模型 → 第 2-3 章按数据流向读 → 第 4-6 章按组件维度查 → 第 7 章是速查表。⚠️ 本文件为 2026-09-27 初版，2026-10-16 已回填方案 D/E、题材/行业 loader、`full_sync` 生产入口、v7r/PnL Huber 模型与部署形态说明。
+> 阅读路径：第 1 章建立心智模型 → 第 2-3 章按数据流向读 → 第 4-6 章按组件维度查 → 第 7 章是速查表。生产预测默认已切至 `daban`（小仓位 Top5），大仓位为 `vpnl_huber_stage1`（Top20）。
 
 ---
 
 ## 0. 系统目标（一句话）
 
-把 A 股全市场 5565 只股票的历史 K 线 + 复权因子 + 财务数据 + 行业/题材标签，喂给两条引擎：
+把沪深 A 股 5,221 只股票的历史 K 线 + 复权因子 + 财务数据 + 行业/题材标签，喂给两条引擎：
 - **量化信号引擎（LightGBM）**：方案 D（翻倍前 5 日信号，`scripts/predict.py` 每日全市场预测）+ 方案 E（翻倍跟随，`plan_e_backtest.py` / `plan_e_journal.py`）+ PnL Huber 回归（`train_pnl_huber_*.py`）
 - **可对话模型（Ollama，Qwen3-14B LoRA）**：v5/v6/v7（**v7r 续训为生产优选**），经 `deploy_v5/v6/v7.sh`（merge → GGUF → ollama create）部署
 
@@ -24,10 +24,10 @@
 | 脚本 | 角色 | 输入 | 输出 | 触发方式 |
 |---|---|---|---|---|
 | `scripts/download_adj_factor_b.py` | A 股全市场复权因子（沪深）| baostock API | `data/adj_factor/{code}.parquet` × 5221 | 手动 / watchdog |
-| `scripts/download_adj_factor_bj.py` | 北交所 920XXX 复权因子 | akshare 新浪源 | 同上 × 344 | 手动 |
-| `scripts/download_bj_daily.py` | 北交所 920XXX 日 K 线 | akshare | `data/parquet/daily/bj{code}.parquet` × 344 | 手动 |
-| `scripts/download_adj_factor_watch.py` | 上面两个的 watchdog | - | 自动重启挂死的子进程 | 手动启动 |
-| `scripts/download_universe.py` | A 股全市场代码清单 | 通联数据 | `data/all_a_stocks.json` | systemd timer |
+| `scripts/download_adj_factor_bj.py` | **已下线**（北交所数据 2026-10-21 移除）| — | — | — |
+| `scripts/download_bj_daily.py` | **已下线**（北交所数据 2026-10-21 移除）| — | — | — |
+| `scripts/download_adj_factor_watch.py` | 复权因子下载的 watchdog | - | 自动重启挂死的子进程 | 手动启动 |
+| `scripts/download_universe.py` | 沪深 A 股代码清单/补全 | pytdx 枚举 + Sina 日 K | `data/all_a_stocks.json` | 手动 |
 | `scripts/analyze_one.py` | 单只股多因子分析（技术面）| parquet/daily + adj_factor | dict（落库） | 单股触发 |
 | `tdxfeed/full_sync.py` | **实际生产全量同步**（systemd 调用）：Sina 源日K + akshare 清单 + 财务增量 | Sina/akshare/baostock | `data/parquet/daily/*.parquet` + `sh\|sz/lday/*.day`（增量双写）| `tdxfeed-sync.timer` 每晚 18:00 |
 | `tdxfeed/cli.py` | `sync` 子命令：单标的拉取双写（**仅手动单只，非全量**）| Sina/akshare/tencent | 同上 | 手动 |
@@ -56,12 +56,12 @@
 
 | 脚本 | 角色 | 输入 | 输出 |
 |---|---|---|---|
-| `scripts/find_double_up_c.py` | 方案 C v1：**20 日内翻倍**筛选（不复权）| parquet/daily 8035 | `data/double_up/double_up_2020_2026_detail.csv` (22972 样本) + `double_up_2020_2026_by_code.csv` |
+| `scripts/find_double_up_c.py` | 方案 C v1：**20 日内翻倍**筛选（不复权）| parquet/daily 5,235（脚本已排除 `.v1.bak`）| `data/double_up/double_up_2020_2026_detail.csv` (22972 样本) + `double_up_2020_2026_by_code.csv` |
 | `scripts/find_double_up_c_v2.py` | 方案 C v2/v3：前复权价翻倍 + v1 对比 | parquet/daily + adj_factor | v3 csv + 假阳性/漏判分析 + report MD |
 | `scripts/top10_deep_dive.py` | Top 10 妖股深度复盘 | v1 by_code + akshare stock_zyjs_ths | 22KB MD（涨停节奏/连板/成交量/行业）|
 | `scripts/find_d_signal_5d.py` | 方案 D：翻倍前 5 日信号识别（LightGBM）| v1 detail + parquet | AUC 0.8144 模型 + 特征重要性报告 |
-| `scripts/predict.py` | **方案 D 上线**：每日全市场 18/26/35 维特征 + LightGBM 推理（Top50/阈值0.7）| parquet/daily + features_5d | `data/predictions/predict_YYYYMMDD_HHMMSS.{csv,md}` | `predict-daily.timer`（收盘后）|
-| `scripts/plan_e_backtest.py` | 方案 E：翻倍次日跟随策略回测（v2 胜率 50%/均 10.13%）| double_up + parquet/daily | `data/plan_e/plan_e_*.csv\|md` | 手动 / `--compare` |
+| `scripts/predict.py` | **方案 D 上线**：每日全市场 LightGBM 推理；默认 small=`daban`（29 维，次日涨停分类，Top5），full=`vpnl_huber_stage1`（21 维，Top20）| parquet/daily + features_5d | `data/predictions/predict_YYYYMMDD_HHMMSS.{csv,md}` + `predict_top{5,20}_*.csv` | `predict-daily.timer`（18:05）|
+| `scripts/plan_e_backtest.py` | 方案 E：翻倍次日跟随策略回测（v2 最新报告胜率 35.3% / 均 3.16%，含成本）| double_up + parquet/daily | `data/plan_e/plan_e_*.csv\|md` | 手动 / `--compare` |
 | `scripts/plan_e_journal.py` | 方案 E 实盘/模拟跟踪（journal.csv 实盘 / journal_sim.csv 模拟分离）| predict + plan_e 信号 | `data/plan_e/journal_*.csv\|md` | `plan-e-journal.timer` |
 | `scripts/train_pnl_huber_*.py` | PnL Huber 回归（33/35 维，Test R² 0.166→0.278）| 行业/市场聚合特征 | PnL 模型（合并 v9 后继）| 手动 |
 
@@ -76,22 +76,23 @@
 
 | 脚本 | 角色 | 触发 |
 |---|---|---|
-| `scripts/train_health.sh` | 训练进程健康检查（ckpt 记录、孤儿跳过）| systemd timer 每 5min |
+| `scripts/train_health.sh` | 训练进程健康检查（ckpt 记录、孤儿跳过；无训练会话时空闲退出）| systemd timer 每 5min |
 | `scripts/plot_loss.py` | loss 曲线可视化 | 手动 `--all` 自动扫所有 v* 目录 |
 | `scripts/gen_dashboard.py` | 综合 HTML 仪表盘 | 手动（包含所有数据快照）|
 | `systemd/tdxfeed-sync.timer` | 行情同步（`tdxfeed.full_sync`，每晚 18:00）| systemd timer |
 | `systemd/predict-daily.timer` | 方案 D 每日预测（收盘后，含 `precheck_freshness.sh` 数据新鲜度守卫）| systemd timer |
 | `systemd/plan-e-journal.timer` | 方案 E 每日实盘信号归档（18:10，After predict-daily）| systemd timer |
+| `systemd/plan-e-monitor.timer` | 方案 E 持仓监控（18:40）| systemd timer |
 | `systemd/plan-e-weekly.timer` | 方案 E 周报汇总（周五 20:00）| systemd timer |
-| `systemd/canary-health.timer` | 6 项金丝雀健康检查（数据/模型/timer/obsidian 漂移，每 5min）| systemd timer |
+| `systemd/canary-health.timer` | 金丝雀健康检查（数据/模型/timer/obsidian 漂移，每 5min）| systemd timer |
 | `systemd/obsidian-sync.path` | Obsidian vault 源↔部署零漂移监控 | systemd path |
-| `.codebuddy/automations/v5-daemon/` | v5 训练自动续训（CodeBuddy 自动化）| CodeBuddy 调度 |
+| `.codebuddy/automations/*/memory.md` | 4 个自动化目录仅保留记忆，无 `automation.toml`，**不参与调度** | - |
 
 ### 1.7 数据转换 / 辅助（5+ 个）
 
 - `scripts/distill_outputs.py`、`scripts/batch_distill.py`、`scripts/build_distill_skeleton.py`、`scripts/convert_distill.py` — 蒸馏数据预处理
 - `scripts/finalize_eval.py`、`scripts/redo_finalize.py` — 评估结果定稿
-- `scripts/test_bjs_akshare.py` — 北交所 akshare 接口冒烟测试
+- `scripts/test_bjs_akshare.py` — 北交所 akshare 接口冒烟测试（数据已下线，脚本仅存档）
 - `scripts/audit_log_rotate.py`、`scripts/canary_*` — 日志轮转 / 金丝雀
 
 ---
@@ -128,9 +129,9 @@
 
 ### 2.4 自动化任务（automations）
 
-- `v5-daemon`：定义在 `.codebuddy/automations/v5-daemon/automation.toml`（内容未读到，推测是 v5 训练自动续训）
-- 触发机制：CodeBuddy 调度器（不是 systemd）
-- 与 systemd timer 区别：systemd 管数据同步，automations 管模型训练
+- **现状**：`.codebuddy/automations/` 下有 4 个目录（`v4` / `v5-daemon` / `v8-retrain-review` / `v9-training-watch`），每个只有 `memory.md`，**没有 `automation.toml`**，因此不会被 CodeBuddy 调度。
+- **真实定时任务全部在 systemd user timer**：`tdxfeed-sync` / `predict-daily` / `plan-e-journal` / `plan-e-monitor` / `plan-e-weekly` / `canary-health` / `trainsh-health` / `tdx-clean-logs` 等。
+- 若未来要恢复 CodeBuddy automation，必须补 `automation.toml` 并在 IDE 中启用；仅 `memory.md` 不构成自动化。
 
 ---
 
@@ -168,21 +169,45 @@
 
 ## 4. MCP 组件关系
 
-### 4.1 已配置的 MCP 服务（来自 `~/.codebuddy/mcp.json`）
+### 4.1 IDE 级 MCP 服务（`.codebuddy/.mcp.json`）
 
 | Server | 命令 | 工具集 | 用途 |
 |---|---|---|---|
 | **github** | `docker run ... ghcr.io/github/github-mcp-server` | repos, issues, pull_requests, actions, code_search | PR/Issue/搜索代码 |
+| **codebuddy-integration** | IDE 内置集成 server | CloudBase / Supabase / CloudStudio / EdgeOne / Lighthouse | 云服务集成 |
 
-### 4.2 通过 `invoke_integration` 接入的集成
+### 4.2 技能运行时 MCP 服务（`agents/runtime.py` 拉起）
 
-| ID | 类型 | 工具 |
-|---|---|---|
-| `tcb` | CloudBase (deploy, database) | - |
-| `eop` | EdgeOne Makers (deploy) | - |
-| `supabase` | database | - |
-| `cloudStudio` | deploy | cloud_studio_deploy_sandbox / list_deployments / delete_deployment |
-| `lighthouse` | Tencent Lighthouse (deploy) | - |
+| Server | 脚本 | 工具 | 用途 |
+|---|---|---|---|
+| **tdx-parquet-reader** | `mcp/servers/parquet_reader.py` | `list_codes` / `read_daily_kline` / `read_xdxr` / `read_finance` | 读本地 parquet（日K/复权/财务） |
+| **tdx-calc** | `mcp/servers/calc.py` | `calc_ma` / `calc_macd` / `calc_kdj` / `calc_rsi` / `calc_boll` / `calc_adj_factor` | 技术指标计算（NaN 已清洗） |
+| **tdx-vault** | `mcp/servers/vault.py` | `search` / `add_doc` / `list_cats` | Obsidian/StockVault 检索（lexical + 可选向量）；`search` 支持 `category` / `path_prefix` / `exclude_category` 目录过滤 |
+| **tdx-news** | `mcp/servers/news.py` | `search_stock_news` / `search_announcements` / `market_news` | 实时新闻/公告/市场要闻（akshare，5 分钟缓存） |
+| **tdx-finance-deep** | `mcp/servers/finance_deep.py` | `get_metrics` / `get_statement` / `list_statement_fields` | 三大报表与扩展指标（本地 + akshare 7 天缓存） |
+| **tdx-backtest** | `mcp/servers/backtest.py` | `list_strategies` / `run_backtest` / `run_signal_backtest` | 单股回测（前复权、T+1、费用滑点） |
+
+> 这 6 个 server 不注册到 IDE `.mcp.json`，只由 `skills/*.yaml` 的 `mcp:` 步骤按需拉起；vault 索引由 `scripts/build_vault_index.py` 构建（当前 6,923 chunks / 5,668 notes）。`--embed` 的向量不进 JSONL，而是落成 sidecar `data/vault_store.vectors.npy` + `.vectors.json`（含 `rows_hash`）；加载时行数或 `rows_hash` 对不上就退回词法，不会在错位的行上算相似度。索引同时收 vault 下的 PDF（PyMuPDF，`--no-pdf` 跳过）。
+>
+> vault 中的一级目录 `09-理论讲义`（75 篇笔记，由 `scripts/import_theory_notes.py` 从财经七书讲义拆分生成）只供 `theory-reference` 技能检索；个股/新闻类技能调用 `search` 时必须传 `exclude_category=09-理论讲义`，否则讲义正文会挤占 top-k。
+>
+> 讲义笔记 frontmatter 带 `related_skills`（按书名映射，如计量经济学 → `backtest`/`indicator-match`），构建索引时进 `meta`，`theory-reference` 返回的每条 hit 都带上，runtime 再去重汇总到顶层 `related_skills`，CLI 据此提示"可接技能"，把教材理论接到实盘数据上。
+
+#### 4.2.1 意图路由（`agents/orchestrator.py`）
+
+`route()` 按顺序匹配 `INTENT_PATTERNS`，命中即返回；`theory-reference` 走前置独立判定，不进该列表。
+
+| 顺序 | 意图 | 触发条件 | 必需参数 |
+|---|---|---|---|
+| 0 | **theory-reference** | 查询中**不含 6 位股票代码**（`CODE_RE`，前后不能再有数字）**且**命中 `THEORY_PATTERN`（什么是/定义/原理/公式/推导/讲义/第 N 章/七书书名/异方差等术语） | `query`（书名可选，`extract_book` 只在命中**唯一**一本书时收窄，跨书比较一律 `all`） |
+| 1 | financial-summary | 财务/营收/净利润/ROE/EPS/PE/PB/报表/现金流 | `code` |
+| 2 | adj-factor | 复权/除权除息/送转/分红 | `code` |
+| 3 | news-summary | 新闻/公告/政策/舆情/利好利空 | `code` |
+| 4 | indicator-match | 指标/形态/金叉/均线/MACD/KDJ/RSI | `code` |
+| 5 | kline-analysis | 含 `sh|sz|bj` 前缀代码 | `code`（LLM 不可用时自动降级 indicator-match） |
+| 兜底 | indicator-match | 以上都不匹配 | `code` |
+
+> 「不含代码」是 theory-reference 的硬前提：否则 `sh600519 的护城河是什么` 会被讲义抢走。日期串（如 `20261021`）因 `CODE_RE` 的前后数字断言不会被误判成代码。
 
 ### 4.3 通用工具
 
@@ -200,14 +225,14 @@
 ```
 用户意图
   ↓
-主 Agent (MiniMax-M3)
+主 Agent
   ├── execute_command ──→ bash / python scripts ──→ 文件系统 / ollama / GPU
   ├── read_file / write_to_file / replace_in_file ──→ 本地仓库
   ├── search_content / search_file ──→ ripgrep / glob
   ├── lsp ──→ LSP server (pyright 等)
   ├── task (code-explorer) ──→ 子 Agent 返回摘要
   ├── mcp__github__* ──→ Docker → github-mcp-server → github.com
-  ├── invoke_integration + call_integration ──→ cloudStudio / tcb / supabase
+  ├── codebuddy-integration ──→ cloudStudio / tcb / supabase
   ├── web_fetch ──→ HTTP → markdown
   ├── use_skill ──→ plugin/manager/user skill scripts
   └── open_result_view / preview_url ──→ 把结果展示给用户
@@ -224,12 +249,12 @@
 │                                  输入层                                      │
 │                                                                             │
 │  baostock API ──────┐                                                        │
-│  akshare API  ──────┼─→ download_adj_factor_b.py / _bj.py / download_bj_daily│
+│  akshare API  ──────┼─→ download_adj_factor_b.py / full_sync.py            │
 │  Eastmoney ─────────┘                  ↓                                    │
 │                                       data/adj_factor/ + data/parquet/daily/│
-│                                       (5565 + 8035 文件)                     │
+│                                       (5,221 复权 + 5,235 日K parquet)       │
 │                                             ↓                               │
-│  通联数据 / 东方财富 ──→ download_universe.py → data/all_a_stocks.json     │
+│  pytdx / akshare 清单 ──→ download_universe.py → data/all_a_stocks.json    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                        ↓
@@ -242,7 +267,7 @@
 │                                       ├──→ double_up_v2_compare.csv        │
 │                                       └──→ double_up_only_v1_false_pos.csv  │
 │                                                                             │
-│  find_d_signal_5d.py (LightGBM) ──────→ d_signal_5d_model.txt               │
+│  find_d_signal_5d.py (LightGBM) ──────→ d_signal_5d_model_stage1/daban.txt   │
 │                                       → d_signal_5d_features.csv            │
 │                                       → d_signal_5d_report_*.md            │
 │                                                                             │
@@ -296,10 +321,10 @@
 ```
 tdx-data-feed/
 ├── data/
-│   ├── all_a_stocks.json              # 5565 只 A 股清单
-│   ├── adj_factor/                    # 5565 .parquet (date, adj_factor, qfq_close, raw_close, code)
+│   ├── all_a_stocks.json              # 5,221 只沪深 A 股清单
+│   ├── adj_factor/                    # 5,221 .parquet (date, adj_factor, qfq_close, raw_close, code)
 │   ├── parquet/
-│   │   ├── daily/                     # 8035 .parquet (sh/sz/bj 前缀)
+│   │   ├── daily/                     # 5,235 .parquet (5,221 沪深个股 + 14 指数；另 5,232 个 .v1.bak 备份)
 │   │   ├── finance.parquet            # 1,667,841 行 财务
 │   │   └── xdxr.parquet               # 299 行 股本变动
 │   ├── v4/                            # 4733 条 v4 fast 训练数据
@@ -316,7 +341,8 @@ tdx-data-feed/
 │   └── output/
 │       ├── qwen3-14b-tdx-v5-simple/checkpoint-1188/
 │       ├── qwen3-14b-tdx-v6-gpu1/checkpoint-984/
-│       └── qwen3-14b-tdx-v7/{checkpoint-200, 400, 500}/
+│       ├── qwen3-14b-tdx-v7/{checkpoint-200, 400, 500}/
+│       └── qwen3-14b-tdx-v7-resume/{checkpoint-800, 1000, 1115}/
 ├── training/config/tdx_v5_lora_simple.yaml
 ├── scripts/                           # 13 个分析/采集脚本
 ├── v5/scripts/                        # 15+ 部署/评估脚本
@@ -336,10 +362,10 @@ tdx-data-feed/
                    [baostock/akshare 网络]
                             │
                             ▼
-            ┌─────── download_adj_factor_*.py ──────┐
-            │                                         │
-            ▼                                         ▼
-   data/adj_factor/ (5565)              data/parquet/daily/ (8035)
+            ┌─────── download_adj_factor_b.py ──────┐
+            │                                        │
+            ▼                                        ▼
+   data/adj_factor/ (5,221)              data/parquet/daily/ (5,235)
             │                                         │
             └─────────────┬───────────────────────────┘
                           ▼
@@ -387,7 +413,7 @@ tdx-data-feed/
 | 任务 | 自动触发 | 手动触发 | 触发器 |
 |---|---|---|---|
 | 行情同步 | ✅ | - | systemd timer `tdxfeed-sync.timer` (18:00 daily) |
-| v5 训练续训 | ✅ | - | `.codebuddy/automations/v5-daemon/` |
+| v5 训练续训 | - | ✅ | `.codebuddy/automations/v5-daemon/` 仅记忆，未配置 `automation.toml` |
 | 训练健康检查 | ✅ | - | systemd timer `trainsh-health.timer` (5min) |
 | 方案 B 下载 | - | ✅ | 用户指令（一次性大规模爬取）|
 | v6/v7 训练 | - | ✅ | 用户指令 |
@@ -425,24 +451,24 @@ tdx-data-feed/
 | qwen3-14b-tdx-v7 | 8 | 16 | 8000(v5续训) | **0.1914** | ✅ 已部署（v7r 续训为生产优选）|
 | qwen3-14b-tdx-v7r | 16 | 32 | v7 续训 | - | ✅ Ollama 生产端点 |
 | qwen3-14b-tdx-v8 (fusion) | - | - | - | - | ❌ rank 不兼容未生成 |
-| vpnl_huber_stage1 (LightGBM) | - | - | 阶段1 因子 21 维 | OOS Sp 0.3475 | ✅ 方案 D 默认推理模型 |
+| **daban (LightGBM)** | - | - | 29 维（26 基础 + 3 涨停）| Top5 命中率 24.52% | ✅ **方案 D 默认（small）** |
+| vpnl_huber_stage1 (LightGBM) | - | - | 阶段1 因子 21 维 | OOS Sp 0.3475 | ✅ 大仓位（full，Top20） |
 
 ### 7.2 关键文件路径
 
 ```
 数据：
-  /home/jiuben/tdx-data-feed/data/all_a_stocks.json     # 5565 只清单
-  /home/jiuben/tdx-data-feed/data/parquet/daily/*.parquet  # 8035 日 K
-  /home/jiuben/tdx-data-feed/data/adj_factor/*.parquet    # 5565 复权因子
+  /home/jiuben/tdx-data-feed/data/all_a_stocks.json     # 5,221 只清单
+  /home/jiuben/tdx-data-feed/data/parquet/daily/*.parquet  # 5,235 日 K（不含 .v1.bak）
+  /home/jiuben/tdx-data-feed/data/adj_factor/*.parquet    # 5,221 复权因子
 
 模型：
   /home/jiuben/models/Qwen3-14B/                          # base
-  /home/jiuben/models/Qwen3-14B-tdx-v5-merged/            # v5 合并
-  /home/jiuben/models/Qwen3-14B-tdx-v6-merged/            # v6 合并
-  /home/jiuben/models/Qwen3-14B-tdx-v5-merged-f16.gguf    # v5 GGUF 29.5G
-  /home/jiuben/models/Qwen3-14B-tdx-v6-merged-f16.gguf    # v6 GGUF 29.5G
-  /home/jiuben/models/Modelfile-v5 / Modelfile-v6         # Ollama 配置
-  /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v7/  # v7 LoRA
+  /home/jiuben/models/Qwen3-14B-tdx-v9-merged/            # v9 合并（当前唯一 HF merged 目录）
+  /home/jiuben/models/Qwen3-14B-v7r-merged-q8_0.gguf      # v7r GGUF（15G，生产端点）
+  /home/jiuben/models/Modelfile-v7r-q8                    # Ollama 配置
+  /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v7/         # v7 LoRA
+  /home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v7-resume/  # v7r 续训 LoRA（checkpoint-1115）
 
 报告：
   /home/jiuben/tdx-data-feed/data/double_up/*.md  × 9
@@ -455,8 +481,9 @@ tdx-data-feed/
 
 系统：
   /home/jiuben/tdx-data-feed/systemd/tdxfeed-sync.{timer,service}
-  /home/jiuben/tdx-data-feed/.codebuddy/automations/v5-daemon/
-  /home/jiuben/.codebuddy/mcp.json               # github MCP
+  /home/jiuben/tdx-data-feed/systemd/predict-daily.{timer,service}
+  /home/jiuben/.config/systemd/user/              # 已安装的 user timer
+  /home/jiuben/tdx-data-feed/.codebuddy/.mcp.json # IDE MCP（github + codebuddy-integration）
 
 备份：
   /home/jiuben/backups/train_output_orphan_20260925_0830.tar.gz  # 4.5G / 134 文件
@@ -474,14 +501,14 @@ tdx-data-feed/
 | v5_v6_compare 相似度 | **12%** |
 | v5 token 数 vs v6 | 257 vs 111 |
 | v7 eval_loss | **0.1914** (三模型最低) |
-| Top 10 妖股北交所占比 | 4/10 = 40% |
-| 北交所全量贡献 | 344 只 × 1397 行/只 = 48 万行 |
+| Top 10 妖股北交所占比（历史复盘） | 4/10 = 40% |
+| 北交所全量贡献（历史复盘，数据已下线） | 344 只 × 1397 行/只 = 48 万行 |
 
 ### 7.4 当前未完成项
 
 - [x] **v7 部署到 Ollama**：已完成，并新增 v7r 续训作为生产优选端点
 - [ ] **v8 LoRA fusion**：rank 不兼容（v5=8, v6=16），需 model souping 或重训（仍未解决）
-- [x] **方案 D 上线**：`scripts/predict.py` 已每日生产运行（`predict-daily.timer`，Top50/阈值0.7），默认模型 `vpnl_huber_stage1`
+- [x] **方案 D 上线**：`scripts/predict.py` 已每日生产运行（`predict-daily.timer` 18:05），默认 `daban` + Top5 + 阈值0.7；大仓位 `vpnl_huber_stage1` + Top20
 - [x] **方案 E**：翻倍跟随策略已落地（`plan_e_backtest.py` 回测 + `plan_e_journal.py` 实盘/模拟跟踪）
 - [x] **方案 F（行业/题材）**：`akshare_industry_loader.py`（申万 335 三级）+ `akshare_concept_loader.py`（THS 375 板块列表）已落地；⚠️ THS 概念**仅名称+代码列表**，成分股明细需另接 Eastmoney `stock_board_concept_cons_em`（不同后端，未纳入）
 - [ ] **PnL Huber + akshare SW 部署为 v9 后继**：替换 v8 生产环境（记忆中列为后续工作）
@@ -503,6 +530,6 @@ tdx-data-feed/
 
 ## 8. 一句话总结
 
-**`tdx-data-feed` 是一个 `通联数据 → 本地 parquet → baostock/akshare 复权因子 → LightGBM 翻倍样本挖掘 → 妖股基因识别 → Qwen3-14B LoRA 微调 → Ollama 部署 → A 股量化对话` 的完整闭环**，主 Agent 通过 execute_command / 文件操作 / 子 Agent（code-explorer）/ MCP（github）四类原语驱动，主流程靠手动触发，长期任务靠 systemd timer + CodeBuddy automations。
+**`tdx-data-feed` 是一个 `akshare/pytdx 清单 → 本地 parquet → akshare/Sina 行情 → LightGBM 翻倍/打板信号挖掘 → 妖股基因识别 → Qwen3-14B LoRA 微调 → Ollama 部署 → A 股量化对话` 的完整闭环**，主 Agent 通过 execute_command / 文件操作 / 子 Agent（code-explorer）/ MCP（github + 运行时 tdx 三服务）四类原语驱动，主流程靠手动触发，长期任务靠 systemd user timer。
 
 > 本文档定位：工程自描述 + 新成员 onboarding 速查表。如有变动，请同步更新本文件。

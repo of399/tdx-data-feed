@@ -7,6 +7,7 @@ agents/cli.py — 多 Agent 系统命令行入口
     # 单次查询
     python -m agents.cli "sh600000 怎么看？"
     python -m agents.cli "sh600519 营收近 4 季度？"
+    python -m agents.cli "什么是异方差？对回归推断有什么影响"   # 财经七书讲义检索
 
     # 交互式 REPL（多轮对话）
     python -m agents.cli --interactive
@@ -32,7 +33,7 @@ def fmt_result(r: dict, compact: bool = False) -> str:
         return f"❌ {r.get('error', '未知错误')}"
 
     intent = r["intent"]
-    code = r.get("code", "—")
+    code = r.get("code") or "—"
     elapsed = r["elapsed_ms"]
     res = r.get("result", {})
 
@@ -69,6 +70,24 @@ def fmt_result(r: dict, compact: bool = False) -> str:
                 lines.append(f"   {v.get('period_end', '')}: {v.get('value', '—')} (yoy {v.get('yoy_pct', '—')}%)")
         if "summary" in res:
             lines.append(f"📝 总结: {res['summary']}")
+    elif intent == "theory-reference":
+        scope = res.get("book", "all")
+        scope = "全部讲义" if scope == "all" else f"《{scope}》"
+        hits = res.get("hits", [])
+        lines.append(f"📚 检索范围: {scope}  |  候选片段: {res.get('n_matched', 0)}  |  模式: {res.get('mode', '—')}")
+        if hits:
+            lines.append(f"🔎 命中 {len(hits)} 段讲义原文:")
+            for i, h in enumerate(hits, 1):
+                lines.append(f"   [{i}] {h.get('title', '—')}  (score {h.get('score', '—')})")
+                lines.append(f"       {h.get('path', '')}")
+                snippet = " ".join(str(h.get("text", "")).split())[:200]
+                lines.append(f"       {snippet}…")
+        else:
+            lines.append(f"📝 {res.get('summary', '信息不足')}")
+        if res.get("related_skills"):
+            lines.append(f"🔗 可接技能: {', '.join(res['related_skills'])}")
+        if res.get("hint"):
+            lines.append(f"⚠️  {res['hint']}")
     elif intent == "news-summary":
         items = res.get("items", [])
         if items:
@@ -106,7 +125,8 @@ def repl(orch: Orchestrator) -> None:
     :session           查看当前会话历史
     :clear             清空当前会话
     :skills            列出已加载的 skill
-    <查询>             普通查询（如 "sh600000 怎么看？"）""")
+    <查询>             普通查询（如 "sh600000 怎么看？"）
+    <概念提问>          财经七书讲义检索（如 "什么是异方差"，查询中不带股票代码）""")
             continue
         if query == ":session":
             sess = orch.get_session(session_id)
