@@ -309,9 +309,9 @@ generate_moc
 echo ""
 echo "🔗 跨 vault 互链（重建 related_stockvault / 00-跨库索引.md）"
 if [ "$DRY_RUN" = "1" ]; then
-    log "跨 vault 互链钩子: python3 $SRC/scripts/link_cross_vault.py --dry-run"
+    log "跨 vault 互链钩子: $SRC/venv/bin/python $SRC/scripts/link_cross_vault.py --dry-run"
 else
-    if python3 "$SRC/scripts/link_cross_vault.py"; then
+    if "$SRC/venv/bin/python" "$SRC/scripts/link_cross_vault.py"; then
         ok "跨 vault 互链已重建"
     else
         echo -e "${YELLOW}⚠️ 跨 vault 互链钩子返回非零，请检查 scripts/link_cross_vault.py${NC}"

@@ -86,17 +86,18 @@ echo "--- V1 StartLimit 配置 (防 start-limit-hit) ---"
 sli=$(grep -iE '^[[:space:]]*StartLimitIntervalSec' "$USER_SYSD/$UNIT_SVC" | head -1 | cut -d= -f2 | tr -d ' ')
 slb=$(grep -iE '^[[:space:]]*StartLimitBurst' "$USER_SYSD/$UNIT_SVC" | head -1 | cut -d= -f2 | tr -d ' ')
 burst_ok=0; interval_ok=0
-[ "$slb" = "10" ] && burst_ok=1
-# 部署值 StartLimitIntervalSec=60 (unit 文件 [Unit] 段设定) 即修复预期；60000/60000000 亦兼容。
+# 默认 5 太少；>=10 即已放宽。当前部署为 60，覆盖批量文档编辑的触发风暴。
+[ "${slb:-0}" -ge 10 ] 2>/dev/null && burst_ok=1
+# StartLimitIntervalSec=60 即修复预期；60000/60000000/0 亦兼容。
 case "$sli" in
-  60|60000|60000000) interval_ok=1 ;;
+  0|60|60000|60000000) interval_ok=1 ;;
 esac
 if [ "$burst_ok" -eq 1 ] && [ "$interval_ok" -eq 1 ]; then
-  ok "V1 StartLimitIntervalSec=$sli StartLimitBurst=$slb (部署文件符合修复预期: 60s/10 防 start-limit-hit)"
+  ok "V1 StartLimitIntervalSec=$sli StartLimitBurst=$slb (已放宽, 防 start-limit-hit)"
 elif [ "$burst_ok" -eq 1 ] && [ "$interval_ok" -eq 0 ]; then
-  bad "V1 StartLimitBurst=$slb 正确, 但 StartLimitIntervalSec=$sli 非预期值 (期望 60/60000/60000000) → 检查 service 文件"
+  bad "V1 StartLimitBurst=$slb 正确, 但 StartLimitIntervalSec=$sli 非预期值 (期望 60/60000/60000000/0) → 检查 service 文件"
 elif [ "$burst_ok" -eq 0 ]; then
-  bad "V1 StartLimitBurst=$slb (期望 10); 可能未重载修复 → 'make timer-install' + daemon-reload + restart obsidian-sync.path"
+  bad "V1 StartLimitBurst=$slb (期望 >=10); 可能未重载修复 → 'make timer-install' + daemon-reload + restart obsidian-sync.path"
 fi
 
 # ================= V2 Paths 不含数据目录 =================

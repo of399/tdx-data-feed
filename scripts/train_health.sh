@@ -9,6 +9,8 @@ BASE="/home/jiuben/tdx-data-feed"
 OUT_BASE="$BASE/train/output"
 LOG="$BASE/logs/train_health.log"
 DELIVERY="$BASE/DELIVERY.md"
+# 记录最近一次观测到训练进程的时间，用于区分「空闲」与「训练中崩溃」
+STATE="$OUT_BASE/.health_last_seen"
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 log() { printf '[%s] %s\n' "$(ts)" "$*" >> "$LOG"; }
@@ -25,11 +27,23 @@ log "scan-start: 多训练扫描（按进程反查）"
 mapfile -t PIDS < <(pgrep -f '_train_single\.py' 2>/dev/null | sort -u)
 
 if [ ${#PIDS[@]} -eq 0 ]; then
-    log "✗ 未发现任何 *_train_single.py 进程"
-    alert "所有训练进程都不在（wrapper 全挂？）"
-    exit 1
+    if [ -f "$STATE" ]; then
+        LAST_SEEN=$(cat "$STATE" 2>/dev/null || echo 0)
+        GAP=$(( $(date +%s) - LAST_SEEN ))
+        if [ "$GAP" -le 1800 ]; then
+            log "✗ 训练进程消失（上次活跃 ${GAP}s 前）"
+            alert "训练进程消失（上次活跃 ${GAP}s 前，可能崩溃）"
+            rm -f "$STATE"
+            exit 1
+        fi
+        rm -f "$STATE"
+    fi
+    log "IDLE: 未发现训练进程（当前无训练会话），跳过"
+    echo "===========================================" >> "$LOG"
+    exit 0
 fi
 
+date +%s > "$STATE"
 log "✓ 发现 ${#PIDS[@]} 个训练 wrapper PID: ${PIDS[*]}"
 
 # 2) 每个 PID 反查对应目录
