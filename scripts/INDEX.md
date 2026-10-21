@@ -6,12 +6,12 @@
 ## 一、数据采集（daily / 复权 / 分钟线）
 | 脚本 | 用途 |
 |---|---|
-| `download_universe.py` | 全市场日 K 同步（股票/ETF；**债券已移除**，见下） |
-| `download_etf_bond.py` | ETF 日 K 下载（**可转债已弃用**：项目政策不再保留债券数据） |
-| `download_adj_factor_b.py` / `_bj.py` / `_watch.py` | 复权因子下载（沪/深/北交所 + 监控） |
-| `download_bj_daily.py` | 北交所日 K |
+| `download_universe.py` | 全市场日 K 同步（**仅沪深股票**；ETF/北交所/债券均已下线） |
+| `download_etf_bond.py` | **已下线**（ETF 数据 2026-10-21 移除，脚本仅保留弃用提示） |
+| `download_adj_factor_b.py` / `_watch.py` | 沪深复权因子下载 + 监控（`_bj.py` 已下线） |
+| `download_bj_daily.py` | **已下线**（北交所数据 2026-10-21 移除，脚本仅保留弃用提示） |
 | `download_hfq_factor.py` | 后复权因子 |
-| `backfill_adj_etf.py` | ETF 复权因子补算（**CB 分支已弃用**） |
+| `backfill_adj_etf.py` | **已下线**（ETF 数据 2026-10-21 移除，脚本仅保留弃用提示） |
 | `backfill_minutes.py` | 分钟线补算 |
 | `min_sync.py` | 分钟线全量同步（core-full / market-60d） |
 | `min_sync2.py` | 分钟线同步 v2：`market-60d`(min15) / `core-1y`(min60) / `market-5d`(min5, Sina) / `core-full-em`(Eastmoney 全历史，目前接口不稳定) |
@@ -60,14 +60,15 @@
 | `install-obsidian-plugins.sh` | 从 GitHub Releases 安装 Obsidian 社区插件本体（`--vault` / `--plugins` / `--retries`） |
 | `drive_expand.sh` / `drive_train_10k.sh` | 训练驱动 |
 | `v3_premarket_top.py` / `v3_simulate.py` / `v3_simulate_rolling.py` / `top10_deep_dive.py` | v3 盘前/模拟/深度分析 |
-| `gen_dashboard.py` / `analyze_one.py` / `xdxr_verify.py` / `test_bjs_akshare.py` | 看板 / 单标的分析 / 除权验证 / 北交所源测试 |
+| `gen_dashboard.py` / `analyze_one.py` / `xdxr_verify.py` / `test_bjs_akshare.py` | 看板 / 单标的分析 / 除权验证 / 北交所源测试（已存档） |
 
 ## 七、对标 / 基准（新增）
 | 脚本 | 用途 |
 |---|---|
 | `bench_v567.py` | **F1**：v5/v6/v7 推理对标——BLEU/ROUGE + 翻倍分类准确率 + P95 延迟 + 显存峰值 |
 
-## 八、数据治理状态（2026-09-28）
-- **债券数据下线**：`download_universe.py`/`download_etf_bond.py`/`backfill_adj_etf.py` 已移除债券处理；已删除 `data/parquet/daily/` 下 317 个债券落盘文件与 `data/convertible_bond_codes.txt`。后续不再保留债券数据。
+## 八、数据治理状态（2026-10-21）
+- **ETF / 北交所数据下线**：应业务要求删除 1,652 个 ETF/基金日 K、344 个北交所日 K，以及对应 adj_factor、derived、min15/min60、legacy lday 与 StockVault 920 笔记；`all_a_stocks.json` 由 5,565 降至 5,221。归档：`_archive/removed_etf_bj_20261021.tar.gz`。相关下载脚本已加弃用保护，`make data-bj` 已移除。
+- **债券数据下线**（2026-09-28）：`download_universe.py`/`download_etf_bond.py`/`backfill_adj_etf.py` 已移除债券处理；已删除 `data/parquet/daily/` 下 317 个债券落盘文件与 `data/convertible_bond_codes.txt`。后续不再保留债券数据（legacy `data/sz/lday/` 中 123/128 可转债文件仍保留，未纳入本轮清理）。
 - **大文件出 git**：`v5/audit/` 下 ~80MB 大文件已 `git rm --cached` 并加入 `.gitignore`（磁盘保留，仅停止跟踪）。
 - **min5 补齐**：`min_sync2.py --mode market-5d`（Sina scale=5，全市场）补齐 `data/parquet/min5/`（Eastmoney 全历史接口当前不可用）。

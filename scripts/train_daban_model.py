@@ -25,6 +25,7 @@ import lightgbm as lgb
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 
 from features_5d import (  # noqa: E402
@@ -32,6 +33,12 @@ from features_5d import (  # noqa: E402
     get_limit,
     is_limit_up_ret,
     is_open_limit_up,
+)
+
+from tdxfeed.daban.sector import load_industry_map  # noqa: E402
+from tdxfeed.daban.sector_features import (  # noqa: E402
+    EXTRA_FEATURE_COLS,
+    build_lookup,
 )
 
 PARQUET = ROOT / "data" / "parquet" / "daily"
@@ -67,7 +74,13 @@ def iter_stock_files(limit: int = 0) -> list[tuple[str, Path]]:
     return out
 
 
-def build_dataset(limit: int = 0, exclude_open_limit: bool = False) -> pd.DataFrame:
+def build_dataset(
+    limit: int = 0,
+    exclude_open_limit: bool = False,
+    extra_lookup=None,
+    industry_map: dict | None = None,
+    sample_space: str = "all",
+) -> pd.DataFrame:
     files = iter_stock_files(limit)
     print(f"遍历 {len(files)} 只股票 ...")
     if exclude_open_limit:
@@ -96,6 +109,13 @@ def build_dataset(limit: int = 0, exclude_open_limit: bool = False) -> pd.DataFr
             cur_close = close[sig_idx]
             if cur_close <= 0:
                 continue
+            if sample_space == "limit_up":
+                # 只保留 T 日封板的样本（打板可交易集）；判定口径与正样本一致
+                prev_c_sig = close[sig_idx - 1]
+                if prev_c_sig <= 0:
+                    continue
+                if not is_limit_up_ret(cur_close / prev_c_sig - 1.0, limit_val):
+                    continue
             # 审计 P1-5 补丁 (2026-10-18): 剔除不可交易样本。
             # T 日(信号日/买入日)开盘价已达涨停价 -> 一字或准一字, 打板者无法买入,
             # 该样本实盘不可执行。此类样本既不作正样本也不作负样本, 直接剔除。
@@ -119,6 +139,15 @@ def build_dataset(limit: int = 0, exclude_open_limit: bool = False) -> pd.DataFr
             if feat is None:
                 continue
             label = 1 if sig_idx in pos_idx else 0
+            if extra_lookup is not None:
+                # 阶段3：板块特征（lag=1，与推理侧同源；lag=0 会造成推理侧取不到 → 泄漏）
+                sig_date = str(df["date"].iloc[sig_idx])[:10].replace("-", "")
+                ind = (industry_map or {}).get(code, "")
+                row = extra_lookup.get(ind, sig_date, lag=1)
+                if row is None:
+                    feat.update({c: 0.0 for c in EXTRA_FEATURE_COLS})
+                else:
+                    feat.update({c: row.get(c, 0.0) for c in EXTRA_FEATURE_COLS})
             rows.append({"code": code, "date": str(df["date"].iloc[sig_idx])[:10],
                          "label": label, **feat})
         n_pos += len(pos_idx)
@@ -166,7 +195,7 @@ def train(df: pd.DataFrame, model_out: Path | None = None) -> dict:
     model.save_model(str(model_out), num_iteration=model.best_iteration)
     print(f"模型保存: {model_out} (best_iter={model.best_iteration})")
 
-    imp = sorted(zip(feat_cols, model.feature_importance("gain")),
+    imp = sorted(zip(feat_cols, model.feature_importance("gain"), strict=True),
                  key=lambda x: -x[1])
     return {"feat_cols": feat_cols, "imp": imp,
             "train_n": len(train_df), "test_n": len(test_df),
@@ -193,6 +222,18 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="抽样股票数(冒烟)")
     ap.add_argument("--exclude-open-limit", action="store_true",
                     help="剔除 T 日开盘即涨停(不可买入)样本 [默认关, 保持可复现]")
+    ap.add_argument(
+        "--sample-space",
+        choices=["all", "limit_up"],
+        default="all",
+        help="训练样本空间：all=全部交易日(现役口径)；limit_up=只取T日封板样本(打板可交易集)",
+    )
+    ap.add_argument(
+        "--extra-features",
+        choices=["none", "sec_lag1"],
+        default="none",
+        help="附加特征：sec_lag1 = 昨日板块强度/涨幅/涨停家数（阶段3，与推理侧同源）",
+    )
     ap.add_argument("--tag", default="",
                     help="输出文件后缀, 如 'tradable' -> d_signal_5d_model_daban_tradable.txt "
                          "(留空=覆盖现役模型, 仅在确认切换时才应使用)")
@@ -202,7 +243,23 @@ def main() -> int:
     model_out = MODEL_OUT if not args.tag else OUT_DIR / f"d_signal_5d_model_daban_{args.tag}.txt"
     report_out = REPORT_OUT if not args.tag else OUT_DIR / f"daban_train_report_{args.tag}.md"
 
-    df = build_dataset(args.limit, exclude_open_limit=args.exclude_open_limit)
+    extra_lookup = None
+    industry_map = None
+    if args.extra_features == "sec_lag1":
+        extra_lookup = build_lookup()
+        industry_map = load_industry_map()
+        if extra_lookup is None:
+            print("❌ 板块特征缺失：先跑 scripts/daban_sector_features.py", file=sys.stderr)
+            return 1
+        print(f"[开关] extra_features=sec_lag1 → 追加 {len(EXTRA_FEATURE_COLS)} 维板块特征（lag=1）")
+
+    df = build_dataset(
+        args.limit,
+        exclude_open_limit=args.exclude_open_limit,
+        extra_lookup=extra_lookup,
+        industry_map=industry_map,
+        sample_space=args.sample_space,
+    )
     if df.empty:
         print("❌ 无样本", file=sys.stderr)
         return 1

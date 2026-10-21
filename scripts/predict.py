@@ -4,18 +4,21 @@
 ========================================
 
 【背景】
-  方案 D 用 LightGBM 在"翻倍前 5 日"窗口识别翻倍信号。
+  方案 D 用 LightGBM 在"翻倍前 5 日"窗口识别信号。
   本脚本用于生产化：每日拉一遍全市场 → 动态特征 → 预测 → Top 排序。
-  支持多模型(--model):默认 vpnl_huber(Huber PnL 回归,直击信号→PnL 价值瓶颈);
-  回滚用 --model prod(18维分类)。回归模型输出预期 PnL,按 Top-N 排序。
+  默认模型 daban（29 维二分类，次日收盘涨停，small 模式 Top 5）；
+  full 模式用 vpnl_huber_stage1（21 维回归，Top 20）；
+  回滚到旧模型用 --model vpnl_huber / prod。
 
 【输入数据】
   - data/parquet/daily/{sh|sz|bj}{code}.parquet     日 K（含 open/high/low/close/volume/amount/turnover）
   - data/adj_factor/{code}.parquet                 复权因子
   - data/all_a_stocks.json                         5565 只全 A 清单
-  - data/double_up/d_signal_5d_model.txt           训练好的 LightGBM 模型
+  - data/double_up/d_signal_5d_model_daban.txt     默认 LightGBM 模型
 
-【18 维特征】（与训练完全一致）
+【特征维度】
+  由 model.feature_name() 动态决定：daban 29 维、vpnl_huber_stage1 21 维、prod 18 维。
+  下方为脚本内 FEATURE_COLS 的基础 18 维，不是所有模型的最终列数。
 
 | # | 特征 | 类型 | 含义 | 计算 |
 |---|------|------|------|------|
@@ -45,11 +48,11 @@
   data/predictions/predict_YYYYMMDD_HHMMSS.md       Markdown 简明报告
 
 【运行】
-  # 默认：今天数据，Top 20，阈值 0.7
+  # 默认：daban + small 模式（Top 5），阈值 0.7
   venv/bin/python scripts/predict.py
 
-  # 指定日期 + Top 50
-  venv/bin/python scripts/predict.py --date 2026-09-20 --top 50
+  # 指定日期 + 显式 Top N
+  venv/bin/python scripts/predict.py --date 2026-09-20 --top 10
 
   # 自定义阈值
   venv/bin/python scripts/predict.py --threshold 0.6
@@ -80,6 +83,8 @@ warnings.filterwarnings('ignore')
 
 # ============== 路径 ==============
 ROOT = Path(__file__).parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 PARQUET_DIR = ROOT / 'data' / 'parquet' / 'daily'
 ADJ_DIR = ROOT / 'data' / 'adj_factor'
 MODEL_FILE = ROOT / 'data' / 'double_up' / 'd_signal_5d_model.txt'
@@ -159,6 +164,11 @@ FEATURE_COLS = [
 import polars as pl  # noqa: E402
 from _common import compute_window_features_extended  # noqa: E402
 
+from tdxfeed.daban.limit_price import exchange_prefix  # noqa: E402
+from tdxfeed.daban.sector_features import (  # noqa: E402
+    EXTRA_FEATURE_COLS,
+    build_lookup,
+)
 from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
 
 
@@ -241,6 +251,17 @@ _INDUSTRY_FEATURE_NAMES = ["ind_ret_5d_avg", "ind_amt_avg_5d", "ind_pct_t1_avg",
                            "ind_volatility_avg", "ind_stock_count"]
 
 
+_SECTOR_LOOKUP = None
+
+
+def _get_sector_lookup():
+    """懒加载板块特征查表（阶段3）。"""
+    global _SECTOR_LOOKUP
+    if _SECTOR_LOOKUP is None:
+        _SECTOR_LOOKUP = build_lookup()
+    return _SECTOR_LOOKUP
+
+
 def _enrich_industry_features(feats: dict, signal_date: str) -> dict:
     """加 6 维 akshare 申万行业特征(Task D 真实版):含 ret_minus_ind_5d 计算。"""
     code = feats["code"]
@@ -263,7 +284,24 @@ def _enrich_industry_features(feats: dict, signal_date: str) -> dict:
         for c in _INDUSTRY_FEATURE_NAMES:
             feats[c] = 0.0
         feats["ret_minus_ind_5d"] = 0.0
+
+    # 阶段3：板块特征（lag=1，与训练侧同源）
+    # ⚠ 板块强度是信号日收盘后才知道 → 推理在 T-1 收盘后跑、预测 T+1，
+    #   故只能用 T-1 的值（lag=1）。旧模型不含该特征，不受影响
+    #   （predict.py 按模型 feature_name 选列）。
+    feats.update(_sector_lag1_features(code, industry_code, date_norm))
     return feats
+
+
+def _sector_lag1_features(code: str, industry_code: str, date_norm: str) -> dict:
+    """取 T-1 的板块特征（sec_lag1 等）；缺失则填 0。"""
+    lookup = _get_sector_lookup()
+    if lookup is None:
+        return {c: 0.0 for c in EXTRA_FEATURE_COLS}
+    row = lookup.get(industry_code, str(date_norm).replace("-", ""), lag=1)
+    if row is None:
+        return {c: 0.0 for c in EXTRA_FEATURE_COLS}
+    return {c: float(row.get(c, 0.0)) for c in EXTRA_FEATURE_COLS}
 
 
 def _enrich_market_features(feats: dict, signal_date: str) -> dict:
@@ -311,20 +349,30 @@ def compute_features(code: str) -> dict:
     返回 None 表示无法计算（数据不足等）。
     """
     code = str(code).zfill(6)
-    code_clean = code.lstrip('bj')
+    raw = code.lower()
+    if raw[:2] in ('sh', 'sz', 'bj'):
+        prefix, code_clean = raw[:2], raw[2:].zfill(6)
+        adj_code = raw.lstrip('bj')
+    else:
+        code_clean = raw.zfill(6)
+        # 裸码按板块推断交易所：0/3→sz，6→sh，4/8/920→bj。
+        # 不能按文件存在顺序猜，否则 000001(平安银行) 会被 sh000001(上证指数) 抢走。
+        prefix = exchange_prefix(code_clean)
+        adj_code = code_clean
 
-    # 找 parquet 文件（sh/sz/bj 前缀统一候选，去重避免重复查找）
-    fp = None
-    for cand in [
-        f"{code_clean}.parquet",
-        f"sh{code_clean}.parquet",
-        f"sz{code_clean}.parquet",
-        f"bj{code_clean}.parquet",
-    ]:
-        f = PARQUET_DIR / cand
-        if f.exists():
-            fp = f
-            break
+    fp = PARQUET_DIR / f"{prefix}{code_clean}.parquet"
+    if not fp.exists():
+        fp = None
+        for cand in [
+            f"{code_clean}.parquet",
+            f"sh{code_clean}.parquet",
+            f"sz{code_clean}.parquet",
+            f"bj{code_clean}.parquet",
+        ]:
+            f = PARQUET_DIR / cand
+            if f.exists():
+                fp = f
+                break
     if fp is None:
         return None
 
@@ -357,7 +405,7 @@ def compute_features(code: str) -> dict:
 
     # 计算 T-1 日的 adj_factor（仅用于 meta 展示 qfq_close；特征用 raw close）
     adj_factor_value = 1.0
-    adj_fp = ADJ_DIR / f"{code_clean}.parquet"
+    adj_fp = ADJ_DIR / f"{adj_code}.parquet"
     if adj_fp.exists():
         try:
             adj_df = pd.read_parquet(adj_fp)
@@ -462,9 +510,19 @@ def load_universe() -> list:
     if fp.exists():
         with open(fp) as f:
             data = json.load(f)
-        codes = data.get('codes', data.get('stocks', []))
+        if isinstance(data, dict):
+            codes = data.get('codes', data.get('stocks', []))
+            if not codes:
+                # 实际结构是 {code: name}；漏掉这一分支会回退扫 parquet，
+                # 把 ETF/指数也纳入预测（实测 6,882 个代码、1,670 次失败）。
+                codes = [k for k in data if str(k).isdigit()]
+        elif isinstance(data, list):
+            codes = data
+        else:
+            codes = []
         if codes:
             return [str(c).zfill(6) for c in codes]
+        print(f"[WARN] {fp.name} 未解析出代码，回退扫描 parquet 目录")
     # 回退：扫 parquet 目录
     codes = set()
     for fp in PARQUET_DIR.glob('*.parquet'):
@@ -735,7 +793,7 @@ def run_prediction(args, model, feature_cols):
     print(f"  股票数: {len(codes)}")
 
     # 计算特征
-    print("\n[1/3] 计算 18 维特征...")
+    print("\n[1/3] 计算基础特征...")
     feat_df = load_all_stocks(codes, args.workers)
     if feat_df.empty:
         sys.exit("❌ 无可用数据")
