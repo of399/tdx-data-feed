@@ -39,6 +39,12 @@ class McpError(Exception):
 
 
 # === 工具实现 =============================================================
+def _clean(series: pd.Series) -> list[float | None]:
+    """NaN/inf → None，保证严格 JSON 可序列化。"""
+    return [None if not pd.notna(v) or v in (float("inf"), float("-inf")) else float(v)
+            for v in series]
+
+
 def calc_ma(prices: list[float], window: int = 5,
             type: str = "sma") -> list[float]:
     """简单 / 指数移动均线"""
@@ -49,24 +55,27 @@ def calc_ma(prices: list[float], window: int = 5,
         out = s.ewm(span=window, adjust=False).mean()
     else:
         raise McpError(-32602, f"未知 type: {type}（仅支持 sma/ema）")
-    return out.where(s.notna(), None).tolist()
+    return _clean(out)
 
 
 def calc_macd(prices: list[float], fast: int = 12, slow: int = 26,
               signal: int = 9) -> dict:
-    """MACD"""
+    """MACD。golden_cross 是交叉事件：1=当日金叉，-1=当日死叉，0=无事件。"""
     s = pd.Series(prices, dtype=float)
     ema_fast = s.ewm(span=fast, adjust=False).mean()
     ema_slow = s.ewm(span=slow, adjust=False).mean()
     dif = ema_fast - ema_slow
     dea = dif.ewm(span=signal, adjust=False).mean()
     hist = (dif - dea) * 2
-    golden = (dif > dea).astype(int)
+    above = dif > dea
+    cross = above.astype(int).diff().fillna(0).astype(int)
+    golden = cross.map({1: 1, -1: -1, 0: 0}).astype(int)
     return {
-        "dif": dif.where(s.notna(), None).tolist(),
-        "dea": dea.where(s.notna(), None).tolist(),
-        "hist": hist.where(s.notna(), None).tolist(),
+        "dif": _clean(dif),
+        "dea": _clean(dea),
+        "hist": _clean(hist),
         "golden_cross": golden.tolist(),
+        "above_dea": above.astype(int).tolist(),
     }
 
 
@@ -83,9 +92,9 @@ def calc_kdj(high: list[float], low: list[float], close: list[float],
     d = k.ewm(alpha=1/3, adjust=False).mean()
     j = 3 * k - 2 * d
     return {
-        "k": k.where(c.notna(), None).tolist(),
-        "d": d.where(c.notna(), None).tolist(),
-        "j": j.where(c.notna(), None).tolist(),
+        "k": _clean(k),
+        "d": _clean(d),
+        "j": _clean(j),
     }
 
 
@@ -97,7 +106,7 @@ def calc_rsi(prices: list[float], n: int = 14) -> list[float]:
     loss = (-delta.clip(upper=0)).rolling(n).mean()
     rs = gain / (loss + 1e-9)
     rsi = 100 - 100 / (1 + rs)
-    return rsi.where(s.notna(), None).tolist()
+    return _clean(rsi)
 
 
 def calc_boll(prices: list[float], n: int = 20, k: float = 2) -> dict:
@@ -106,9 +115,9 @@ def calc_boll(prices: list[float], n: int = 20, k: float = 2) -> dict:
     mid = s.rolling(n).mean()
     std = s.rolling(n).std()
     return {
-        "mid": mid.where(s.notna(), None).tolist(),
-        "upper": (mid + k * std).where(s.notna(), None).tolist(),
-        "lower": (mid - k * std).where(s.notna(), None).tolist(),
+        "mid": _clean(mid),
+        "upper": _clean(mid + k * std),
+        "lower": _clean(mid - k * std),
     }
 
 
@@ -153,7 +162,7 @@ TOOLS = {
         "handler": lambda a: calc_ma(**a),
     },
     "calc_macd": {
-        "description": "MACD 指标（含金叉标记）",
+        "description": "MACD 指标（golden_cross=1 金叉 / -1 死叉 / 0 无事件）",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -261,7 +270,7 @@ def handle_request(req: dict) -> dict:
             elapsed = (datetime.now() - t0).total_seconds() * 1000
             logging.info(f"{t_name} latency={elapsed:.1f}ms")
             return {"jsonrpc": "2.0", "id": req_id, "result": {
-                "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}],
+                "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str, allow_nan=False)}],
             }}
         if method == "notifications/initialized":
             return None
