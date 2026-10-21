@@ -1,0 +1,65 @@
+# financial-statement skill — 三大报表详细字段
+# =================================================
+# 纯工具型 skill：本地无缓存时按需从 akshare 拉取并缓存 7 天。
+
+name: financial-statement
+version: "0.1.0"
+description: |
+  查询资产负债表 / 利润表 / 现金流量表的详细字段与最近 N 期数据。
+  字段随行业变化，可先用 list_statement_fields 发现字段，再按关键词筛选。
+
+llm:
+  model_id: none
+  inference: null
+
+tools:
+  - mcp:tdx-finance-deep.list_statement_fields
+  - mcp:tdx-finance-deep.get_statement
+  - mcp:tdx-finance-deep.get_metrics
+
+input_schema:
+  type: object
+  properties:
+    code:
+      type: string
+      description: 沪深代码，如 sh600000 / 600000
+    statement:
+      type: string
+      enum: [balance, income, cashflow, 资产负债表, 利润表, 现金流量表]
+      default: balance
+    periods:
+      type: integer
+      default: 8
+      description: 最近 N 期（1-40）
+    fields:
+      type: array
+      items:
+        type: string
+      description: 字段名或关键词；缺省返回全部字段
+  required: [code]
+
+output_schema:
+  type: object
+  properties:
+    statement:
+      type: string
+    report_dates:
+      type: array
+    fields:
+      type: array
+    data:
+      type: array
+      description: 每期一行，含 report_date 与所选字段
+    note:
+      type: string
+
+prompt_template: null
+
+priority: 55
+timeout_sec: 30
+fallback_skill: null
+
+metrics:
+  - latency_ms
+  - field_count
+  - periods

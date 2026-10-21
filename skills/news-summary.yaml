@@ -1,13 +1,13 @@
 # news-summary skill — 新闻 / 政策 / 公告 检索与摘要
 # =============================================================
-# 实时性要求高，可选接入外部新闻 API（akshare / 财新 / Wind 等）。
+# 实时性要求高：tdx-news 东财新闻 + 巨潮公告，5 分钟进程内缓存。
 
 name: news-summary
 version: "0.1.0"
 description: |
-  检索某标的近期新闻、政策、公告，生成摘要。
-  数据源：可选外部新闻 API + StockVault 已索引文档。
-  对实时性 / 准确度要求高，可独立迭代。
+  检索某标的近期新闻、公告，生成摘要。
+  数据源：东财个股新闻 + 巨潮公告（tdx-news）+ StockVault 已索引文档。
+  实时性要求高：tdx-news 进程内缓存 5 分钟。
 
 llm:
   model_id: qwen3-7b                  # 仅作能力档位标注：SkillRuntime 不做按 skill 的模型路由
@@ -21,8 +21,10 @@ llm:
     temperature: 0.2                   # 注：runtime 固定 do_sample=False，temperature 不生效
 
 tools:
-  - mcp:tdx-vault.search               # 内部文档检索
-  - external:news_api.search           # 外部 API（待接入 akshare 财新 / 同花顺）
+  - mcp:tdx-news.search_stock_news       # 东财个股新闻
+  - mcp:tdx-news.search_announcements    # 巨潮公告
+  - mcp:tdx-news.market_news             # 市场要闻（财新）
+  - mcp:tdx-vault.search                 # StockVault 兜底检索
   - mcp:tdx-parquet-reader.list_codes
 
 input_schema:
@@ -34,6 +36,14 @@ input_schema:
       type: integer
       default: 7
       description: 检索最近 N 天
+    include_announcements:
+      type: boolean
+      default: true
+      description: 是否同时检索巨潮公告
+    limit:
+      type: integer
+      default: 10
+      description: 新闻/公告最多返回条数
     topics:
       type: array
       items:
@@ -70,7 +80,7 @@ prompt_template: |
   2. 严禁编造或补充以下未提供的信息：最新价、涨跌幅、均线(MA)、MACD、KDJ、RSI、
      市盈率(PE)、总市值、流通市值、成交量、换手率等任何行情或技术指标；
      也不得将新闻缺失当作「行情分析」来输出。
-  3. 若输入表明未检索到新闻（无文档 / 外部 API 未接入），必须明确输出
+  3. 若输入表明未检索到新闻/公告（无文档），必须明确输出
      「信息不足：未检索到相关新闻，无法生成新闻摘要」，items 为空数组，
      overall_sentiment 为「信息不足」。
   4. 所有标题、日期、来源必须与输入逐字一致；不得臆造发布时间或影响判断。

@@ -1,0 +1,83 @@
+# backtest skill — 单标的策略 / 信号回测
+# ==========================================
+# 纯工具型 skill：前复权、信号收盘确认、次日开盘成交、T+1 可卖。
+
+name: backtest
+version: "0.1.0"
+description: |
+  对单只沪深股票做策略回测或显式信号回测，输出收益、回撤、夏普、胜率、
+  盈亏比与逐笔交易明细。支持均线、MACD、突破、RSI 均值回归、买入持有。
+
+llm:
+  model_id: none
+  inference: null
+
+tools:
+  - mcp:tdx-backtest.list_strategies
+  - mcp:tdx-backtest.run_backtest
+  - mcp:tdx-backtest.run_signal_backtest
+
+input_schema:
+  type: object
+  properties:
+    code:
+      type: string
+      description: 沪深代码，如 sh600000 / 600000
+    strategy:
+      type: string
+      enum: [buy_hold, ma_cross, macd_cross, breakout, rsi_reversion]
+      default: ma_cross
+    start:
+      type: string
+      description: 起始日期 YYYYMMDD / YYYY-MM-DD
+    end:
+      type: string
+      description: 结束日期
+    params:
+      type: object
+      description: 策略参数；通用参数 take_profit / stop_loss / max_hold / cooldown
+    signals:
+      type: array
+      items:
+        type: string
+      description: 显式信号日期；提供时走 run_signal_backtest
+    hold_days:
+      type: integer
+      default: 5
+      description: 显式信号回测的持有交易日
+    take_profit:
+      type: number
+      description: 止盈比例，如 0.2
+    stop_loss:
+      type: number
+      description: 止损比例，如 0.1
+    include_equity_curve:
+      type: boolean
+      default: false
+      description: 是否返回逐日资金曲线（较长）
+  required: [code]
+
+output_schema:
+  type: object
+  properties:
+    metrics:
+      type: object
+      description: 总收益/年化/基准/超额/最大回撤/夏普/胜率/盈亏比/暴露度
+    trades:
+      type: array
+      description: 逐笔交易（入场/出场日期、价格、收益、持有天数、出场原因）
+    warnings:
+      type: array
+    cost_model:
+      type: object
+
+prompt_template: null
+
+priority: 60
+timeout_sec: 60
+fallback_skill: null
+
+metrics:
+  - latency_ms
+  - n_trades
+  - total_return

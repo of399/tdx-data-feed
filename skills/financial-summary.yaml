@@ -5,8 +5,10 @@
 name: financial-summary
 version: "0.1.0"
 description: |
-  查财务数据并生成自然语言摘要。可查营收、净利润、ROE、毛利率等。
-  数据源：data/parquet/finance.parquet（1.67M 行）。
+  查财务数据并生成自然语言摘要。可查营收、净利润、ROE、毛利率、EPS、PE、PB。
+  数据源：核心 300 只走本地 data/parquet/finance.parquet（1.67M 行）；
+  其余标的按需经 tdx-finance-deep 拉取 akshare 财务摘要（磁盘缓存 7 天）。
+  PE/PB 由最新收盘价与 TTM EPS / 每股净资产计算。
 
 llm:
   model_id: qwen3-7b                  # 仅作能力档位标注：SkillRuntime 不做按 skill 的模型路由
@@ -23,6 +25,7 @@ llm:
 
 tools:
   - mcp:tdx-parquet-reader.read_finance
+  - mcp:tdx-finance-deep.get_metrics   # 本地未覆盖的标的按需拉取（akshare + 7 天缓存）
   - mcp:tdx-parquet-reader.list_codes
   - mcp:tdx-vault.search               # 可选：检索行业平均
 
@@ -61,12 +64,12 @@ prompt_template: |
   你是财务数据摘要助手。你【只能】依据下方「### 输入」中提供的财务数据生成摘要，禁止引入任何外部知识或训练记忆中的行情信息。
 
   ### 输入字段说明（finance_data 为 JSON 数组，每条记录仅含以下字段）
-  - symbol      : 标的代码
-  - report_date : 报告期，格式 YYYYMMDD（如 20240331 表示 2024 年一季报）
-  - option      : 报告口径（如 单季 / 累计），可能为空
-  - metric      : 指标名称（如 营业收入、归母净利润）
+  - period_end  : 报告期，格式 YYYYMMDD（如 20240331 表示 2024 年一季报）
+  - option      : 报告口径（如 常用指标），可能为空
   - value       : 该指标的数值（单位以原始数据为准）
-  输入【仅含上述字段】，不包含任何行情数据。
+  - yoy_pct     : 同比百分比，可能为 null（无可比同期）
+  - price_date  : 估值日期（仅 PE/PB 记录存在）
+  当前查询指标为：{metric}（字符串）。输入【仅含上述字段】，不包含行情数据。
 
   ### 硬性约束（必须严格遵守）
   1. 仅依据输入中的数值进行整理与描述，不得引入输入 JSON 中不存在的任何数字。
@@ -75,7 +78,7 @@ prompt_template: |
      等任何行情或技术指标。
   3. 若输入缺少完成描述所需的数据（无指定 metric 记录、数值为空、缺少可比历史期），
      必须明确输出「信息不足」，不得估算或填空。
-  4. 所有日期、数值、实体名称必须与输入逐字一致；不得改写 report_date 或 metric 原文，
+  4. 所有日期、数值、实体名称必须与输入逐字一致；不得改写 period_end 或 metric 原文，
      不得改变数值量级。
 
   ### 输出格式（严格 JSON，不得输出 JSON 以外的解释文字）
@@ -83,7 +86,7 @@ prompt_template: |
     "code": "<与输入 symbol 一致>",
     "metric": "<与输入 metric 一致>",
     "values": [
-      {{"report_date": "YYYYMMDD", "option": "<原文或空>", "value": <数值>}}
+      {{"period_end": "YYYYMMDD", "option": "<原文或空>", "value": <数值>, "yoy_pct": <数值或 null>}}
     ],
     "summary": "<一句话，仅基于输入数据；数据不足时写：信息不足，无法生成摘要>"
   }}
