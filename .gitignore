@@ -101,6 +101,9 @@ v5/workbench/workbench.db*
 v5/audit/*.parquet
 v5/audit/*.csv
 v5/audit/v6_enriched_lora/
+# 每日 cron 滚动生成的 LLM 调用/降级压缩日志（llm-calls-* / fallback-*），
+# 与上面 v5/reports/*.md 同理不入库；verification/*.json 快照仍照常跟踪
+v5/audit/archive/
 v5/reports/suggestion-*.md
 # 后台 health timer (tdx_monitor.py) 周期性重写，停止跟踪避免提交冲突
 v5/reports/tdx-metrics.json
