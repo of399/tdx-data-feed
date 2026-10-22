@@ -15,10 +15,9 @@
 ## 二、版本号规则
 
 1. **命名**：`v{N}` 主版本；**修复版用 `v{N}r`**（resume/repair），不跳新号。
-   - 例：v9 mode collapse 修复 = **v9r**（用户决策 2026-10-18：修复 3 项 + focal loss 属实质变化但**不开 v10**）。
-   - 只有 v9r 再失败、需要推翻配方重设计时才开 v10。
-2. **目录隔离**（沿用项目惯例）：每个版本独立 `output_dir`（`train/output/qwen3-14b-tdx-v9r/`），绝不覆盖旧版本产物。
-3. **配置文件**：`training/config/tdx_v9r.yaml`（在 v9 基础上注明每处改动的 diff 与原因）。
+   - 修复属实质变化也不开新主版本；只有 `v{N}r` 再失败、需要推翻配方重设计时才开 `v{N+1}`。
+2. **目录隔离**（沿用项目惯例）：每个版本独立 `output_dir`（`train/output/qwen3-14b-tdx-v{N}/`），绝不覆盖旧版本产物。
+3. **配置文件**：`training/config/tdx_v{N}.yaml`（在上一版基础上注明每处改动的 diff 与原因）。
 
 ## 三、新版本触发器（4 个，缺一不开）
 
@@ -37,7 +36,7 @@
 ```
 活跃版本最多两个:
   [现役]    ── 唯一通过 sanity(ckpt-100 direction_acc ≥ 0.20)且完整训练达标的
-  [实验中]  ── 唯一正在训练/修复的（如 v9r）
+  [实验中]  ── 唯一正在训练/修复的
 
 其余 → 退休归档
 ```
@@ -66,11 +65,11 @@
 6. 报告 + commit + memory 三件套
 ```
 
-## 七、当前版本状态（2026-10-18）
+## 七、当前版本状态（2026-10-22 更新）
 
 | 线 | 版本 | 状态 |
 |---|---|---|
 | LLM | v8-merged | **现役**（10-01 完整训练，已知可用）|
 | LLM | v9 | ❌ 死亡（mode collapse，已归档 `models/_archive/`）|
-| LLM | **v9r** | 🔧 **实验中**（待实施：enable_thinking false + lora_rank 8 + cutoff 1280 + focal loss）|
+| LLM | v9r | ❌ 死亡（ckpt-1000 实测 33.3% = 全震荡基线；输出目录已删除，指标留档 `training/eval/metrics_v9r_*.json`）|
 | LightGBM | vpnl_huber_stage1 | **现役**（OOS Sp 0.3475，实盘默认）|
