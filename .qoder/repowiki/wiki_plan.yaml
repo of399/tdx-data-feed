@@ -1,0 +1,86 @@
+version: 1
+
+repowiki:
+  template: architecture
+
+  notes:
+    - text: "成交口径固定为最小保守修：同一根 K 线同时触及止盈与止损时结算亏损侧（SL 优先）；跳空穿越触发价时按该根 K 线 open 成交；净值曲线退出日用成交价结算，使 daily 与 return_pct 不可能不一致。任何回测或纸盘脚本都必须复刻 scripts/plan_e_backtest.py 的循环，不得重新引入止盈先于止损的排序。"
+      author: jiuben
+    - text: "README 与 2026-10-16 之前的报告里的 3.16% 平均收益、35.3% 胜率、2.71 盈亏比属于保守成交修正前口径，禁止作为当前结论写进页面。当前唯一口径权威是 scripts/plan_e_backtest.py 与 data/plan_e/plan_e_backtest_v2_latest.md。"
+      author: jiuben
+    - text: "统计显著性四条约定，不要重新讨论：Deflated Sharpe 的 SR 必须是 per-period（年化值只能走 dsr_p_from_annual_sharpe，否则 z 被放大 sqrt(252)）；permutation_return_test 默认统计量是 lag-1 自相关，小 p 只代表净值曲线被成交摊平平滑，不代表择时能力；胜率二项检验的原假设是赔付结构隐含的盈亏平衡胜率（breakeven_win_rate），不是 50%；随机择时基线结论是有条件的（股票宇宙固定），不得写成策略有效。"
+      author: jiuben
+    - text: "方案 E 与 daban 已于 2026-10-24 退出实盘入口：mode_daily 不再据清单计算买入数量，清单仅作研究产出；恢复 plan-e-today 与 plan-e-journal 定时器恢复的是盘前清单的自动生成，不等于实盘下单。PLAN_E_PREMARKET_LIST_ACTIVE 为 False 是有意设计，写作时不要描述成缺陷。"
+      author: jiuben
+    - text: "scripts/plan_e_sim_live.py 仍复制旧的乐观成交循环，引用其输出必须显式标注口径；docs/math_upgrade_plan_20261015.md 把置换检验描述为 alpha 检验，该描述已作废。"
+      author: jiuben
+    - text: "蒸馏教师模型必须由 TDX_DISTILL_MODEL 显式指定。tdx-lora:latest 在本仓库没有任何生产者且本机已不存在；仓库内点名的 qwen3-14b-tdx-v5/v6/v7 与裸名 qwen3-14b-tdx 均未安装，models/Qwen3-14B-tdx-v9-merged 在盘上但未注册。写部署文档时以 ollama list 为唯一权威。"
+      author: jiuben
+    - text: "_archive/、data/、logs/、models/、venv/、downloads/ 是历史产物与数据资产，不描述当前架构，不要据此推断模块职责。docs/ 下带日期的 CODE_AUDIT_*、COMPARE_*、*_RESEARCH_* 是一次性研究快照，写成历史结论而非现状规格。"
+      author: jiuben
+    - text: "systemd 单元分两处且职责不同：仓库根 systemd/ 是 plan-e、canary、obsidian、onfailure-alert 单元；v5/systemd/ 是 v5 管道自身的 ollama、mcp、scheduler_agent、alertmanager、canary_automation 单元。v5/scripts 与仓库根 scripts 是两套不同脚本集合，不要合并描述。"
+      author: jiuben
+    - text: "仓库根 skills/*.yaml 是给 LLM 工具调用用的技能声明（含 model_id 等字段），与 .qoder/skills 下的 Qoder Skill 无关，两者不要在同一页面混谈。"
+      author: jiuben
+
+  documents:
+    - title: "总体架构与数据流"
+      goal: "给出采集 → 因子 → 训练 → 预测 → 回测 → 运维的端到端拓扑，说明各模块边界与相互调用关系，并指出哪些链路已进入研究态。"
+      hints: "以 tdxfeed/、quant/、v5/、agents/、scripts/、deploy/ 的实际目录为模块依据，不要用 _archive/ 或 data/ 推断结构。"
+
+    - title: "通达信行情数据管道与因子计算"
+      parent: "总体架构与数据流"
+      goal: "描述 tdxfeed/ 的日 K 与分钟数据获取、增量与全量同步、复权因子、因子与特征计算、数据新鲜度守卫的实现与约束。"
+      hints: "tdxfeed/kline.py、incremental.py、full_sync.py、factors_polars.py、features_5d.py、finance.py、freshness.py、date_utils.py。"
+
+    - title: "多数据源适配层"
+      parent: "总体架构与数据流"
+      goal: "说明 tdxfeed/sources 与 scripts 下 akshare 行业/概念装载器如何统一到同一套数据契约，以及各源的降级边界。"
+
+    - title: "DABAN 打板交易引擎"
+      goal: "描述 tdxfeed/daban 的订单、时段、环境与候选池建模，封板信号与板块强度特征，风控与价格计算，以及回测与纸盘执行引擎的关系。"
+      hints: "保持父模块与子能力的层次，不要把子模块平铺成独立页面。"
+
+    - title: "方案 E 信号链与盘前清单"
+      goal: "描述方案 E 从信号样本构造到盘前清单产出、日志归档的链路，明确其当前仅作研究产出与人工记账的定位。"
+      hints: "scripts/plan_e_real_samples.py、plan_e_journal.py、plan_e_confidence.py、systemd/plan-e-*.timer、etc/plan_e_v3_premarket.*。"
+
+    - title: "回测成交口径与统计显著性约定"
+      parent: "方案 E 信号链与盘前清单"
+      goal: "以现行代码为准写清最小保守成交口径，以及 Deflated Sharpe、置换检验、胜率二项检验、随机择时基线四条推断约定的正确用法与常见误读。"
+      hints: "scripts/plan_e_backtest.py、scripts/plan_e_validation.py；结论数字须标注样本区间与口径。"
+
+    - title: "LLM 服务与 MCP 工具链"
+      goal: "描述 v5 管道的 Ollama 服务、MCP server 集合、数学推导工具包与 canary 灰度机制，以及它们与主仓库脚本的调用边界。"
+      hints: "v5/mcp_servers、v5/mcp_math、v5/llm、mcp/servers、v5/scripts、v5/systemd。"
+
+    - title: "蒸馏与 QLoRA 训练管线"
+      goal: "描述蒸馏数据集构造、训练配置与评测脚本的关系，重点说明教师模型选择必须显式指定以及失败静默写入空输出的已知风险。"
+      hints: "scripts/distill_outputs.py、training/config、training/eval、data/distill/skeleton.jsonl。"
+
+    - title: "多 Agent 编排与运行时"
+      goal: "说明 agents 目录下 CLI、编排器与运行时的职责划分及其与 MCP 工具池的调用关系。"
+      hints: "agents/cli.py、agents/orchestrator.py、agents/runtime.py。"
+
+    - title: "调度、部署与监控运维"
+      goal: "梳理 Makefile 目标入口、systemd 服务与定时器的两套归属、Prometheus 与 Alertmanager 告警链路以及硬依赖与 OnFailure 推送的当前设计。"
+      hints: "Makefile、systemd/、v5/systemd/、deploy/prometheus、v5/monitoring、scripts 下运维脚本。"
+
+    - title: "测试与验收体系"
+      goal: "描述单元测试覆盖的引擎与数据链路范围、端到端验收测试的组织方式，以及新增回测脚本必须匹配的成交口径断言。"
+      hints: "tests/、v5/tests（含 test_alerting_pipeline.py、test_llm_ollama.py、test_math_sympy.py）；测试须与 plan_e_backtest.py 的循环保持一致。"
+
+    - title: "文档与历史产物索引"
+      goal: "说明 docs 下带日期的一次性研究快照、_archive 归档区与当前有效文档之间的时效边界，避免读者把历史数字当作现状结论。"
+      hints: "docs/、_archive/、data/plan_e/_pre_fix_20261024/README.md。"
+
+knowledgecard:
+  notes:
+    - text: "模块划分以运行与代码边界为准：tdxfeed（行情、因子、风控、daban）、scripts（研究脚本与运维脚本共存，按 plan_e_/distill_/audit_/backfill_ 前缀区分）、v5（LLM 管道自成一套，含自己的 scripts 与 systemd）、agents、quant/multifactor、deploy 与 v5/monitoring、tests、docs。"
+      author: jiuben
+    - text: "不要为 _archive、data、logs、models、venv、downloads 生成知识模块，它们不是可维护的代码边界；docs 目录只作为文档模块，不当作实现模块。"
+      author: jiuben
+    - text: "v5/scripts 与仓库根 scripts 是两个不同集合，不要合并成同一个模块；daban 的子能力（订单与候选池、实时数据源、特征、风控与价格、回测与纸盘）保持父子关系，不要平铺。"
+      author: jiuben
+    - text: "任何涉及回测、显著性或实盘定位的知识卡必须与现行保守成交口径和四条推断约定一致；引用 README 或旧报告数字时标注为修正前口径。"
+      author: jiuben
