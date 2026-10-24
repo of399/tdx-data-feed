@@ -12,6 +12,13 @@ z 被放大 √252≈15.9 倍。实测本次 110 笔样本：年化 0.081 → p=
 曲线被平滑过，不证明 alpha。plan_e 侧把它写成「策略 vs 随机时序」；同一处误读在
 `multifactor.engine` 风险提示第 9 条里写成「置换 p<0.05 ⇒ 日盈亏顺序显著异于随机时序…
 代表有顺序信息」，和它自己表格里的「判时序结构而非择时 alpha」自相矛盾，一并改掉。
+
+缺陷 3 — 胜率二项检验的原假设选错了：报告里 `胜率 H₀=50% (精确二项 p) 0.001 对随机基准`
+是 112 笔样本上唯一「显著」的数字，而它测的是赔付几何，不是本事。TP +30%/SL −10% 的阶梯
+把打平胜率压到 −avg_loss/(avg_win−avg_loss)=31.2%，零边际策略的胜率必然远低于 50%，
+于是「显著偏离 50%」几乎是这条规则的同义反复。真正该问的是胜率有没有高过 31.2%：实测
+33.9% vs 31.2% 单侧 p=0.296，和另外三个收益检验一致——什么都拒绝不了。反过来，50% 这个
+基准还会漏掉真边际：胜率恰好 50%（对 2.21 盈亏比是暴利）时旧检验的 p≈1.0，判「不显著」。
 """
 from __future__ import annotations
 
@@ -151,3 +158,81 @@ def test_multifactor_engine_shares_the_conversion_helper():
     m = engine._portfolio_metrics(list(zip(dates.astype(str), s, strict=True)))
     per_period = float(s.mean() / s.std())
     assert abs(m["sharpe"] / per_period - np.sqrt(252)) < 1e-6, "年化假设变了，换算入口要跟着改"
+
+
+# ---------- 缺陷 3：胜率检验的 50% 原假设 ----------
+
+AVG_WIN = 0.2903      # 本次 112 笔样本的实测平均盈利
+AVG_LOSS = -0.1315    # 实测平均亏损 ⇒ 赔率隐含打平胜率 31.2%
+
+
+def _bt_with_returns(returns: list[float]):
+    """每天恰好 1 笔成交的构造样本，胜率/赔付由 returns 直接决定。"""
+    dates = pd.date_range("2024-01-02", periods=len(returns), freq="B")
+    bt = pd.DataFrame({
+        "code": [f"sh6000{i % 10:02d}" for i in range(len(returns))],
+        "signal_date": [d.strftime("%Y-%m-%d") for d in dates],
+        "t1_pct": 0.10,
+        "t1_vol_ratio": 2.0,
+        "return_pct": list(returns),
+        "exit_reason": ["TP" if r > 0 else "SL" for r in returns],
+    })
+    daily_records = [[(d, r)] for d, r in zip(dates, returns, strict=True)]
+    return bt, daily_records
+
+
+def _ladder(n_wins: int, n_losses: int) -> list[float]:
+    return [AVG_WIN] * n_wins + [AVG_LOSS] * n_losses
+
+
+def _wr_row(md: str) -> str:
+    row = [ln for ln in md.splitlines() if "精确二项" in ln]
+    assert row, "报告里没有胜率显著性行"
+    return row[0]
+
+
+def _wr_row_pvalue(md: str) -> float:
+    m = re.search(r"精确二项[^|]*\|\s*([\d.]+)", _wr_row(md))
+    assert m, _wr_row(md)
+    return float(m.group(1))
+
+
+def test_breakeven_win_rate_helper():
+    """打平胜率由赔付阶梯决定：平均盈 29.03% / 平均亏 −13.15% ⇒ 31.2%。"""
+    assert abs(pe.breakeven_win_rate(AVG_WIN, AVG_LOSS) - 0.31174) < 1e-4
+    assert np.isnan(pe.breakeven_win_rate(0.0, AVG_LOSS)), "没有盈利笔时赔付阶梯不存在"
+
+
+def test_report_win_rate_row_drops_the_50pct_null():
+    """胜率刚好压在赔率打平线上（31.4% vs 31.2%）⇒ 没有边际，旧检验会给 p=0.000 的假阳性。"""
+    bt, daily_records = _bt_with_returns(_ladder(32, 70))
+    md = pe.summarize(bt, daily_records, 10, 0.30, -0.10, "v2", fee=0.0003, slippage=0.001)
+    assert "H₀=50%" not in md, "还在拿 50% 当胜率的原假设"
+    p = _wr_row_pvalue(md)
+    assert p >= 0.05, f"零边际样本被胜率检验判显著了: p={p}"
+
+
+def test_win_rate_row_still_detects_the_edge_the_50pct_null_misses():
+    """胜率 50% 对 2.21 的盈亏比是暴利，旧基准反而判『不显著』——修正后必须抓到。"""
+    from scipy.stats import binomtest
+
+    bt, daily_records = _bt_with_returns(_ladder(51, 51))
+    old_p = float(binomtest(51, 102, 0.5).pvalue)
+    assert old_p > 0.05, "旧检验已不再是瞎的，测试前提失效"
+
+    md = pe.summarize(bt, daily_records, 10, 0.30, -0.10, "v2", fee=0.0003, slippage=0.001)
+    assert _wr_row_pvalue(md) < 0.05, "真边际被漏掉了"
+
+
+def test_win_rate_row_states_which_null_it_tested():
+    bt, daily_records = _bt_with_returns(_ladder(32, 70))
+    md = pe.summarize(bt, daily_records, 10, 0.30, -0.10, "v2", fee=0.0003, slippage=0.001)
+    assert "盈亏平衡" in _wr_row(md), "报告没写这条 p 值比的是哪个基准"
+
+
+def test_risk_note_stops_blaming_beijing_exchange():
+    """北交所 2026-10-21 起已下线，本次 112 笔 100% 沪深，风险提示不能再讲 920XXX。"""
+    bt, daily_records = _bt_with_returns(_ladder(32, 70))
+    md = pe.summarize(bt, daily_records, 10, 0.30, -0.10, "v2", fee=0.0003, slippage=0.001)
+    assert "北交所（920XXX）" not in md, "风险提示还在为一个不在标的池里的交易所预警"
+    assert "单季" in md, "风险提示没交代信号在时间上的集中度"

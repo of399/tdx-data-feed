@@ -619,6 +619,19 @@ def _newey_west_ttest(returns: np.ndarray, maxlags: int = 5):
     return float(model.tvalues[0]), float(model.pvalues[0])
 
 
+def breakeven_win_rate(avg_win: float, avg_loss: float) -> float:
+    """赔付阶梯决定的打平胜率：w·avg_win + (1−w)·|avg_loss| = 0 ⇒ w = |avg_loss|/(avg_win+|avg_loss|)。
+
+    止盈 +30% / 止损 −10% 这类不对称阶梯会把打平线压到 50% 以下（实测 31.2%），
+    所以胜率的原假设不能取 50%——那测的是赔付几何，不是本事。
+    """
+    if not (np.isfinite(avg_win) and np.isfinite(avg_loss)):
+        return float('nan')
+    if avg_win <= 0 or avg_loss >= 0:
+        return float('nan')
+    return float(-avg_loss / (avg_win - avg_loss))
+
+
 def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: float,
               mode: str = 'v2', fee: float = 0.0, slippage: float = 0.0) -> str:
     """生成回测汇总报告（含交易日对齐资金曲线 + 风险调整指标 + bootstrap CI）。"""
@@ -690,7 +703,12 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
         dsr_p = dsr_p_from_annual_sharpe(sharpe, daily_full.values)
         _, nw_p = _newey_west_ttest(daily_full.values)
     ar_p = _bootstrap_pvalue(bt['return_pct'].values, lambda x: float(x.mean()))         # H0: 平均收益=0
-    wr_p = float(stats.binomtest(int((bt['return_pct'] > 0).sum()), total, 0.5).pvalue)  # H0: 胜率=50%(随机基准)
+    # H0: 胜率 = 赔付阶梯的打平线。取 50% 是错的基准——TP30/SL-10 的阶梯必然把胜率压到
+    # 50% 以下，"显著偏离 50%" 只是规则的同义反复（实测 32/102=31.4% 打平样本会给 p=0.000）。
+    wr_be = breakeven_win_rate(avg_win, avg_loss)
+    wr_n_win = int((bt['return_pct'] > 0).sum())
+    wr_p = float(stats.binomtest(wr_n_win, total, wr_be, alternative='greater').pvalue) \
+        if wr_be == wr_be else float('nan')
     # P0-1 ④ 置换检验：H0 策略日盈亏顺序随机 → 无择时 alpha（≈ 随机抽样同分布）
     perm = permutation_return_test(daily_full.values) if n_days > 0 else None
     perm_p = float(perm['p_two']) if perm else float('nan')
@@ -721,6 +739,24 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
     except Exception:
         dist_md = 'N/A'
 
+    # 胜率检验的基准说明：拿 50% 当原假设测的是赔付阶梯，不是本事
+    if wr_be == wr_be:
+        _wr_null_note = (f"H₀=盈亏平衡胜率 {wr_be*100:.1f}%（由平均盈利 {pct(avg_win)} / "
+                         f"平均亏损 {pct(avg_loss)} 的阶梯决定），**不是** 50%")
+    else:
+        _wr_null_note = "赔付阶梯不存在（无盈利笔或无亏损笔），无法给出盈亏平衡胜率"
+    _wr_be_pct = f"{wr_be*100:.1f}%" if wr_be == wr_be else "—"
+
+    # 信号在时间上的集中度——决定结论能被几段行情支撑
+    _q = pd.to_datetime(bt['signal_date'], errors='coerce').dropna().dt.to_period('Q')
+    if len(_q):
+        _qc = _q.value_counts()
+        top_q_label = str(_qc.index[0])
+        top_q_n = int(_qc.iloc[0])
+        top_q_share = top_q_n / total * 100
+    else:
+        top_q_label, top_q_n, top_q_share = '—', 0, 0.0
+
     return f"""## 📊 核心指标（{mode_label.get(mode, mode)}）
 
 {cost_note}
@@ -740,7 +776,7 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
 | **夏普显著性 (Deflated Sharpe p)** | {dsr_p:.3f} | 多重试验修正 (N={DSR_N_TRIALS})，方差按每期 SR 算 |
 | **日收益均值 (Newey-West HAC p)** | {nw_p:.3f} | 自相关稳健 t 检验 |
 | 平均收益 H₀=0 (bootstrap p) | {ar_p:.3f} | 重采样置换 |
-| 胜率 H₀=50% (精确二项 p) | {wr_p:.3f} | 对随机基准 |
+| 胜率 vs 赔率隐含盈亏平衡 (精确二项单侧 p) | {wr_p:.3f} | {_wr_null_note} |
 | **日收益滞后-1 自相关 (置换检验 p)** | {perm_p:.3f} | 打乱时间重排，判的是曲线时序结构（重叠持仓天然正自相关），**不是**择时 alpha (单侧 {perm_p_one:.3f}) |
 
 ### 整体表现（明细）
@@ -777,16 +813,16 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
 
 1. 历史回测不代表未来收益，翻倍妖股策略暴露于极端波动与流动性风险。
 2. 当前样本仅 {total} 笔（命中率约 1.4%），统计显著性有限；bootstrap CI 已给出但区间仍宽，结论需谨慎。
-3. 收益**已扣除**交易成本与滑点（默认开，双边约 {(fee + slippage) * 2 * 100:.2f}%）；实盘滑点可能高于假设，北交所（920XXX）流动性低时尤甚。
+3. 收益**已扣除**交易成本与滑点（默认开，双边约 {(fee + slippage) * 2 * 100:.2f}%）；实盘滑点可能高于假设，且入场按 T+2 开盘价定价，**开盘即封涨停的票实盘买不到**，可成交样本会少于回测。
 4. 最大回撤/夏普基于等权聚合的交易日对齐资金曲线，未考虑单股 10% 仓位上限下的现金占用与并发约束。
-5. 标的集中于北交所（920XXX）时流动性低、滑点放大，结论外推需分层验证。
-6. **统计显著性**：Deflated Sharpe 先把年化夏普换算成每期（÷ √252）再进方差公式，并对 N={DSR_N_TRIALS} 次试验做多重性修正；Newey-West 处理日收益自相关；二项检验对随机 50% 基准。**滞后-1 自相关的置换检验只判时序结构**：资金曲线把每笔持仓的收益摊在 hold={hold} 个连续交易日上，重叠持仓天然造出正自相关，p 小说明曲线被平滑过，**不能**读成择时 alpha。要判 alpha 得按笔重排入场日再重跑出场（随机择时基准），本脚本未实现。若 p≥0.05，表示当前样本无法拒绝"策略无超额收益"原假设，结论须谨慎。
+5. 信号在时间上高度集中：最强单季 {top_q_label} 贡献 {top_q_n} 笔 / {total} 笔（{top_q_share:.1f}%），整体结论由少数行情窗口支撑，外推需谨慎。标的池自 2026-10-21 起仅含沪深 A 股（北交所已下线），本报告不再对 920XXX 作流动性预警。
+6. **统计显著性**：Deflated Sharpe 先把年化夏普换算成每期（÷ √252）再进方差公式，并对 N={DSR_N_TRIALS} 次试验做多重性修正；Newey-West 处理日收益自相关；胜率检验的原假设是**赔率阶梯决定的盈亏平衡胜率**（{_wr_be_pct}）而非 50%——止盈/止损不对称时 50% 这个基准测的是赔付结构，零边际策略必然显著偏离它。**滞后-1 自相关的置换检验只判时序结构**：资金曲线把每笔持仓的收益摊在 hold={hold} 个连续交易日上，重叠持仓天然造出正自相关，p 小说明曲线被平滑过，**不能**读成择时 alpha。要判 alpha 得按笔重排入场日再重跑出场（随机择时基准），本脚本未实现。若 p≥0.05，表示当前样本无法拒绝"策略无超额收益"原假设，结论须谨慎。
 
 ## 🔧 下一步建议
 
 1. ~~回测内加入交易成本 + 滑点开关（默认开）~~ ✅已实现；可试 `--fee`/`--slippage` 不同档位做成本敏感性。
 2. ~~参数敏感性扫描（--hold/--tp/--sl 网格）~~ ✅已实现：`--sensitivity` 按夏普排序输出 27 组合。
-3. ~~沪深 vs 北交所分层回测~~ ✅已实现：`--stratify`（⚠️ 北交所无日K数据，回测实际仅沪深；需先补齐北交所行情）。
+3. ~~沪深 vs 北交所分层回测~~ 已不适用：北交所自 2026-10-21 起从标的池下线，`--stratify` 现在只会给出沪深两档。
 4. 扩样本至实盘累积 + walk-forward 滚动验证，替代单次切分。
 """
 
