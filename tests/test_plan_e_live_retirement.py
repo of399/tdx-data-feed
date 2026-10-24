@@ -6,7 +6,8 @@ Deflated Sharpe p=1.000、Newey-West p=0.748、bootstrap 均值 p=0.561、胜率
 `cash × 10% / 收盘价` 的买入拆单量并打印——等于把一个测不出边际的信号包装成下单指令。
 
 本测试锁四件事：
-1. 停用话术必须带着可核验的证据留在脚本里（和 daban 的 `DABAN_LIVE_BLOCK` 同一处理方式）；
+1. 停用话术必须带着可核验的证据留在脚本里（和 daban 的 `DABAN_LIVE_BLOCK` 同一处理方式），
+   证据包括最后那条随机择时基线——不写进去，读者会以为择时还没验证、值得再留一条路；
 2. daily 模式不再输出拆单/仓位建议，清单本身照旧打印，研究用途不受影响；
 3. 头部文档里"单股仓位 10%"不能再被读成实盘规则；
 4. `plan-e-today.timer` 停用后，晚间那次 journal 既不该为重跑一次全量回测买单，
@@ -76,6 +77,18 @@ def test_retirement_notice_records_the_evidence():
     assert "不作建仓" in notice, "停用声明没说这份清单还能不能照着下单"
     assert "盈亏平衡" in notice, "没交代胜率检验比的是哪个基准"
     assert "plan_e_backtest_v2_latest.md" in notice, "证据没有可复核的出处"
+
+
+def test_retirement_notice_carries_the_random_timing_verdict():
+    """随机择时基线是停用声明里唯一还没做的那条（「要判 alpha 得按笔重排入场日」），
+    做出来更难看：真实胜率 33.9% 低于随机入场日的 45.1%。不写进声明，读者会以为
+    择时这件事还没验证、值得再留一条路。
+    """
+    pej = _load("plan_e_journal_timing", "plan_e_journal.py")
+    notice = pej.PLAN_E_LIVE_RETIREMENT
+    assert "随机择时" in notice, "停用声明漏掉了最后那条择时检验"
+    assert "45.1%" in notice, "没写随机基线的胜率——真实 33.9% 比它低，这是最硬的一句"
+    assert "标的池" in notice, "没说明这条 p 只判『买在哪天』，选股信息量它管不着"
 
 
 def test_daily_mode_prints_the_notice_and_no_order_sizing(tmp_path, capsys):

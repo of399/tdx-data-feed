@@ -236,3 +236,15 @@ def test_risk_note_stops_blaming_beijing_exchange():
     md = pe.summarize(bt, daily_records, 10, 0.30, -0.10, "v2", fee=0.0003, slippage=0.001)
     assert "北交所（920XXX）" not in md, "风险提示还在为一个不在标的池里的交易所预警"
     assert "单季" in md, "风险提示没交代信号在时间上的集中度"
+
+
+def test_risk_note_no_longer_claims_the_random_timing_baseline_is_missing():
+    """`--random-timing-trials` 已实现并真的跑过（112 笔：真实 +1.16% vs 随机 +0.39%，
+    p=0.215；胜率 33.9% 反而低于随机 45.1%）。风险提示若还写「本脚本未实现」，
+    就和同一份报告下面那个小节自相矛盾，读者会以为择时这件事还值得再研究。
+    """
+    bt, daily_records = _bt_with_returns(_ladder(32, 70))
+    md = pe.summarize(bt, daily_records, 10, 0.30, -0.10, "v2", fee=0.0003, slippage=0.001)
+    assert "本脚本未实现" not in md, "随机择时基线已经实现，风险提示仍在承诺一件做过的事"
+    assert "随机择时基线" in md, "风险提示没指向真正判择时的那条检验"
+    assert "--random-timing-trials" in md, "没留下复现这条检验的开关"

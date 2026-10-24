@@ -249,58 +249,33 @@ def _entry_context(df: pd.DataFrame, idx: int,
             'entry_price': entry_price, 'entry_date': df['date'].iloc[entry_idx]}
 
 
-def backtest_one(code: str, signal_date: str,
-                 hold_days: int = 10,
-                 tp: float = 0.30,
-                 sl: float = -0.10,
-                 min_t_pct: float = 0.0,
-                 min_t_vol_ratio: float = 0.0,
-                 fee: float = 0.0,
-                 slippage: float = 0.0,
-                 bj_slippage: float = 0.0) -> dict:
-    """
-    对单只股回测
-    signal_date = 翻倍首次触发日 (T 日)
-    T+1 日 = 触发后第一天（决定是否入场）
-    T+2 日 = 入场日
-    """
-    code_clean = str(code).zfill(6).lstrip('bj')
+def _has_exit_window(n_bars: int, entry_idx: int, hold_days: int) -> bool:
+    """入场日之后还得走完至少 3 天出场判定，否则这一笔没法定价。"""
+    start = entry_idx + 1
+    end = min(start + hold_days - 1, n_bars)
+    return end - start >= 3
 
-    # 北交所（920XXX 或 8xxxxx）流动性低，叠加额外滑点压力
+
+def _eff_slippage(code_clean: str, slippage: float, bj_slippage: float) -> float:
+    """北交所（920XXX 或 8xxxxx）流动性低，叠加额外滑点压力。"""
     is_bj = code_clean.startswith('920') or code_clean[0] == '8'
-    eff_slip = slippage + (bj_slippage if is_bj else 0.0)
+    return slippage + (bj_slippage if is_bj else 0.0)
 
-    df = _get_df(code_clean)
-    if df is None:
+
+def _settle_from_entry(df: pd.DataFrame, entry_idx: int, hold_days: int,
+                       tp: float, sl: float, fee: float,
+                       eff_slip: float) -> dict | None:
+    """从给定入场日按出场阶梯结算一笔——回测与随机择时基线共用这一段，口径不许分叉。
+
+    逐日判定：同一根 K 线双触发取保守侧（先判止损），跳空穿越价位按当日开盘成交。
+    出场价同时回灌进逐日收益序列，保证资金曲线和 return_pct 同源。
+    """
+    entry = df['open'].iloc[entry_idx]
+    if entry <= 0 or not _has_exit_window(len(df), entry_idx, hold_days):
         return None
 
-    idx = _locate_signal_idx(df, pd.to_datetime(signal_date))
-    if idx is None:
-        return None
-
-    ctx = _entry_context(df, idx, min_t_pct, min_t_vol_ratio)
-    if ctx is None:
-        return None
-    if ctx['filtered']:
-        return {'code': code_clean, 'signal_date': signal_date,
-                't1_pct': ctx['t1_pct'], 't1_vol_ratio': ctx['t1_vol_ratio'],
-                'filtered': ctx['filtered']}
-    if ctx['entry_idx'] is None:
-        return None   # T+2 尚未产生，无前向窗口可回测
-
-    t1_pct = ctx['t1_pct']
-    t1_vol_ratio = ctx['t1_vol_ratio']
-    entry_idx = ctx['entry_idx']
-    entry = ctx['entry_price']
-    entry_date = ctx['entry_date']
-
-    # 持有窗口（T+3 起，T+2 为入场日）
     start = entry_idx + 1
     end = min(start + hold_days - 1, len(df))
-    if end - start < 3:   # 窗口至少 3 天
-        return None
-
-    # 逐日判定出场：同一根 K 线双触发取保守侧（先判止损），跳空穿越按开盘成交
     tp_lvl = entry * (1 + tp)
     sl_lvl = entry * (1 + sl)
     exit_idx = end - 1
@@ -327,6 +302,7 @@ def backtest_one(code: str, signal_date: str,
     max_gain = (high_max - entry) / entry
     max_loss = (low_min - entry) / entry
 
+    entry_date = df['date'].iloc[entry_idx]
     exit_date = df['date'].iloc[exit_idx]
     if reason == 'TIME':
         exit_price = df['close'].iloc[exit_idx]
@@ -354,10 +330,6 @@ def backtest_one(code: str, signal_date: str,
         prev_close = close_k
 
     return {
-        'code': code_clean,
-        'signal_date': signal_date,
-        't1_pct': round(t1_pct, 4),
-        't1_vol_ratio': round(t1_vol_ratio, 2),
         'entry_date': str(entry_date)[:10],
         'entry_price': round(entry, 2),
         'exit_date': str(exit_date)[:10],
@@ -369,8 +341,84 @@ def backtest_one(code: str, signal_date: str,
         'exit_reason': reason,
         'hold': f"T+{exit_idx - entry_idx + 1}",
         'daily': daily,
+    }
+
+
+def backtest_one(code: str, signal_date: str,
+                 hold_days: int = 10,
+                 tp: float = 0.30,
+                 sl: float = -0.10,
+                 min_t_pct: float = 0.0,
+                 min_t_vol_ratio: float = 0.0,
+                 fee: float = 0.0,
+                 slippage: float = 0.0,
+                 bj_slippage: float = 0.0) -> dict:
+    """
+    对单只股回测
+    signal_date = 翻倍首次触发日 (T 日)
+    T+1 日 = 触发后第一天（决定是否入场）
+    T+2 日 = 入场日
+    """
+    code_clean = str(code).zfill(6).lstrip('bj')
+    eff_slip = _eff_slippage(code_clean, slippage, bj_slippage)
+
+    df = _get_df(code_clean)
+    if df is None:
+        return None
+
+    idx = _locate_signal_idx(df, pd.to_datetime(signal_date))
+    if idx is None:
+        return None
+
+    ctx = _entry_context(df, idx, min_t_pct, min_t_vol_ratio)
+    if ctx is None:
+        return None
+    if ctx['filtered']:
+        return {'code': code_clean, 'signal_date': signal_date,
+                't1_pct': ctx['t1_pct'], 't1_vol_ratio': ctx['t1_vol_ratio'],
+                'filtered': ctx['filtered']}
+    if ctx['entry_idx'] is None:
+        return None   # T+2 尚未产生，无前向窗口可回测
+
+    settled = _settle_from_entry(df, ctx['entry_idx'], hold_days, tp, sl, fee, eff_slip)
+    if settled is None:
+        return None   # 入场日开盘价非法 / T+2 之后窗口不足
+
+    return {
+        'code': code_clean,
+        'signal_date': signal_date,
+        't1_pct': round(ctx['t1_pct'], 4),
+        't1_vol_ratio': round(ctx['t1_vol_ratio'], 2),
+        **settled,
         'filtered': '',
     }
+
+
+def backtest_at_entry(code: str, entry_date: str,
+                      hold_days: int = 10,
+                      tp: float = 0.30,
+                      sl: float = -0.10,
+                      fee: float = 0.0,
+                      slippage: float = 0.0,
+                      bj_slippage: float = 0.0) -> dict | None:
+    """跳过 T+1 过滤，直接从指定入场日按同一套出场阶梯结算——随机择时基线用。
+
+    与 `backtest_one` 共用 `_settle_from_entry`：基线要是用了另一套出场代码，
+    它和实样本就不是同一个策略的两个版本，比出来的 p 值没有意义。
+    """
+    code_clean = str(code).zfill(6).lstrip('bj')
+    df = _get_df(code_clean)
+    if df is None:
+        return None
+    matches = df[df['date'] == pd.to_datetime(entry_date)]
+    if matches.empty:
+        return None
+    entry_idx = matches.index[0]
+    settled = _settle_from_entry(df, entry_idx, hold_days, tp, sl, fee,
+                                 _eff_slippage(code_clean, slippage, bj_slippage))
+    if settled is None:
+        return None
+    return {'code': code_clean, 'signal_date': settled['entry_date'], **settled}
 
 
 def backtest(double_up: pd.DataFrame,
@@ -428,6 +476,163 @@ def backtest(double_up: pd.DataFrame,
 
 
 CALENDAR_CODE = 'sh000001'   # 上证指数日 K 即交易日历，本地文件，不用联网
+
+
+def _eligible_entry_dates(code: str, span_start, span_end, hold_days: int) -> list[str]:
+    """基线的抽样域：该股票落在真实样本 entry_date 跨度内、入场后还能走完出场规则的日子。
+
+    跨度取自实样本，是为了让随机入场日面对的是同一段市场环境；标的池一个字都不动，
+    所以这一条只回答"买在哪天"，不回答"买哪些票"。
+    """
+    code_clean = str(code).zfill(6).lstrip('bj')
+    df = _get_df(code_clean)
+    if df is None:
+        return []
+    lo, hi = pd.Timestamp(span_start), pd.Timestamp(span_end)
+    n = len(df)
+    out = []
+    for i, d in enumerate(df['date']):
+        ts = pd.Timestamp(d)
+        if not (lo <= ts <= hi):
+            continue
+        if df['open'].iloc[i] > 0 and _has_exit_window(n, i, hold_days):
+            out.append(str(d)[:10])
+    return out
+
+
+def _trade_stats(rets: np.ndarray) -> tuple[float, float, float]:
+    """(均收益, 逐笔夏普, 胜率)。逐笔夏普用每笔收益的横截面，与日频夏普不是一个量纲。"""
+    if len(rets) == 0:
+        return float('nan'), float('nan'), float('nan')
+    mean = float(rets.mean())
+    sd = float(rets.std(ddof=1)) if len(rets) > 1 else 0.0
+    sharpe = mean / sd if sd > 0 else float('nan')
+    return mean, sharpe, float((rets > 0).mean())
+
+
+def random_timing_baseline(bt: pd.DataFrame,
+                           hold_days: int = 10,
+                           tp: float = 0.30,
+                           sl: float = -0.10,
+                           fee: float = 0.0,
+                           slippage: float = 0.0,
+                           bj_slippage: float = 0.0,
+                           n_trials: int = 300,
+                           seed: int = 42) -> dict:
+    """H0「这批股票哪天买都一样」：固定标的池，把每笔的入场日换成跨度内随机一天重跑。
+
+    已有的四个检验只回答"这 112 笔的收益显不显著"；这一条才把"择时"本身放进原假设：
+    同一只票、同一套出场阶梯（SL 优先 + 跳空按开盘，走 `_settle_from_entry` 同一段代码），
+    只换入场日，看真实统计量能排在随机分布的哪一段。
+    """
+    if bt.empty or 'entry_date' not in bt.columns:
+        raise ValueError('随机择时基线需要带 entry_date 的有效回测样本')
+    rng = np.random.default_rng(seed)
+    entries = pd.to_datetime(bt['entry_date'])
+    span_start, span_end = entries.min(), entries.max()
+
+    pools: dict[str, list[str]] = {}
+    trades: list[tuple[str, list[str]]] = []
+    n_skipped = 0
+    for code in bt['code'].astype(str):
+        if code not in pools:
+            pools[code] = _eligible_entry_dates(code, span_start, span_end, hold_days)
+        if pools[code]:
+            trades.append((code, pools[code]))
+        else:
+            n_skipped += 1
+
+    null = {'mean': [], 'sharpe': [], 'win': []}
+    for _ in range(n_trials):
+        rets = []
+        for code, pool in trades:
+            day = pool[int(rng.integers(len(pool)))]
+            r = backtest_at_entry(code, day, hold_days=hold_days, tp=tp, sl=sl,
+                                  fee=fee, slippage=slippage, bj_slippage=bj_slippage)
+            if r is None:
+                continue
+            rets.append(r['return_pct'])
+        m, s, w = _trade_stats(np.array(rets, dtype=float))
+        null['mean'].append(m)
+        null['sharpe'].append(s)
+        null['win'].append(w)
+
+    real_m, real_s, real_w = _trade_stats(bt['return_pct'].to_numpy(dtype=float))
+
+    def _p(null_vals, real_val):
+        arr = np.array([v for v in null_vals if v == v], dtype=float)   # 丢掉 nan
+        if arr.size == 0 or real_val != real_val:
+            return float('nan')
+        return float((arr >= real_val).mean())
+
+    return {
+        'n_trials': n_trials,
+        'n_trades': len(trades),
+        'n_skipped': n_skipped,
+        'seed': seed,
+        'span': (str(span_start)[:10], str(span_end)[:10]),
+        'real_mean': real_m, 'real_sharpe': real_s, 'real_win': real_w,
+        'null_mean': null['mean'], 'null_sharpe': null['sharpe'], 'null_win': null['win'],
+        'p_mean': _p(null['mean'], real_m),
+        'p_sharpe': _p(null['sharpe'], real_s),
+        'p_win': _p(null['win'], real_w),
+        'null_mean_of_mean': float(np.nanmean(null['mean'])) if null['mean'] else float('nan'),
+        'null_p95_mean': float(np.nanquantile(null['mean'], 0.95)) if null['mean'] else float('nan'),
+        'null_mean_of_win': float(np.nanmean(null['win'])) if null['win'] else float('nan'),
+    }
+
+
+def run_random_timing(bt: pd.DataFrame,
+                      hold_days: int = 10,
+                      tp: float = 0.30,
+                      sl: float = -0.10,
+                      fee: float = 0.0,
+                      slippage: float = 0.0,
+                      bj_slippage: float = 0.0,
+                      n_trials: int = 300,
+                      seed: int = 42) -> str:
+    """随机择时基线的报告小节。"""
+    base = random_timing_baseline(bt, hold_days=hold_days, tp=tp, sl=sl, fee=fee,
+                                  slippage=slippage, bj_slippage=bj_slippage,
+                                  n_trials=n_trials, seed=seed)
+    lo, hi = base['span']
+    lines = [
+        "## 随机择时基线（同标的池、随机入场日）",
+        "",
+        f"把每笔的入场日换成该股票在 [{lo}, {hi}] 内随机挑的一天，出场阶梯一字不改"
+        "（SL 优先、跳空按开盘），重跑 "
+        f"{base['n_trials']} 次，看真实统计量排在随机分布的哪个分位。",
+        "",
+        "**标的池不变**，所以这一条只检验「买在哪天」，不检验「买哪些票」——"
+        "随机基线依然在这些翻倍过的股票上抽样，选股本身的信息量它管不着。",
+        "",
+        "| 统计量 | 真实 | 随机基线（均值） | 随机 95 分位 | 单侧 p |",
+        "|---|---|---|---|---|",
+        f"| 均收益/笔 | {base['real_mean']*100:+.2f}% | "
+        f"{base['null_mean_of_mean']*100:+.2f}% | {base['null_p95_mean']*100:+.2f}% | "
+        f"p={base['p_mean']:.3f} |",
+        f"| 胜率 | {base['real_win']*100:.1f}% | {base['null_mean_of_win']*100:.1f}% | — | "
+        f"p={base['p_win']:.3f} |",
+        f"| 逐笔夏普（每笔收益的横截面，非日频） | {base['real_sharpe']:.3f} | "
+        f"{np.nanmean(base['null_sharpe']):.3f} | "
+        f"{np.nanquantile(base['null_sharpe'], 0.95):.3f} | p={base['p_sharpe']:.3f} |",
+        "",
+        f"参与抽样 {base['n_trades']} 笔"
+        + (f"，另有 {base['n_skipped']} 笔在跨度内挑不出有完整出场窗口的日子，未参与"
+           if base['n_skipped'] else "，无抽不出的笔")
+        + f"；seed={base['seed']}，可复现。",
+        "",
+        "单侧 p（H₁：真实 ≥ 随机）= 随机入场日里跑出 ≥ 真实统计量的比例；p 大 ⇒ 挑哪天买与蒙没有区别。"
+        "胜率那一行的方向同理：p=1.0 说的是真实胜率**低于**随机择时，不是「没有差异」。",
+        "",
+        "**这条 p 是条件推断，不能外推。** 标的池被固定住，随机化只动入场日，所以它的标准误来自"
+        "同一只票的日际波动（比分母跨标的的标准误小一个量级）。p 小只说明「对这批已触发翻倍的股票，"
+        "买在事件日比买在随便一天好」；它不回答「这套信号换到没见过的票上还能不能赚」——"
+        "那是上面 DSR / Newey-West / bootstrap 三个检验的问题，它们的标准误是跨标的的，"
+        "结论是绝对边际测不出显著。两个答案可以同时成立：择时有信息，但整条策略的绝对期望仍跨零。",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def _is_next_session(last_bar, today: str) -> bool:
@@ -816,7 +1021,7 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
 3. 收益**已扣除**交易成本与滑点（默认开，双边约 {(fee + slippage) * 2 * 100:.2f}%）；实盘滑点可能高于假设，且入场按 T+2 开盘价定价，**开盘即封涨停的票实盘买不到**，可成交样本会少于回测。
 4. 最大回撤/夏普基于等权聚合的交易日对齐资金曲线，未考虑单股 10% 仓位上限下的现金占用与并发约束。
 5. 信号在时间上高度集中：最强单季 {top_q_label} 贡献 {top_q_n} 笔 / {total} 笔（{top_q_share:.1f}%），整体结论由少数行情窗口支撑，外推需谨慎。标的池自 2026-10-21 起仅含沪深 A 股（北交所已下线），本报告不再对 920XXX 作流动性预警。
-6. **统计显著性**：Deflated Sharpe 先把年化夏普换算成每期（÷ √252）再进方差公式，并对 N={DSR_N_TRIALS} 次试验做多重性修正；Newey-West 处理日收益自相关；胜率检验的原假设是**赔率阶梯决定的盈亏平衡胜率**（{_wr_be_pct}）而非 50%——止盈/止损不对称时 50% 这个基准测的是赔付结构，零边际策略必然显著偏离它。**滞后-1 自相关的置换检验只判时序结构**：资金曲线把每笔持仓的收益摊在 hold={hold} 个连续交易日上，重叠持仓天然造出正自相关，p 小说明曲线被平滑过，**不能**读成择时 alpha。要判 alpha 得按笔重排入场日再重跑出场（随机择时基准），本脚本未实现。若 p≥0.05，表示当前样本无法拒绝"策略无超额收益"原假设，结论须谨慎。
+6. **统计显著性**：Deflated Sharpe 先把年化夏普换算成每期（÷ √252）再进方差公式，并对 N={DSR_N_TRIALS} 次试验做多重性修正；Newey-West 处理日收益自相关；胜率检验的原假设是**赔率阶梯决定的盈亏平衡胜率**（{_wr_be_pct}）而非 50%——止盈/止损不对称时 50% 这个基准测的是赔付结构，零边际策略必然显著偏离它。**滞后-1 自相关的置换检验只判时序结构**：资金曲线把每笔持仓的收益摊在 hold={hold} 个连续交易日上，重叠持仓天然造出正自相关，p 小说明曲线被平滑过，**不能**读成择时 alpha。判择时靠的是**随机择时基线**（`--random-timing-trials`，本报告末尾那节）：标的池不动，只把每笔入场日换成该股票在样本跨度内随机挑的一天，出场阶梯一字不改。它只检验「买在哪天」，选股的信息量它管不着；且随机化只动入场日，标准误来自同票日际波动，比跨标的的那几个检验小一个量级，属**条件推断**，不能外推到没见过的票。若 p≥0.05，表示当前样本无法拒绝"策略无超额收益"原假设，结论须谨慎。
 
 ## 🔧 下一步建议
 
@@ -1591,6 +1796,9 @@ def main():
                         help='参数敏感性扫描（hold/tp/sl 网格，按夏普排序）')
     parser.add_argument('--stratify', action='store_true',
                         help='沪深/北交所分层回测（告警北交所数据缺口）')
+    parser.add_argument('--random-timing-trials', type=int, default=300,
+                        help='随机择时基线：固定标的池、只把入场日换成跨度内随机一天重跑的次数'
+                             '（0=跳过，默认 300）')
     parser.add_argument('--by-year', action='store_true',
                         help='按 signal_date 年份分层回测')
     parser.add_argument('--walk-forward', action='store_true',
@@ -1787,6 +1995,10 @@ def main():
     print(f"  ✓ CSV: {fp_csv.name}")
 
     md = summarize(bt, daily, args.hold, args.tp, args.sl, mode, fee=fee, slippage=slippage)
+    if args.random_timing_trials > 0:
+        print(f"  随机择时基线：{args.random_timing_trials} 次重抽（标的池不变，只换入场日）...")
+        md += "\n" + run_random_timing(bt, args.hold, args.tp, args.sl, fee, slippage,
+                                       bj_slippage, n_trials=args.random_timing_trials)
     fp_md = OUTPUT_DIR / f'plan_e_backtest_{mode}_{ts}.md'
     header = f"# 方案 E 回测报告 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
     footer = (f"\n---\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
