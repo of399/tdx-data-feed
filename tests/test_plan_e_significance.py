@@ -7,10 +7,11 @@ z 被放大 √252≈15.9 倍。实测本次 110 笔样本：年化 0.081 → p=
 换成每期 0.00509 → p=1.000（不显著）。同一份数据的 Newey-West 日收益 p=0.822 站在后者一边。
 
 缺陷 2 — 置换检验被当成择时 alpha：`permutation_return_test` 默认统计量是滞后-1 自相关
-（均值/夏普对重排不变，会退化，所以选它是对的），但报告行写成「策略 vs 随机时序」，
-风险提示第 6 条写「判策略是否优于随机时序」。资金曲线是把一笔持仓的收益摊在 hold 个
-连续交易日上算出来的，重叠持仓天然产生正自相关——观测 0.137 vs 打乱后 ≈0，
-p=0.000 只证明曲线被平滑过，不证明 alpha。
+（均值/夏普对重排不变，会退化，所以选它是对的），但资金曲线是把一笔持仓的收益摊在 hold 个
+连续交易日上算出来的，重叠持仓天然产生正自相关——观测 0.137 vs 打乱后 ≈0，p=0.000 只证明
+曲线被平滑过，不证明 alpha。plan_e 侧把它写成「策略 vs 随机时序」；同一处误读在
+`multifactor.engine` 风险提示第 9 条里写成「置换 p<0.05 ⇒ 日盈亏顺序显著异于随机时序…
+代表有顺序信息」，和它自己表格里的「判时序结构而非择时 alpha」自相矛盾，一并改掉。
 """
 from __future__ import annotations
 
@@ -120,6 +121,21 @@ def test_risk_note_drops_the_timing_alpha_claim():
     bt, daily_records = _fake_bt_and_records(_daily_series(1500, 0.4))
     md = pe.summarize(bt, daily_records, 10, 0.30, -0.10, "v2", fee=0.0003, slippage=0.001)
     assert "判策略是否优于随机时序" not in md
+
+
+def test_multifactor_risk_note_drops_the_timing_alpha_claim():
+    """engine.py 风险提示第 9 条同样把置换检验读成 alpha，和多因子表格里那行自相矛盾。"""
+    from types import SimpleNamespace
+
+    from quant.multifactor import engine
+    cfg = SimpleNamespace(cov_method="lw", vol_target=0.0, cvar_alpha=0.95)
+    valp = SimpleNamespace(mode="proxy")
+    md = engine._build_report(
+        {"sharpe": 0.42, "dsr_p": 1.0, "perm_p_two": 0.272, "perm_p_one": 0.136},
+        [], [], {}, cfg, valp, None)
+    assert "日盈亏顺序显著异于随机时序" not in md, "自相关检验被读成有顺序信息 ⇒ 择时 alpha"
+    assert "滞后-1 自相关" in md, "风险提示没说这个 p 值实际测的是什么"
+    assert "重叠持仓" in md, "风险提示没说明重叠持仓会天然造出自相关"
 
 
 # ---------- 两个调用点共用同一换算 ----------

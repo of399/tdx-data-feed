@@ -665,7 +665,7 @@ def _build_report(metrics, holdings_hist, ic_records, yearly, cfg, valp, ts, ic_
     L.append("6. IC 序列已做 Newey-West HAC 检验（自相关稳健）：若『IC 均值 HAC p≥0.05』，说明当前样本无法拒绝『IC 均值=0』，因子整体无稳定信号，夏普/ICIR 的高值须谨慎采信。")
     L.append("7. 协方差条件数（max≈{:.1e}）反映估计病态程度；数值显著增大说明候选集个股高度共线或样本期偏短，ERC 风险预算稳定性下降，可下调 top_n 或改用 EWMA 时变估计。".format(metrics.get("max_cov_cond", float("nan"))))
     L.append("8. 尾部风险：组合日收益 CVaR({:.0%}) 均值约 {:.2%}（损失口径为其负值）；显著走阔说明候选集左尾增厚，可开启 cvar_limit 约束或降杠杆/减 top_n。半 Kelly 与波动率目标已实现为可选仓位层，默认关闭以免改变现有组合结构。".format(cfg.cvar_alpha, -metrics.get("mean_cvar", 0.0)))
-    L.append("9. 组合日收益已做 Deflated Sharpe / 置换检验多角度统计（P0-1 补完）：DSR p<0.05 ⇒ 多重试验修正后夏普仍显著；置换 p<0.05 ⇒ 日盈亏顺序显著异于随机时序（不直接等于赚钱，但代表有顺序信息）。两者 ≥ 0.05 须配合 IC Newey-West + bootstrap 综合判定策略显著性。")
+    L.append("9. 组合日收益已做 Deflated Sharpe / 置换检验多角度统计：DSR 先把年化夏普换算成每期（÷ √252）再进方差公式，并对多重试验做修正，p<0.05 才谈得上「修正后夏普仍显著」。**滞后-1 自相关的置换检验只判时序结构**：一笔持仓的收益摊在持有期内逐日计入净值，重叠持仓天然造出正自相关，p 小说明净值曲线被平滑过，不能读成择时 alpha；要判 alpha 需按笔重排入场日再重跑出场（本引擎未实现）。两者 ≥ 0.05 须配合 IC Newey-West + bootstrap 综合判定策略显著性。")
     L.append("\n## 五、下一步建议\n")
     L.append("- 待 data/valuation 全量下载完成后以 valuation_mode=real 重跑，验证估值因子真实贡献。")
     L.append("- 用 purged+embargo CV 对因子合成做样本外稳健性复核。")
