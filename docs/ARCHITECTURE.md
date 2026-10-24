@@ -349,7 +349,7 @@ v2 信号更紧，单笔质量更高；适合**小资金高频次**而非大资�
 ### 决策
 
 - **方案**：systemd user timer（`~/.config/systemd/user/`）
-- **任务数**：决策时是上面那 5 只；现在 `systemd/` 里有 10 只 timer / 13 只 service，下表列其中 8 只
+- **任务数**：决策时是上面那 5 只；现在 `systemd/` 里有 11 只 timer / 14 只 service，下表列其中 9 只
   （未列入的两只属运维：obsidian 年度归档、本地日志清理）
 - **日志**：`StandardOutput=append:logs/*.log`
 
@@ -362,12 +362,14 @@ v2 信号更紧，单笔质量更高；适合**小资金高频次**而非大资�
 | predict-daily.timer | Mon..Fri 18:05 | 方案 D 预测（`Requires=` tdxfeed-sync，挂了不跑；两者失败都走 `onfailure-alert@`）|
 | plan-e-today.timer | Mon..Fri 08:45 | 盘前「今日开盘入场」清单——2026-10-24 白天 disable，当晚**重开自动调度**；产出的仍是研究口径榜单，不建仓 |
 | plan-e-journal.timer | Mon..Fri 18:10 | 方案 E 每日清单归档——2026-10-24 白天 disable，当晚**重开自动调度**：盘前那份清单重新有了生产者，18:10 复用并归档 signals_YYYYMMDD.csv |
+| plan-e-double-up.timer | Mon..Fri 18:30 | 重建翻倍样本 `data/double_up/double_up_2020_2026_detail.csv`——**2026-10-24 新增**，它是 08:45 那次「近 7 日翻倍首次触发」预筛的候选池；此前只能手工 `make analyze-double-up`，样本曾停在 `peak_date=2026-09-22`，新触发日进不了清单 |
 | plan-e-monitor.timer | Mon..Fri 18:40 | 方案 E 实盘 PnL/偏差监控——**2026-10-24 已 disable**：实盘账本为空（无 positions.json，journal.csv 只有表头） |
 | plan-e-weekly.timer | Fri 20:00 | 方案 E 周报——**2026-10-24 已 disable**（同上，无实盘流水可汇总） |
 | plan-e-real-refresh.timer | Sun 21:00 | 方案 E 实盘样本回灌调参——**从未启用**，2026-10-24 一并确认停用（输入是同一份空账本） |
 
-五只 plan-e timer 里只有 `plan-e-today` 与 `plan-e-journal` 在 `make timer-enable` 的启用列表里（2026-10-24 晚重开），
-`plan-e-monitor` / `plan-e-weekly` / `plan-e-real-refresh` 维持停用；`make timer-disable` 仍把这五个名字一并扫掉做收口
+六只 plan-e timer 里有三只在 `make timer-enable` 的启用列表里：`plan-e-today` 与 `plan-e-journal`
+（2026-10-24 晚重开），以及同日新增的 `plan-e-double-up`（18:30 重建 08:45 那次的候选池）。
+`plan-e-monitor` / `plan-e-weekly` / `plan-e-real-refresh` 维持停用；`make timer-disable` 仍把这六个名字一并扫掉做收口
 （`plan-e-real-refresh` 2026-10-24 前漏在列表外）。重开的是调度，不是实盘入口：晚间 CLI 兜底开关
 `PLAN_E_PREMARKET_LIST_ACTIVE` 依旧是 `False`，两者互不绑定。
 
@@ -576,10 +578,12 @@ http://localhost:11434/api/generate
                      → POST 127.0.0.1:5002（系统级 pushplus_bridge，Alertmanager 也用它）→ 微信推送
                      同单元默认 1 小时冷却；--dry-run 只看载荷不推送
 
-—— 方案 E 五只 timer：today/journal 2026-10-24 当晚重开，其余三只仍 disable（不建仓，产出为研究口径）——
+—— 方案 E 六只 timer：today/journal 2026-10-24 当晚重开、double-up 同日新增，其余三只仍 disable（不建仓，产出为研究口径）——
 盘前 08:45 (plan-e-today)  → plan_e_backtest --today → plan_e_today.csv（entry_date=今天；已被盘前清单归档）
 每日 18:10 (plan-e-journal) → 复用盘前那份清单归档 signals_YYYYMMDD.csv；清单不在位时不跑 CLI 兜底，
                               并如实输出"今天没有盘前清单"，不报成"今日无触发信号"
+每日 18:30 (plan-e-double-up) → find_double_up_c.py 重算 double_up_2020_2026_detail.csv，
+                              即 08:45 那次预筛读的候选池；零命中或某市场段归零则非零退出并保留上一版样本
 每日 18:40 (plan-e-monitor) → 实盘 PnL 跟踪；disabled——实盘账本为空（无 positions.json，journal.csv 只有表头）
 每周五 20:00 (plan-e-weekly) → 周报 week_*.md；disabled（同上，无实盘流水可汇总）
 周日 21:00 (plan-e-real-refresh) → 实盘样本回灌调参，从未启用过，输入同样是那份空账本

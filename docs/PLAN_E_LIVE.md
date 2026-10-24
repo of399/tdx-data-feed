@@ -13,9 +13,12 @@
 > 这条路也无法靠实盘积累验证：约 16~17 笔/年的产量要 ~1,240 笔才摸到 p<0.05（70 年以上）。
 >
 > 仍然可用：`plan_e_backtest.py` 回测、`--today` 研究清单、`--mode simulate` 虚拟账本。
-> 方案 E 的五只 systemd timer 里，`plan-e-today`（工作日 08:45 出盘前清单）与 `plan-e-journal`
+> 方案 E 的六只 systemd timer 里，`plan-e-today`（工作日 08:45 出盘前清单）与 `plan-e-journal`
 > （18:10 复用那份清单归档）已于 2026-10-24 晚**重开自动调度**——重开的只是「每天自动把研究清单算出来」，
-> `--mode daily` 依旧不逐笔算下单量、上面那段停用声明照旧打印。`plan-e-monitor` / `plan-e-weekly` /
+> `--mode daily` 依旧不逐笔算下单量、上面那段停用声明照旧打印。同日新增 `plan-e-double-up`
+> （工作日 18:30 重算 `data/double_up/double_up_2020_2026_detail.csv`，即 08:45 那次「近 7 日翻倍首次触发」
+> 预筛读的候选池）：在那之前这份样本只能手工 `make analyze-double-up`，它的 `peak_date` 停在 2026-09-22，
+> 新的触发日根本进不了盘前清单。`plan-e-monitor` / `plan-e-weekly` /
 > `plan-e-real-refresh` 维持 disabled（输入是那份空账本：无 positions.json，journal.csv 只有表头），
 > 单元文件都留在 `systemd/`。临时补一张清单仍可手动 `make plan-e-today`。
 > 同一次处置的另一个案例见 `docs/DABAN_TOPK_PNL_20261022.md`，两段停用声明都在

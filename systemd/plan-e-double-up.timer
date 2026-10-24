@@ -1,0 +1,16 @@
+[Unit]
+Description=每个工作日 18:30 重建翻倍样本（方案 E 盘前清单的候选池）
+
+[Timer]
+# 排在 18:00 tdxfeed-sync（落当日 K 线）与 18:10 plan-e-journal（读同一份 CSV）之后。
+# plan-e-today 08:45 的「近 7 日翻倍首次触发」预筛只看得见 double_up_2020_2026_detail.csv
+# 里已有的触发日：不每个交易日重建，新触发日就永远进不了盘前清单（这条链路 2026-10-24
+# 之前一直是靠手工 `make analyze-double-up` 喂的）。
+OnCalendar=Mon..Fri 18:30:00
+# 全量重算且守卫不过就不覆写，补跑是幂等的：错过一天不该让候选池停在上周五。
+Persistent=true
+AccuracySec=60s
+Unit=plan-e-double-up.service
+
+[Install]
+WantedBy=timers.target

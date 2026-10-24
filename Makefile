@@ -230,7 +230,7 @@ data-status:  ## 查看数据同步状态
 	@echo "$(CYAN)复权因子: $(shell ls $(DATA)/adj_factor/ 2>/dev/null | wc -l) 文件$(NC)"
 
 # ============== 量化分析 ==============
-analyze-double-up:  ## 方案 C：识别翻倍样本
+analyze-double-up:  ## 方案 C：识别翻倍样本（plan-e-double-up.timer 工作日 18:30 跑同一个脚本）
 	$(PYTHON) $(SCRIPTS)/find_double_up_c.py
 	@echo "$(GREEN)✓ 翻倍样本: $(DATA)/double_up/double_up_2020_2026_detail.csv$(NC)"
 
@@ -372,16 +372,18 @@ timer-install:  ## 安装 systemd timer/path（复制到 user systemd，凡改 s
 	@cp --remove-destination $(SYSTEMD_DIR)/*.service $(SYSTEMD_DIR)/*.timer $(SYSTEMD_DIR)/*.path $(USER_SYSTEMD)/
 	@echo "$(GREEN)✓ timer/path 已复制（记得 daemon-reload + 必要时 restart/reset-failed）$(NC)"
 
-# 方案 E 五只 timer 里的两只在启用列表里：2026-10-24 晚 plan-e-today（工作日 08:45 出盘前清单）
-# 与 plan-e-journal（18:10 复用那份清单归档 signals_YYYYMMDD.csv）重开——自动产出的仍是研究口径，
-# `--mode daily` 依旧不逐笔算下单量。plan-e-monitor / plan-e-weekly / plan-e-real-refresh 维持停用：
-# 实盘账本恒空（无 positions.json，journal.csv 只有表头），而 real-refresh 是每周一次的重算。
-# 单元文件都在 systemd/，timer-disable 扫全部五个名字以保证一键收口。
+# 方案 E 六只 timer 里的三只在启用列表里：2026-10-24 晚 plan-e-today（工作日 08:45 出盘前清单）
+# 与 plan-e-journal（18:10 复用那份清单归档 signals_YYYYMMDD.csv）重开，同日补上
+# plan-e-double-up（18:30 重建翻倍样本——08:45 那次的 7 日预筛只看得见 CSV 里已有的触发日，
+# 不重建候选池就等于新触发日永远进不了清单）。自动产出的仍是研究口径，
+# `--mode daily` 依旧不逐笔算下单量。plan-e-monitor / plan-e-weekly / plan-e-real-refresh
+# 维持停用：实盘账本恒空（无 positions.json，journal.csv 只有表头），而 real-refresh 是每周一次的重算。
+# 单元文件都在 systemd/，timer-disable 扫全部六个名字以保证一键收口。
 timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@echo "$(CYAN)▶ 重载 systemd$(NC)"
 	systemctl --user daemon-reload
 	@echo "$(CYAN)▶ 启用 timer$(NC)"
-	@for t in tdxfeed-sync predict-daily plan-e-today plan-e-journal canary-health; do \
+	@for t in tdxfeed-sync predict-daily plan-e-today plan-e-journal plan-e-double-up canary-health; do \
 		systemctl --user enable $$t.timer 2>&1 | head -1; \
 		systemctl --user start $$t.timer; \
 	done
@@ -393,7 +395,7 @@ timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@$(MAKE) timer-status
 
 timer-disable:  ## 禁用所有 timer 与 path 单元
-	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-today plan-e-monitor plan-e-weekly plan-e-real-refresh canary-health; do \
+	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-today plan-e-double-up plan-e-monitor plan-e-weekly plan-e-real-refresh canary-health; do \
 		systemctl --user disable $$t.timer; \
 		systemctl --user stop $$t.timer 2>/dev/null || true; \
 	done

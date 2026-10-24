@@ -83,6 +83,7 @@
 | `systemd/predict-daily.timer` | 方案 D 每日预测（收盘后，含 `precheck_freshness.sh` 数据新鲜度守卫）；对 sync 是 `Requires=`（同步失败则整轮不跑），失败同样推送 | systemd timer |
 | `systemd/plan-e-journal.timer` | 方案 E 每日信号清单归档（18:10，After predict-daily）——**2026-10-24 晚重开**：直接复用 08:45 那份盘前清单归档 `signals_YYYYMMDD.csv`，产出仍是研究口径、不给下单建议；读不到今日清单时不跑 CLI 兜底（晚间用的是收盘数据）| systemd timer |
 | `systemd/plan-e-today.timer` | 方案 E 盘前今日清单（08:45 跑 `plan_e_backtest.py --today`）——**2026-10-24 晚重开**（当天上午曾随「退出实盘入口」一起停用）；退出实盘入口这件事不变，`--mode daily` 依旧不算拆单量 | systemd timer |
+| `systemd/plan-e-double-up.timer` | 方案 E 翻倍样本重建（18:30，排在 18:00 sync 与 18:10 journal 之后）——**2026-10-24 新增**：跑 `scripts/find_double_up_c.py` 重算 `data/double_up/double_up_2020_2026_detail.csv`，那正是 08:45 那次「近 7 日翻倍首次触发」预筛的候选池；此前只能手工 `make analyze-double-up`，样本 `peak_date` 停在 2026-09-22，新触发日进不了清单。含 `precheck_freshness.sh` 与 `OnFailure`，脚本对零命中/某市场段归零非零退出并保留上一版；2026-10-24 实测 16s 扫完 5236 只 parquet，读失败 0 | systemd timer |
 | `systemd/plan-e-monitor.timer` | 方案 E 持仓监控（18:40）——**2026-10-24 已 disable**：实盘账本为空（无 positions.json，journal.csv 只有表头）| systemd timer（停用） |
 | `systemd/plan-e-weekly.timer` | 方案 E 周报汇总（周五 20:00）——**2026-10-24 已 disable**（无实盘流水可汇总）| systemd timer（停用） |
 | `systemd/plan-e-real-refresh.timer` | 方案 E 实盘样本回灌调参（周日 21:00）——**从未启用**，2026-10-24 一并确认停用（输入是同一份空账本）| systemd timer（停用） |
@@ -133,7 +134,7 @@
 ### 2.4 自动化任务（automations）
 
 - **现状**：`.codebuddy/automations/` 下有 4 个目录（`v4` / `v5-daemon` / `v8-retrain-review` / `v9-training-watch`），每个只有 `memory.md`，**没有 `automation.toml`**，因此不会被 CodeBuddy 调度。
-- **真实定时任务全部在 systemd user timer**：在跑的五个是 `tdxfeed-sync` / `predict-daily` / `canary-health` / `trainsh-health` / `tdx-clean-logs`（外加 `obsidian-sync.path`）。方案 E 的五只单元（`plan-e-today` / `plan-e-journal` / `plan-e-monitor` / `plan-e-weekly` / `plan-e-real-refresh`，最后一只从未启用过）文件都在库里：2026-10-24 上午五只一起 disable，当晚 `plan-e-today` + `plan-e-journal` 重开（自动产出的仍只是研究清单，退出实盘入口的决定不变），monitor / weekly / real-refresh 维持停用——它们的输入是那份空账本。`make timer-enable` 启用三只通用 timer + 这两只 plan-e timer 与 obsidian path，`trainsh-health` / `tdx-clean-logs` 靠持久化的 enable 状态活着。
+- **真实定时任务全部在 systemd user timer**：通用那五是 `tdxfeed-sync` / `predict-daily` / `canary-health` / `trainsh-health` / `tdx-clean-logs`（外加 `obsidian-sync.path`），方案 E 侧另有三只 armed：`plan-e-today` / `plan-e-journal` / `plan-e-double-up`。方案 E 的六只单元（上面三只 + `plan-e-monitor` / `plan-e-weekly` / `plan-e-real-refresh`，最后一只从未启用过）文件都在库里：2026-10-24 上午五只一起 disable，当晚 `plan-e-today` + `plan-e-journal` 重开（自动产出的仍只是研究清单，退出实盘入口的决定不变），同日补上 `plan-e-double-up`（18:30 重建 08:45 那次预筛要读的翻倍样本 CSV），monitor / weekly / real-refresh 维持停用——它们的输入是那份空账本。`make timer-enable` 启用通用三只 + 这三只 plan-e timer 与 obsidian path，`trainsh-health` / `tdx-clean-logs` 靠持久化的 enable 状态活着。
 - 若未来要恢复 CodeBuddy automation，必须补 `automation.toml` 并在 IDE 中启用；仅 `memory.md` 不构成自动化。
 
 ---

@@ -1,8 +1,14 @@
 """方案 C：近 5 年（2020-2026）"20 个交易日翻倍"筛选
 基于不复权价（明确标注偏差 <5%）
+
+`plan-e-double-up.timer` 每个工作日 18:30 跑它重建 `data/double_up/`，
+所以失败必须非零退出：这份 CSV 是 `plan_e_backtest.py --today` 的候选池，
+静默缩水的样本会让盘前清单在没人看日志的情况下换口径。
 """
 import json
+import os
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -14,10 +20,17 @@ VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
 ALL_STOCKS = Path('/home/jiuben/tdx-data-feed/data/all_a_stocks.json')
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+DOUBLE_UP_DETAIL = OUT_DIR / 'double_up_2020_2026_detail.csv'
 
 START_DATE = pd.Timestamp('2020-01-01')
 WINDOW = 20
 RATIO = 2.0  # 翻倍
+
+# 样本按 sh/sz/bj 三段统计：某段从有到无意味着那一段的 parquet 不见了，
+# 不是行情安静（2026-10-24 手工刷新时 bj 4213 行 → 0 行，脚本照样退出 0）。
+MARKETS = ('sh', 'sz', 'bj')
+# 允许"文件存在但读不出来"的标的数；超过它说明标的池在缩水，不是个别脏文件。
+MAX_UNREADABLE = 50
 
 # 涨幅限制（沪深主板 / 创业板 / 科创板 / 北交所）
 LIMIT_MAIN = 0.095    # 主板 ±10%，留余量
@@ -68,24 +81,82 @@ def get_limit(code: str) -> float:
     return LIMIT_MAIN
 
 
-def screen_one(code: str, name_map: dict, st_set: set) -> list:
-    """单只股的 20 日翻倍筛选"""
-    fp = PARQUET / f'{code}.parquet'
-    if not fp.exists():
-        return []
-
+def read_one(fp: Path) -> pd.DataFrame | None:
+    """读一只股的日 K；读不出来返回 None（schema 漂移或文件损坏）。"""
     try:
         df = pd.read_parquet(fp, columns=['date', 'open', 'high', 'low', 'close', 'volume', 'amount'])
     except Exception:
-        return []
-
+        return None
     # date 兼容：int 20210802 或 datetime
     if df['date'].dtype == 'int64' or df['date'].dtype == 'int32':
         df['date'] = pd.to_datetime(df['date'].astype(str), format='%Y%m%d')
     else:
         df['date'] = pd.to_datetime(df['date'])
+    return df.sort_values('date').reset_index(drop=True)
 
-    df = df.sort_values('date').reset_index(drop=True)
+
+def market_counts(df: pd.DataFrame | None) -> dict[str, int]:
+    """按代码前缀统计各市场行数（只认 sh/sz/bj 三段）。"""
+    if df is None or df.empty:
+        return {m: 0 for m in MARKETS}
+    counts = df['code'].astype(str).str[:2].value_counts()
+    return {m: int(counts.get(m, 0)) for m in MARKETS}
+
+
+def load_previous_sample() -> pd.DataFrame | None:
+    """磁盘上现存的样本。首次刷新时无从比较，返回 None 让守卫跳过缩水判定。"""
+    if not DOUBLE_UP_DETAIL.exists():
+        return None
+    try:
+        return pd.read_csv(DOUBLE_UP_DETAIL)
+    except Exception:
+        return None
+
+
+def assert_sample_ok(previous: pd.DataFrame | None, current: pd.DataFrame) -> None:
+    """样本不合格就非零退出，且调用方不得覆写旧 CSV。
+
+    两种静默失败都会以"刷新成功"的面目出现：零命中，以及某一市场段整段消失。
+    被 `plan-e-double-up.timer` 定时化之后，这两类事故原先没人会看见。
+    """
+    problems = []
+    if current is None or len(current) == 0:
+        problems.append("本次没有任何翻倍命中")
+    if previous is not None and len(previous) > 0:
+        old_counts = market_counts(previous)
+        new_counts = market_counts(current)
+        for market, n_old in old_counts.items():
+            if n_old > 0 and new_counts[market] == 0:
+                problems.append(f"{market} 段样本从 {n_old} 行归零（上一版各段 {old_counts}）")
+    if not problems:
+        return
+    for p in problems:
+        print(f"❌ 样本守卫：{p}")
+    print(f"  保留上一版 {DOUBLE_UP_DETAIL.name}，不覆写；"
+          f"先确认 {PARQUET} 里对应标的的 parquet 是否还在", file=sys.stderr)
+    raise SystemExit(3)
+
+
+def write_atomic(df: pd.DataFrame, path: Path) -> None:
+    """先写 .tmp 再 os.replace：timer 每天重写全量样本，半截 CSV 会被第二天
+    的 `--today` 当成完整样本读进去。"""
+    tmp = path.with_name(path.name + '.tmp')
+    df.to_csv(tmp, index=False, encoding='utf-8-sig')
+    os.replace(tmp, path)
+
+
+def screen_one(code: str, name_map: dict, st_set: set) -> list | None:
+    """单只股的 20 日翻倍筛选。
+
+    None = 文件在但读不出来（由调用方计入池缩水）；[] = 无命中，或该股已没有
+    parquet（退市 / 不在 full_sync 清单，属正常）。
+    """
+    fp = PARQUET / f'{code}.parquet'
+    if not fp.exists():
+        return []
+    df = read_one(fp)
+    if df is None:
+        return None
 
     # 过滤 START_DATE 之后
     df = df[df['date'] >= START_DATE].reset_index(drop=True)
@@ -189,28 +260,38 @@ def main():
     print("\n开始筛选（单进程，预计 ~2-3 分钟）...")
     all_hits = []
     scanned = 0
+    unreadable = []
     for f in files:
         code = f.stem
         scanned += 1
         hits = screen_one(code, name_map, full_st_set)
+        if hits is None:
+            unreadable.append(code)
+            continue
         all_hits.extend(hits)
         if scanned % 500 == 0:
             elapsed = (datetime.now() - t0).total_seconds()
             print(f"  [{scanned}/{len(files)}] {elapsed:.0f}s 已扫, hits={len(all_hits)}")
 
-    print(f"\n扫描完成: {scanned} 只股, {len(all_hits)} 个翻倍样本")
+    print(f"\n扫描完成: {scanned} 只股, {len(all_hits)} 个翻倍样本"
+          f"（存在但读不出来 {len(unreadable)} 只）")
     print(f"耗时: {(datetime.now() - t0).total_seconds():.0f}s")
+    if unreadable:
+        print(f"⚠ 读失败样例: {unreadable[:5]}", file=sys.stderr)
 
-    if not all_hits:
-        print("❌ 未发现任何翻倍样本")
-        return
+    # 守卫先于覆写：零命中或某段归零时保留上一版样本，让 timer 变红而不是静默换口径
+    assert_sample_ok(load_previous_sample(), pd.DataFrame(all_hits))
+    if len(unreadable) > MAX_UNREADABLE:
+        print(f"❌ {len(unreadable)} 只标的读不出来（阈值 {MAX_UNREADABLE}），"
+              f"标的池在缩水，不覆写样本", file=sys.stderr)
+        raise SystemExit(4)
 
     df_hits = pd.DataFrame(all_hits)
     df_hits = df_hits.sort_values(['year', 'code', 'start_date']).reset_index(drop=True)
 
     # 输出 1: 完整明细 CSV
-    csv_path = OUT_DIR / 'double_up_2020_2026_detail.csv'
-    df_hits.to_csv(csv_path, index=False, encoding='utf-8-sig')
+    csv_path = DOUBLE_UP_DETAIL
+    write_atomic(df_hits, csv_path)
     print(f"\n✓ 明细 CSV: {csv_path} ({len(df_hits)} 行)")
 
     # 输出 2: 标的汇总（按代码聚合）
@@ -227,7 +308,7 @@ def main():
     code_summary = code_summary.sort_values('hit_count', ascending=False).reset_index(drop=True)
     code_summary['rank'] = code_summary.index + 1
     csv_path2 = OUT_DIR / 'double_up_2020_2026_by_code.csv'
-    code_summary.to_csv(csv_path2, index=False, encoding='utf-8-sig')
+    write_atomic(code_summary, csv_path2)
     print(f"✓ 标的汇总 CSV: {csv_path2} ({len(code_summary)} 只)")
 
     # 输出 3: 年份分布
@@ -242,7 +323,7 @@ def main():
     year_dist['max_pct'] = year_dist['max_pct'].round(1)
     year_dist['avg_limit_up'] = year_dist['avg_limit_up'].round(1)
     csv_path3 = OUT_DIR / 'double_up_2020_2026_year_dist.csv'
-    year_dist.to_csv(csv_path3, index=False, encoding='utf-8-sig')
+    write_atomic(year_dist, csv_path3)
     print(f"✓ 年份分布 CSV: {csv_path3}")
 
     # 输出 4: Markdown 报告
