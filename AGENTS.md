@@ -5,6 +5,7 @@
 ## 命令（都在仓库根执行）
 
 - Python 走仓库自己的 venv：`venv/bin/python`、`venv/bin/pytest`。系统 python3（3.12）没装本仓库依赖。
+- **例外：v5 数学服务不在主 venv 里跑。** `v5/mcp_servers/math_sympy_http.py`（系统单元 `math-sympy-http.service`，8002）用第二套解释器 `venv-math/bin/python`，建法 `bash v5/scripts/install_math_venv.sh`（幂等，清单在 `v5/requirements-math.txt`）：sympy 1.14 的 `parse_latex` 要求 antlr4-python3-runtime 4.11，而主 venv 的 4.9.3 被 `omegaconf==2.3.1`（`llamafactory` 带入）以 `==4.9.*` 锁死，两约束在同一解释器里不可同时满足。`pip check` 看不见这个冲突（antlr 对 sympy 是 optional extra），所以它的干净输出**不是**「数学服务能解析 LaTeX」的证据；实况是 sympy 段一路抛 ImportError、回退链掉到 llm。守卫 `tests/test_math_venv_latex_parsing.py`。
 - 装依赖：`make install`。结尾 `pip check` 报的 mootdx 声明 httpx<0.26 与实装 0.28 是已知声明性冲突，不是新引入的故障。
 - 测试有两个互不覆盖的集合：`make test` 只跑 `v5/tests/`（6 个文件），主测试集在根 `tests/`（48 个文件），必须显式 `venv/bin/pytest tests/ -q`。改单个模块用 `venv/bin/pytest tests/test_plan_e_random_timing.py -q`。
 - 门禁分层：`make lint` 与 `make typecheck` 只覆盖 `v5/`；`make lint-all` 才含 `scripts/`，但它放宽 E501 并以 `|| true` 收尾，退出码恒 0，不要把它当通过证据。
@@ -38,7 +39,7 @@
 ## 历史产物不是现状
 
 - `_archive/`、`data/`、`logs/`、`models/`、`downloads/` 不用于推断架构；`docs/` 下带日期的 `CODE_AUDIT_*`、`COMPARE_*`、`*_RESEARCH_*` 是一次性研究快照，写作历史结论而非现状规格。
-- 根 `skills/*.yaml` 是给 LLM 工具调用用的技能声明，与 Qoder 客户端自己加载的 Skill 目录（`.qoder/skills/`，不入库）无关；`.qoder/repowiki/wiki_plan.yaml` 只影响知识生成，不是运行配置。
+- 根 `skills/*.yaml` 是给 LLM 工具调用用的技能声明，与 Qoder 客户端加载的 Skill 目录 `.qoder/skills/` 无关；后者是**入库**的（回测口径自检 `tdx-backtest-significance` 在那里），改口径措辞要改那份 `SKILL.md`；`.qoder/repowiki/wiki_plan.yaml` 只影响知识生成，不是运行配置。
 
 ## 风险边界（动手前读）
 

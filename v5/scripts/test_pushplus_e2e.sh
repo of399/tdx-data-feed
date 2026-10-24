@@ -58,7 +58,7 @@ journalctl -u pushplus_bridge.service --since "3 minute ago" --no-pager \
 echo
 echo "Step 7: 恢复 math-sympy-http"
 cd /home/jiuben/tdx-data-feed
-nohup ./venv/bin/python v5/mcp_servers/math_sympy_http.py --host 127.0.0.1 --port 8002 --workers 1 > /tmp/math-sympy-http.log 2>&1 &
+nohup ./venv-math/bin/python v5/mcp_servers/math_sympy_http.py --host 127.0.0.1 --port 8002 --workers 1 > /tmp/math-sympy-http.log 2>&1 &
 NEW_PID=$!
 echo "  ✓ 新 PID=$NEW_PID"
 sleep 5

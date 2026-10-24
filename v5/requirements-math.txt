@@ -1,0 +1,24 @@
+# v5 数学 MCP 服务的独立解释器清单（venv-math/）
+#
+# 为什么要第二套 venv：
+#   sympy 1.14 的 `parse_latex` 在 sympy/parsing/latex/_parse_latex_antlr.py 里硬性要求
+#   antlr4-python3-runtime 的版本以 4.11 开头；而主 venv 实装 4.9.3，那是被
+#   omegaconf 2.3.1 的 `==4.9.*` 锁死的（链路 llamafactory → omegaconf → antlr4）。
+#   两条约束在同一解释器里不可同时满足，于是数学服务的 sympy 段对任何 LaTeX 输入都抛
+#   ImportError，回退链一路掉到 numeric/llm —— `pip check` 看不见（antlr 对 sympy 是
+#   optional extra），所以它一直是静默的。
+#   方案 A 把数学服务拆到独立解释器，训练栈留在主 venv 不动。
+#
+# 装法：bash v5/scripts/install_math_venv.sh   （幂等：缺则建、有则补装、末尾三项自检）
+# 守卫：tests/test_math_venv_latex_parsing.py
+# 消费方：v5/systemd/math-sympy-http.service、v5/scripts/kill_math_test.sh、
+#         v5/scripts/test_pushplus_e2e.sh
+
+fastapi==0.141.1
+uvicorn==0.53.0
+mcp==1.30.0             # v5/mcp_servers/math_sympy.py 复用 stdio MCP server 的 Tool 实现
+pylatexenc==2.11        # 同上，LaTeX ↔ 文本转换
+httpx==0.28.1           # v5/mcp_math/ontology.py 惰性导入
+PyYAML==6.0.3           # v5/mcp_math/ontology.py 惰性导入
+sympy==1.14.0           # 与主 venv 同版，避免两套解释器算出不同结果
+antlr4-python3-runtime==4.11.1

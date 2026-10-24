@@ -36,7 +36,7 @@ for a in d:
 journalctl -u pushplus_bridge.service --since "3 minute ago" --no-pager | grep -E "POST|pushplus" | tail -5
 echo "Step 5: restart"
 cd /home/jiuben/tdx-data-feed
-nohup ./venv/bin/python v5/mcp_servers/math_sympy_http.py --host 127.0.0.1 --port 8002 --workers 1 > /tmp/math-sympy-http.log 2>&1 &
+nohup ./venv-math/bin/python v5/mcp_servers/math_sympy_http.py --host 127.0.0.1 --port 8002 --workers 1 > /tmp/math-sympy-http.log 2>&1 &
 NEW_PID=$!
 echo "  new PID=$NEW_PID"
 sleep 5

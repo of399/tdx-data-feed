@@ -7,6 +7,7 @@ __pycache__/
 
 # 虚拟环境
 venv/
+venv-math/              # v5 数学服务专用（antlr4 4.11），建法 v5/scripts/install_math_venv.sh
 vllm-venv/                # 已删除 (2026-09-25)
 .env
 # 原始环境变量备份，禁止入版本库
