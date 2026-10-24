@@ -4,12 +4,15 @@ v5/mcp_servers/math_sympy_http.py · ask 路径 e2e 测试 (P2.2)
 目的: 验证 fallback chain 第二层 (ask) 能真被触发，避免
        fallback_attempts_total{strategy="ask"} 永远 absent 触发误报。
 
-依赖: math-sympy-http 在 127.0.0.1:8002 运行。
+依赖: 由 v5/tests/conftest.py 的 math_api 现起一个实例（口径取自
+       v5/systemd/math-sympy-http.service，端口随机空闲），不需要也不应
+       假设线上 8002 在跑 —— 否则结论取决于线上那台进程用哪套解释器。
        Ollama 可选（不会真用到，因为 ask 失败后被 numeric 兜底）。
 
 运行:
     venv/bin/pytest v5/tests/test_ask_path_integration.py -v -s
     # 跑一次约 5s，跑 5 个 parametrize case ≈ 25s
+    MATH_API_BASE=http://127.0.0.1:<线上端口> venv/bin/pytest ...  # 改成验线上部署本身
 
 参考: v5/audit/2026-09-20-alerting-pipeline-verification.md §5.1
 """
@@ -20,7 +23,6 @@ import urllib.request
 
 import pytest
 
-API = "http://127.0.0.1:8002"
 ASK_STRATEGY = 'fallback_attempts_total{strategy="ask"}'
 
 # 已知能触发 ask 路径的测试输入（score ∈ [30, 55) → primary=ask → chain 必含 ask）
@@ -53,14 +55,14 @@ ASK_PATH_CASES = [
 ]
 
 
-def _post_tool(name: str, args: dict, timeout_s: int = 30, canary_ratio: float = 0.0):
+def _post_tool(base: str, name: str, args: dict, timeout_s: int = 30, canary_ratio: float = 0.0):
     """调用 /tools/{name}。默认 canary_ratio=0 走直接 sympy（不受 canary_state.json 影响）.
 
     设置 canary_ratio=0.5 可主动触发 fallback chain 测试。
     """
     body = json.dumps(args | {"canary_ratio": canary_ratio}).encode("utf-8")
     req = urllib.request.Request(
-        f"{API}/tools/{name}",
+        f"{base}/tools/{name}",
         data=body,
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -74,9 +76,9 @@ def _post_tool(name: str, args: dict, timeout_s: int = 30, canary_ratio: float =
         return 0, {"_err": str(e.reason)}
 
 
-def _get_metric(name: str) -> float:
+def _get_metric(base: str, name: str) -> float:
     """读 /metrics，找 name 开头的 counter line，返回最后数值（0.0 表示 absent）。"""
-    with urllib.request.urlopen(f"{API}/metrics", timeout=5) as r:
+    with urllib.request.urlopen(f"{base}/metrics", timeout=5) as r:
         for line in r.read().decode().splitlines():
             if line.startswith(name):
                 return float(line.split()[-1])
@@ -87,9 +89,10 @@ class TestAskPath:
     """验证 fallback chain 的 ask 层能被真触发"""
 
     @pytest.mark.parametrize("latex,action,var", ASK_PATH_CASES)
-    def test_attempts_includes_ask(self, latex, action, var):
+    def test_attempts_includes_ask(self, math_api, latex, action, var):
         """每次请求至少在 attempts 列表里看到一次 strategy=ask"""
         code, body = _post_tool(
+            math_api,
             "math_strategy_route_and_execute",
             {"latex": latex, "action": action, "var": var},
         )
@@ -108,21 +111,23 @@ class TestAskPath:
             f"实际={asked_strats}, score={plan.get('score')}, primary={plan.get('strategy')}"
         )
 
-    def test_metric_increments_per_call(self):
+    def test_metric_increments_per_call(self, math_api):
         """连发 3 次相同请求，ask counter 至少 +3"""
-        before = _get_metric(ASK_STRATEGY)
+        before = _get_metric(math_api, ASK_STRATEGY)
         for _ in range(3):
             _post_tool(
+                math_api,
                 "math_strategy_route_and_execute",
                 {"latex": "x^{x^{x}}", "action": "solve", "var": "x"},
             )
-        after = _get_metric(ASK_STRATEGY)
+        after = _get_metric(math_api, ASK_STRATEGY)
         delta = after - before
         assert delta >= 3, f"3 次请求后 ask counter 应增加 ≥ 3，实际 {before} → {after} (Δ={delta})"
 
-    def test_chain_starts_with_sympy(self):
+    def test_chain_starts_with_sympy(self, math_api):
         """fallback chain 第一项应该是 sympy（设计如此）"""
         code, body = _post_tool(
+            math_api,
             "math_strategy_route_and_execute",
             {"latex": "x^{x^{x}}", "action": "solve", "var": "x"},
         )
@@ -130,9 +135,10 @@ class TestAskPath:
         chain = body.get("plan", {}).get("fallback_chain", [])
         assert chain and chain[0] == "sympy", f"chain 第一项应为 sympy，实际={chain}"
 
-    def test_score_in_ask_range(self):
+    def test_score_in_ask_range(self, math_api):
         """让 ask 触发的输入 score 应落在 [30, 55)"""
         code, body = _post_tool(
+            math_api,
             "math_strategy_route_and_execute",
             {"latex": "x^{x^{x}}", "action": "solve", "var": "x"},
         )
@@ -148,7 +154,7 @@ class TestAskPath:
 class TestFallbackChain:
     """chain 行为 sanity check"""
 
-    def test_simple_input_only_uses_sympy(self):
+    def test_simple_input_only_uses_sympy(self, math_api):
         """简单 LaTeX 不应触发 ask（保留 ask 段节能）
 
         设计说明 (2026-09-25): `math_strategy_route_and_execute` 入口本身
@@ -160,6 +166,7 @@ class TestFallbackChain:
           - chain 不应误把简单输入推到 llm
         """
         code, body = _post_tool(
+            math_api,
             "math_strategy_route_and_execute",
             {"latex": "x + 1", "action": "simplify", "var": "x"},
         )

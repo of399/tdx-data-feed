@@ -7,7 +7,8 @@
 - Python 走仓库自己的 venv：`venv/bin/python`、`venv/bin/pytest`。系统 python3（3.12）没装本仓库依赖。
 - **例外：v5 数学服务不在主 venv 里跑。** `v5/mcp_servers/math_sympy_http.py`（系统单元 `math-sympy-http.service`，8002）用第二套解释器 `venv-math/bin/python`，建法 `bash v5/scripts/install_math_venv.sh`（幂等，清单在 `v5/requirements-math.txt`）：sympy 1.14 的 `parse_latex` 要求 antlr4-python3-runtime 4.11，而主 venv 的 4.9.3 被 `omegaconf==2.3.1`（`llamafactory` 带入）以 `==4.9.*` 锁死，两约束在同一解释器里不可同时满足。`pip check` 看不见这个冲突（antlr 对 sympy 是 optional extra），所以它的干净输出**不是**「数学服务能解析 LaTeX」的证据；实况是 sympy 段一路抛 ImportError、回退链掉到 llm。守卫 `tests/test_math_venv_latex_parsing.py`。
 - 装依赖：`make install`。结尾 `pip check` 报的 mootdx 声明 httpx<0.26 与实装 0.28 是已知声明性冲突，不是新引入的故障。
-- 测试有两个互不覆盖的集合：`make test` 只跑 `v5/tests/`（6 个文件），主测试集在根 `tests/`（48 个文件），必须显式 `venv/bin/pytest tests/ -q`。改单个模块用 `venv/bin/pytest tests/test_plan_e_random_timing.py -q`。
+- 测试有两个互不覆盖的集合：`make test` 只跑 `v5/tests/`，主测试集在根 `tests/`，必须显式 `venv/bin/pytest tests/ -q`。改单个模块用 `venv/bin/pytest tests/test_plan_e_random_timing.py -q`。（两边的文件数会随提交变，别按数字判断覆盖范围。）
+- `v5/tests/` 里打 HTTP 端点的集成测试**自起自停**：`v5/tests/conftest.py` 的 `math_api` fixture 按 `v5/systemd/math-sympy-http.service` 里的解释器与 Environment 现起一个实例、端口向内核要，所以 `make test` 绿不依赖线上 8002，也不需要 root。要验线上部署本身，显式设 `MATH_API_BASE=http://127.0.0.1:<线上端口>` 跑同一批用例。守卫 `tests/test_math_api_self_hosted.py`。
 - 门禁分层：`make lint` 与 `make typecheck` 只覆盖 `v5/`；`make lint-all` 才含 `scripts/`，但它放宽 E501 并以 `|| true` 收尾，退出码恒 0，不要把它当通过证据。
 - 改 `systemd/` 下任何单元后必须 `make timer-install`，再 `systemctl --user daemon-reload`；`.path` 单元还要 restart，处于 start-limit-hit 的要 reset-failed，否则 systemd 加载的仍是旧文件。
 
