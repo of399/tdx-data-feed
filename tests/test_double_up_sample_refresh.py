@@ -206,3 +206,46 @@ def test_producer_target_is_the_sample_today_list_reads(producer):
     backtest_src = (ROOT / "scripts" / "plan_e_backtest.py").read_text(encoding="utf-8")
     assert "DOUBLE_UP_CSV = ROOT / 'data' / 'double_up' / 'double_up_2020_2026_detail.csv'" \
         in backtest_src, "消费端读的文件名变了，刷新链路要跟着改"
+
+
+# ---------- 5. 覆盖缺口必须成文：决定已定，别让下一个人当新 bug 重开 ----------
+
+_LIVE_DOC = ROOT / "docs" / "PLAN_E_LIVE.md"
+_BACKUP_DIR = ROOT / "data" / "double_up" / "_pre_refresh_20261024"
+
+
+def test_bj_coverage_gap_is_written_into_the_live_doc():
+    """2026-10-24 用户选的是「先只报告，不动策略口径」，那条报告当时只活在提交信息里。
+
+    没成文的决定等于没做过：下一个读到 bj 段为 0 的人只会当成新 bug 重开讨论，
+    或者更糟——直接改策略代码让清单"看起来"只剩沪深。
+    """
+    text = _LIVE_DOC.read_text(encoding="utf-8")
+    missing = [
+        anchor
+        for anchor in ("北交所", "4213", "full_sync", "不动策略口径", "追溯")
+        if anchor not in text
+    ]
+    assert not missing, f"docs/PLAN_E_LIVE.md 缺锚点 {missing}（北交所覆盖缺口未成文）"
+
+
+def test_documented_bj_numbers_reproduce_from_the_sample_backup(producer):
+    """文档里的三个数必须是同一件事的三个口径，不能像提交信息那样把 281 说成 bj 的数。
+
+    实测：bj 段 4213 行、bj 标的 216 只全灭、旧样本 1942 只标的里共 281 只 parquet 已不存在。
+    """
+    if not _BACKUP_DIR.exists():
+        pytest.skip("样本备份在 gitignore 的 data/ 里，换机器可能没有")
+    detail = pd.read_csv(_BACKUP_DIR / "double_up_2020_2026_detail.csv")
+    by_code = pd.read_csv(_BACKUP_DIR / "double_up_2020_2026_by_code.csv", encoding="utf-8-sig")
+    row_counts = producer.market_counts(detail)
+    stock_counts = producer.market_counts(by_code)
+    assert row_counts["bj"] == 4213
+    assert stock_counts["bj"] == 216
+
+    text = _LIVE_DOC.read_text(encoding="utf-8")
+    assert str(row_counts["bj"]) in text, "文档没写 bj 段归零的行数 4213"
+    assert str(stock_counts["bj"]) in text, "文档没写 bj 标的数 216"
+    assert "281" in text, "文档没写 parquet 缺失的标的总数 281"
+    for wrong in ("281 只 bj", "281 只北交所", "216 只 parquet"):
+        assert wrong not in text, f"文档里「{wrong}」是口径错配：281 属缺失总数，216 属 bj 标的数"
