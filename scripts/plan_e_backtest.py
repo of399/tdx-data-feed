@@ -61,11 +61,11 @@
   - 9:30 开盘后按清单买入（开盘价或早盘均价）
   - 盘中监控，触发 TP/SL/TIME 任一即退出
 
-【预期（基于回测 281→48 样本）】
-  - 平均入场后涨幅: +10.13%（v2）vs +3.52%（v1）
-  - 平均持有天数: 3-7 日
-  - 胜率: 50%（v2）vs 36.7%（v1）
-  - 期望收益: +10% / 笔（含止损）
+【预期（v2 口径 · 2026-10-24 全样本 110 笔 · 佣金 0.03% + 滑点 0.1%）】
+  - 胜率: 33.6%
+  - 期望收益: +0.98% / 笔
+  - 出场按保守成交：同一根 K 线同时够到 TP/SL 记止损，跳空穿越价位按当日开盘成交。
+    旧口径这两种情形都按理想价位结算，同一批样本会报 +2.34% / 盈亏比 2.65。
 """
 
 import argparse
@@ -200,6 +200,55 @@ def get_first_double_date(df: pd.DataFrame) -> pd.DataFrame:
     return df.head(0)
 
 
+def _locate_signal_idx(df: pd.DataFrame, sig_dt) -> int | None:
+    """T 日索引；日期对不上（停牌/缺口）时向前 5 根内取最近一根。"""
+    matches = df[df['date'] == sig_dt]
+    if matches.empty:
+        window = df[df['date'] <= sig_dt].tail(5)
+        if window.empty:
+            return None
+        return window.index[-1]
+    return matches.index[0]
+
+
+def _entry_context(df: pd.DataFrame, idx: int,
+                   min_t_pct: float, min_t_vol_ratio: float) -> dict | None:
+    """T+1 跟随过滤 + T+2 开盘入场定位，回测与今日清单共用同一段判据。
+
+    None = T+1 还没走出来 / 入场日开盘价非法。
+    entry_idx 为 None 表示 T+2 尚无数据 —— 盘前运行 --today 的正常状态，
+    此时"今天开盘"才是入场日，代价是前向窗口还不存在、无法定价。
+    """
+    if idx + 1 >= len(df):
+        return None
+    t1_idx = idx + 1
+    t1 = df.iloc[t1_idx]
+
+    base_close = df['close'].iloc[idx]
+    t1_pct = (t1['close'] / base_close - 1) if base_close > 0 else 0
+    if idx >= 5:
+        vol_5d = df['volume'].iloc[idx - 4:idx + 1].mean()
+    else:
+        vol_5d = df['volume'].iloc[:idx + 1].mean()
+    t1_vol_ratio = t1['volume'] / vol_5d if vol_5d > 0 else 0
+
+    head = {'t1_pct': t1_pct, 't1_vol_ratio': t1_vol_ratio, 't1_idx': t1_idx}
+    if t1_pct < min_t_pct:
+        return {**head, 'filtered': 'T+1 涨幅不足'}
+    if t1_vol_ratio < min_t_vol_ratio:
+        return {**head, 'filtered': 'T+1 量比不足'}
+
+    if t1_idx + 1 >= len(df):
+        return {**head, 'filtered': '', 'entry_idx': None,
+                'entry_price': None, 'entry_date': None}
+    entry_idx = t1_idx + 1
+    entry_price = df['open'].iloc[entry_idx]
+    if entry_price <= 0:
+        return None
+    return {**head, 'filtered': '', 'entry_idx': entry_idx,
+            'entry_price': entry_price, 'entry_date': df['date'].iloc[entry_idx]}
+
+
 def backtest_one(code: str, signal_date: str,
                  hold_days: int = 10,
                  tp: float = 0.30,
@@ -225,71 +274,52 @@ def backtest_one(code: str, signal_date: str,
     if df is None:
         return None
 
-    sig_dt = pd.to_datetime(signal_date)
-
-    # 找到 T 日的索引
-    matches = df[df['date'] == sig_dt]
-    if matches.empty:
-        # 找最近的（5 日内向前）
-        window = df[df['date'] <= sig_dt].tail(5)
-        if window.empty:
-            return None
-        idx = window.index[-1]
-    else:
-        idx = matches.index[0]
-
-    # T+1 日
-    if idx + 1 >= len(df):
+    idx = _locate_signal_idx(df, pd.to_datetime(signal_date))
+    if idx is None:
         return None
-    t1 = df.iloc[idx + 1]
 
-    # T+1 单日涨幅
-    t1_pct = (t1['close'] / df['close'].iloc[idx] - 1) if df['close'].iloc[idx] > 0 else 0
-
-    # T+1 量比（末日/5 日均量）
-    if idx >= 5:
-        vol_5d = df['volume'].iloc[idx-4:idx+1].mean()
-    else:
-        vol_5d = df['volume'].iloc[:idx+1].mean()
-    t1_vol_ratio = t1['volume'] / vol_5d if vol_5d > 0 else 0
-
-    # 信号过滤：T+1 涨停 + 量比
-    if t1_pct < min_t_pct:
+    ctx = _entry_context(df, idx, min_t_pct, min_t_vol_ratio)
+    if ctx is None:
+        return None
+    if ctx['filtered']:
         return {'code': code_clean, 'signal_date': signal_date,
-                't1_pct': t1_pct, 't1_vol_ratio': t1_vol_ratio,
-                'filtered': 'T+1 涨幅不足'}
-    if t1_vol_ratio < min_t_vol_ratio:
-        return {'code': code_clean, 'signal_date': signal_date,
-                't1_pct': t1_pct, 't1_vol_ratio': t1_vol_ratio,
-                'filtered': 'T+1 量比不足'}
+                't1_pct': ctx['t1_pct'], 't1_vol_ratio': ctx['t1_vol_ratio'],
+                'filtered': ctx['filtered']}
+    if ctx['entry_idx'] is None:
+        return None   # T+2 尚未产生，无前向窗口可回测
 
-    # 入场：T+2 开盘价
-    if idx + 2 >= len(df):
-        return None
-    entry_date = df.iloc[idx + 2]['date']
-    entry = df['open'].iloc[idx + 2]
-    if entry <= 0:
-        return None
+    t1_pct = ctx['t1_pct']
+    t1_vol_ratio = ctx['t1_vol_ratio']
+    entry_idx = ctx['entry_idx']
+    entry = ctx['entry_price']
+    entry_date = ctx['entry_date']
 
-    entry_idx = idx + 2
     # 持有窗口（T+3 起，T+2 为入场日）
-    start = idx + 3
+    start = entry_idx + 1
     end = min(start + hold_days - 1, len(df))
     if end - start < 3:   # 窗口至少 3 天
         return None
 
-    # 逐日判定出场（先 TP 后 SL，否则时间止损）
+    # 逐日判定出场：同一根 K 线双触发取保守侧（先判止损），跳空穿越按开盘成交
+    tp_lvl = entry * (1 + tp)
+    sl_lvl = entry * (1 + sl)
     exit_idx = end - 1
     reason = 'TIME'
+    exit_price = None
     for j in range(start, end):
-        if df['high'].iloc[j] >= entry * (1 + tp):
-            exit_idx = j
-            reason = 'TP'
-            break
-        if df['low'].iloc[j] <= entry * (1 + sl):
-            exit_idx = j
-            reason = 'SL'
-            break
+        hit_sl = df['low'].iloc[j] <= sl_lvl
+        hit_tp = df['high'].iloc[j] >= tp_lvl
+        if not (hit_sl or hit_tp):
+            continue
+        # 日内高低点无法证明先后，同时够到就按亏损一侧结算
+        open_j = df['open'].iloc[j] if df['open'].iloc[j] > 0 else None
+        if hit_sl:
+            exit_idx, reason = j, 'SL'
+            exit_price = min(sl_lvl, open_j) if open_j is not None else sl_lvl
+        else:
+            exit_idx, reason = j, 'TP'
+            exit_price = max(tp_lvl, open_j) if open_j is not None else tp_lvl
+        break
 
     # 区间极值（持有期，含入场日）用于 max_gain/max_loss 展示
     high_max = df['high'].iloc[entry_idx:exit_idx + 1].max()
@@ -298,15 +328,9 @@ def backtest_one(code: str, signal_date: str,
     max_loss = (low_min - entry) / entry
 
     exit_date = df['date'].iloc[exit_idx]
-    if reason == 'TP':
-        exit_price = entry * (1 + tp)
-        gross = tp
-    elif reason == 'SL':
-        exit_price = entry * (1 + sl)
-        gross = sl
-    else:
+    if reason == 'TIME':
         exit_price = df['close'].iloc[exit_idx]
-        gross = (exit_price - entry) / entry
+    gross = (exit_price - entry) / entry
 
     # 净收益（扣除单边佣金 + 滑点，双边合计 2×(fee+eff_slip)）
     entry_eff = entry * (1 + eff_slip)
@@ -318,7 +342,9 @@ def backtest_one(code: str, signal_date: str,
     daily = []
     prev_close = entry
     for k in range(entry_idx, exit_idx + 1):
-        close_k = df['close'].iloc[k]
+        # 出场日结算在成交价上：盘中触发就离场，收盘价已与本笔无关，
+        # 否则资金曲线和 return_pct 两个口径对不上（TP 日冲高回落时差 20 个点）
+        close_k = exit_price if k == exit_idx else df['close'].iloc[k]
         r = close_k / prev_close - 1 if prev_close > 0 else 0
         if k == entry_idx:
             r -= side_cost          # 入场佣金 + 滑点
@@ -401,31 +427,86 @@ def backtest(double_up: pd.DataFrame,
     return bt_valid, daily_records
 
 
+CALENDAR_CODE = 'sh000001'   # 上证指数日 K 即交易日历，本地文件，不用联网
+
+
+def _is_next_session(last_bar, today: str) -> bool:
+    """today 是否正好是 last_bar 之后的下一个交易日。
+
+    T+2 的 K 线还不存在时，入场日只能靠"数据最后一根就是昨天"来认定。拿指数日 K 当
+    日历可以挡住两种冒充：行情停更多日后继续挂着今日信号，以及周末根本没有开盘可等。
+    """
+    lo, hi = pd.Timestamp(last_bar), pd.Timestamp(today)
+    if hi <= lo:
+        return False
+    cal = _get_df(CALENDAR_CODE)
+    if cal is None:
+        return False           # 没有日历就宁缺毋滥
+    dates = cal['date']
+    if ((dates > lo) & (dates < hi)).any():
+        return False           # 中间已经开过市，开盘入场点过去了
+    if (dates >= hi).any():
+        return bool((dates == hi).any())   # 日历覆盖今天：精确判定是否开市
+    return hi.weekday() < 5    # 日历只到昨天（盘前运行的常态）：工作日视为开市
+
+
+def _today_candidate(code: str, signal_date: str, today: str,
+                     min_t_pct: float = 0.095,
+                     min_t_vol_ratio: float = 1.5) -> dict | None:
+    """单只股的「今日开盘入场」候选；不满足就返回 None。"""
+    code_clean = str(code).zfill(6).lstrip('bj')
+    df = _get_df(code_clean)
+    if df is None:
+        return None
+    idx = _locate_signal_idx(df, pd.to_datetime(signal_date))
+    if idx is None:
+        return None
+    ctx = _entry_context(df, idx, min_t_pct, min_t_vol_ratio)
+    if ctx is None or ctx['filtered']:
+        return None
+
+    if ctx['entry_idx'] is None:
+        # T+2 还没有 K 线：只有最后一根正好是 T+1 且今天开市，才谈得上"今天开盘买"
+        if ctx['t1_idx'] != len(df) - 1 or not _is_next_session(df['date'].iloc[-1], today):
+            return None
+        entry_date = today
+    else:
+        entry_date = str(ctx['entry_date'])[:10]
+        if entry_date != today:
+            return None
+
+    return {
+        'code': code_clean,
+        'signal_date': str(df['date'].iloc[idx])[:10],
+        't1_pct': round(float(ctx['t1_pct']), 4),
+        't1_vol_ratio': round(float(ctx['t1_vol_ratio']), 2),
+        'entry_date': entry_date,
+        'note': '今日开盘入场（T+2），成交价以开盘后实际为准',
+    }
+
+
 def generate_today_signals(double_up: pd.DataFrame, today: str | None = None) -> pd.DataFrame:
+    """生成「今日开盘入场」清单（实盘）。
+
+    7 日窗口只是候选预筛（翻倍触发日 T 可以落在几天前），真正的判据是 T+2 = 今天。
     """
-    生成今日触发信号（实盘）
-    today: 翻倍触发日（T 日，疑似明日入场的清单）
-    """
-    today = today or datetime.now().strftime('%Y-%m-%d')
+    today = str(pd.to_datetime(today or datetime.now().strftime('%Y-%m-%d')))[:10]
 
     first = get_first_double_date(double_up)
     first['signal_date'] = pd.to_datetime(first['signal_date'])
 
-    # T 日在过去 7 日内（近一周首次翻倍触发）
-    last_7d = first[first['signal_date'] >= pd.to_datetime(today) - timedelta(days=7)]
+    # 上界同样必须有：翻倍样本是历史全量，缺上界会把晚于今天的信号也当成今日触发
+    window = first[(first['signal_date'] >= pd.to_datetime(today) - timedelta(days=7))
+                   & (first['signal_date'] <= pd.to_datetime(today))]
+    print(f"  近 7 日翻倍首次触发（预筛）: {len(window)} 只")
 
-    print(f"  最近 7 日翻倍首次触发: {len(last_7d)} 只")
+    if window.empty:
+        return pd.DataFrame()
 
-    if last_7d.empty:
-        return last_7d
-
-    # 进一步过滤：T+1 涨停 + 量比
-    signals = []
-    for _, r in last_7d.iterrows():
-        result = backtest_one(r['code'], r['signal_date'],
-                              min_t_pct=0.095, min_t_vol_ratio=1.5)
-        if result and not result.get('filtered'):
-            signals.append(result)
+    signals = [_today_candidate(r['code'], r['signal_date'], today)
+               for _, r in window.iterrows()]
+    signals = [s for s in signals if s]
+    print(f"  今日开盘入场: {len(signals)} 只")
 
     return pd.DataFrame(signals)
 

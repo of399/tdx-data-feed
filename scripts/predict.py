@@ -127,6 +127,7 @@ DEFAULT_TOP = 5
 # 回退用模型（异常时自动回退到此，保证流程不中断）
 FALLBACK_MODEL = "vpnl_huber_stage1"
 ACTIVE_MODEL_PATH = MODEL_REGISTRY[DEFAULT_MODEL][0]
+ACTIVE_MODEL_NAME = DEFAULT_MODEL   # resolve_model 里随实际选用/回退后的模型更新
 ACTIVE_IS_REG = MODEL_REGISTRY[DEFAULT_MODEL][1] == "reg"
 # Step 7：特征管线模式（legacy=26 基础维; polars=26 基础维+9 候选因子，新模型 vpnl_huber_stage1 必需）
 ACTIVE_FEATURE_MODE = "polars"  # 随 DEFAULT_MODEL=stage1 对齐（legacy 26 基础维+候选因子）
@@ -731,7 +732,7 @@ def resolve_model(args):
     elif args.position_mode == "full" and model_name == FALLBACK_MODEL:
         print(f"  [大仓位模式] 模型={FALLBACK_MODEL}(波段PnL回归) Top={args.top} (稳健优先)")
 
-    global ACTIVE_MODEL_PATH, ACTIVE_IS_REG, ACTIVE_FEATURE_MODE
+    global ACTIVE_MODEL_PATH, ACTIVE_IS_REG, ACTIVE_FEATURE_MODE, ACTIVE_MODEL_NAME
     ACTIVE_MODEL_PATH = MODEL_REGISTRY[model_name][0]
     ACTIVE_IS_REG = MODEL_REGISTRY[model_name][1] == "reg"
     ACTIVE_FEATURE_MODE = args.features
@@ -775,6 +776,8 @@ def resolve_model(args):
         print(f"    [扩展模式] {len(feature_cols)} 维特征(18 基础 + {len(feature_cols)-18} 工程化)")
     else:
         print(f"    [基础模式] {len(feature_cols)} 维特征")
+    # 放在两个回退分支之后：这里才是本轮真正生效的模型，报告口径也按它挂
+    ACTIVE_MODEL_NAME = model_name
     return model_name, model, feature_cols
 
 
@@ -934,6 +937,18 @@ def emit_outputs(args, model_name, feat_df, high_score):
         f.write(f"- **股票数**: {len(feat_df)}\n")
         f.write(f"- **阈值**: {args.threshold}\n")
         f.write(f"- **高分股**: {len(high_score)} 只\n\n")
+
+        if ACTIVE_MODEL_NAME == "daban":
+            f.write(
+                "> ⚠️ **本榜单只作排序研究，不是买入指令。**\n"
+                "> daban 学的是「次日收盘涨停」概率；按诚实成交口径（T+1 开盘入场、"
+                "SL 优先、跳空按开盘成交）回测 K=5 共 1509 笔，平均净收益 -0.78%/笔、"
+                "累计 -94.5%，未计成本毛收益也是 -0.58%——负期望来自入场时点，不是交易成本。\n"
+                "> 证据：`docs/DABAN_TOPK_PNL_20261022.md`；"
+                "执行闸门 `data/daban/execution_backtest_20261022.json` 的 `overall_go=false`。\n"
+                "> `plan_e_journal.py --from-predict-list --mode real` 已停用，"
+                "研究侧仍可用 `--mode simulate`；真要建仓请人工 `--mode buy`。\n\n"
+            )
 
         score_label = "预期PnL" if ACTIVE_IS_REG else "概率"
         if ACTIVE_IS_REG:

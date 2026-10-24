@@ -31,6 +31,7 @@
   --mode buy --code 600519 --price 10.5  # 手动买入（实盘用）
   --mode sell --code 600519 --price 12.0 --reason TP  # 手动卖出
   --mode simulate         # 模拟模式（用历史数据回测 1 个月）
+  --from-predict-list --mode simulate   # predict 榜单逐笔入模拟账（--mode real 已停用，见下）
 
 【示例】
   # 1. 每日定时跑（systemd timer）
@@ -64,7 +65,13 @@
   - 初始资金：默认 100,000 RMB（可配置）
   - 单股仓位：默认 10% (10,000)
   - 最大持仓：10 只
-  - 触发顺序：TP > SL > TIME
+  - 出场判定：同一根 K 线同时够到 TP/SL 时取保守侧（先判止损），跳空穿越价位按当日开盘成交
+    ——与 scripts/plan_e_backtest.py 的 backtest_one 同一口径
+
+【predict list 与实盘入口】
+  daban(默认小仓位 Top5)按诚实成交口径回测为负期望(-0.78%/笔,累计 -94.5%,
+  见 docs/DABAN_TOPK_PNL_20261022.md),所以 `--from-predict-list` 不再自动写入
+  journal.csv;榜单本身照旧产出,模拟账 journal_sim.csv 仍可用于排序研究。
 """
 
 import argparse
@@ -594,6 +601,24 @@ def mode_buy(code: str, price: float, qty: int):
 
 # ============== 方案 B 2026-10-16：--from-predict-list ==============
 
+# 2026-10-24 决定：predict list 退出实盘入口，研究产出保留。
+DABAN_LIVE_BLOCK = (
+    "❌ --from-predict-list --mode real 已停用。\n"
+    "\n"
+    "   predict.py 的默认出票模型是 daban(小仓位 Top5,次日收盘涨停分类),这张榜按诚实\n"
+    "   成交口径的两个独立回测都没有正期望:\n"
+    "     · docs/DABAN_TOPK_PNL_20261022.md —— K=5 成交 1509 笔,平均净收益 -0.78%/笔,\n"
+    "       累计 -94.5%;未计成本毛收益 -0.58%,负期望来自 T+1 开盘买入的入场时点,\n"
+    "       不是交易成本。\n"
+    "     · data/daban/execution_backtest_20261022.json 的 gate —— baseline/top1/top2/\n"
+    "       top3/top5/stage1_threshold 六条 primary 规则全部未达标,overall_go=false,\n"
+    "       \"Stage 1 未通过,不进入前向纸盘/小资金\"。\n"
+    "\n"
+    "   研究用途照旧:--mode simulate 逐笔写入 journal_sim.csv,夜间 predict 产物不受影响。\n"
+    "   真要建仓:人工 --mode buy --code ... --price ... --qty ... —— 这个决定本脚本不代做。"
+)
+
+
 def load_latest_predict_list(top_n: int = 50, threshold: float = 0.7,
                              score_col: str = 'prob', price_col: str = 'close'):
     """加载 data/predictions/predict_*.csv 中 mtime 最新的文件,按 score ≥ threshold 过滤,
@@ -641,6 +666,10 @@ def mode_from_predict_list(mode: str, top_n: int = 50, threshold: float = 0.7):
     资金分配:等额(INITIAL_CAPITAL / top_n, 100 元一手,按 100 股整数取整)。
     ⚠️ 重要:--mode real 是 **paper-trading**(模拟真金白银流),不是真交易。
     """
+    if mode == 'real':
+        sys.exit(DABAN_LIVE_BLOCK)
+    if mode == 'simulate':
+        print("  ⚠ 该榜默认来自 daban(小仓位 Top5),诚实成交口径回测为负期望,只作排序研究。")
     ensure_dirs()
     picks = load_latest_predict_list(top_n=top_n, threshold=threshold)
     if picks.empty:
@@ -855,7 +884,8 @@ def main():
     # 方案 B 2026-10-16：--from-predict-list 信号→journal 自动消费
     parser.add_argument('--from-predict-list', action='store_true',
                         help='从 data/predictions/predict_*.csv 取最新文件作为买入信号源'
-                             '(默认 Top 50 + 阈值 0.7 过滤;--mode 决定分流到 journal.csv / journal_sim.csv)')
+                             '(默认 Top 50 + 阈值 0.7 过滤)。⚠ 仅 --mode simulate 可用:'
+                             '默认榜源 daban 回测为负期望,--mode real 已停用')
     args = parser.parse_args()
 
     if not args.no_freshness_check:
