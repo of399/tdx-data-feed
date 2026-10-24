@@ -139,18 +139,24 @@ def simulate_trade(df_full: pd.DataFrame, signal_date: pd.Timestamp, code: str) 
     exit_price = None
     exit_reason = None
     n = min(HOLD_DAYS + 1, len(future))
+    tp_lvl = entry_price * (1 + TP_PCT)
+    sl_lvl = entry_price * (1 + SL_PCT)
     for i in range(1, n):
         row = future.iloc[i]
-        high_ret = row["high"] / entry_price - 1
-        low_ret = row["low"] / entry_price - 1
-        if high_ret >= TP_PCT:
-            exit_price = entry_price * (1 + TP_PCT)
-            exit_reason = "TP"
-            break
-        if low_ret <= SL_PCT:
-            exit_price = entry_price * (1 + SL_PCT)
+        hit_sl = float(row["low"]) <= sl_lvl
+        hit_tp = float(row["high"]) >= tp_lvl
+        if not (hit_sl or hit_tp):
+            continue
+        # 与 plan_e_backtest 同一口径：日内高低点无法证明先后，双触发取亏损一侧；
+        # 跳空穿越阈值按当日开盘成交，不要抹回阈值价
+        open_i = float(row["open"]) if row["open"] > 0 else None
+        if hit_sl:
+            exit_price = min(sl_lvl, open_i) if open_i is not None else sl_lvl
             exit_reason = "SL"
-            break
+        else:
+            exit_price = max(tp_lvl, open_i) if open_i is not None else tp_lvl
+            exit_reason = "TP"
+        break
     if exit_price is None:
         if len(future) > HOLD_DAYS:
             exit_price = float(future.iloc[HOLD_DAYS]["close"])
