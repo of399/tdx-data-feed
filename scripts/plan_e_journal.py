@@ -77,19 +77,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from quant.execution.optimal_execution import (
+ROOT = Path(__file__).parent.parent
+
+# 仓库根目录加入 sys.path，必须在任何仓库内包的 import 之前：
+# 直跑脚本时 sys.path[0] 是 scripts/，`quant` / `tdxfeed` 都不在其下。
+# tdxfeed 未以可编辑方式安装；predict.py/plan_e_backtest.py 借 _common 间接引导，
+# 本脚本未导入 _common，需显式引导。
+sys.path.insert(0, str(ROOT))
+
+from quant.execution.optimal_execution import (  # noqa: E402
     execution_table_markdown,
     suggest_execution,
 )
 
 warnings.filterwarnings('ignore')
-
-ROOT = Path(__file__).parent.parent
-
-# 仓库根目录加入 sys.path，使 `import tdxfeed` 在直接运行脚本时可用。
-# tdxfeed 未以可编辑方式安装；predict.py/plan_e_backtest.py 借 _common 间接引导，
-# 本脚本未导入 _common，需显式引导，否则 ModuleNotFoundError: No module named 'tdxfeed'。
-sys.path.insert(0, str(ROOT))
 
 LIVE_DIR = ROOT / 'data' / 'plan_e' / 'live'
 JOURNAL_FILE = LIVE_DIR / 'journal.csv'          # 实盘交易日志（仅实盘，手动 buy/sell）

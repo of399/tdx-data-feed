@@ -177,6 +177,33 @@ def write_sync_summary(individual: dict, index: dict, out_root: str):
     return summary
 
 
+# 下游 predict-daily / plan-e-journal 只靠钟表错开（Wants= 而非 Requires=），
+# 退出码是它们唯一能看到的同步质量闸门，因此必须非零反映真实失败。
+SYNC_BAD_RATIO_MAX = 0.2
+
+
+def sync_exit_code(individual: dict, index: dict) -> int:
+    """同步健康判定：0=可放行下游，1=systemd 应记为失败。
+
+    skip（拿到空 bars）计入 bad 是这条函数的存在理由：源全线返回空数据时
+    ok 与 fail 同时为 0，write_sync_summary 的 source_failure_rate 会算出 0%，
+    把彻底失败报成完美。阈值 20% 的依据是正常夜晚 fail+skip 约 0.4%。
+    """
+    ind_ok = individual.get("ok", 0)
+    ind_fail = individual.get("fail", 0)
+    ind_skip = individual.get("skip", 0)
+    idx_ok = index.get("ok", 0)
+    idx_fail = index.get("fail", 0)
+
+    bad = ind_fail + ind_skip + idx_fail
+    total = ind_ok + idx_ok + bad
+    if total == 0 or ind_ok + idx_ok == 0:
+        return 1
+    if bad / total > SYNC_BAD_RATIO_MAX:
+        return 1
+    return 0
+
+
 def main():
     codes = get_all_codes()
     if not codes:
@@ -232,6 +259,8 @@ def main():
     ind_stats = {"ok": ok, "fail": fail, "skip": skip}
     write_sync_summary(ind_stats, idx_stats, OUT_ROOT)
 
+    return sync_exit_code(ind_stats, idx_stats)
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
