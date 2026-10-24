@@ -1,0 +1,17 @@
+[Unit]
+Description=单元 %i 失败 → 推送到本地 pushplus 告警桥
+Documentation=file:///home/jiuben/tdx-data-feed/docs/WORKFLOW.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+# 载荷是 alertmanager 形状，交给 127.0.0.1:5002 上那个桥；token 只配在桥那一份，这里不碰密钥。
+# 注意是哪一个：在跑的是**系统级** /etc/systemd/system/pushplus_bridge.service（用户 jiuben，
+# 2026-10-22 起 enabled），不是本仓库 systemd/pushplus-bridge.service 那个 user 单元（disabled）。
+# 桥挂了这里也只是投递失败、脚本非零退出留在 logs/onfailure-alert.err，不会成环。
+# 同单元默认冷却 1 小时：canary 每 5 分钟一次，不节流就成一小时 12 条推送。
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/onfailure_alert.py %i
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/onfailure-alert.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/onfailure-alert.err
+Nice=15

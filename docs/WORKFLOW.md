@@ -79,13 +79,14 @@
 | `scripts/train_health.sh` | 训练进程健康检查（ckpt 记录、孤儿跳过；无训练会话时空闲退出）| systemd timer 每 5min |
 | `scripts/plot_loss.py` | loss 曲线可视化 | 手动 `--all` 自动扫所有 v* 目录 |
 | `scripts/gen_dashboard.py` | 综合 HTML 仪表盘 | 手动（包含所有数据快照）|
-| `systemd/tdxfeed-sync.timer` | 行情同步（`tdxfeed.full_sync`，每晚 18:00）| systemd timer |
-| `systemd/predict-daily.timer` | 方案 D 每日预测（收盘后，含 `precheck_freshness.sh` 数据新鲜度守卫）| systemd timer |
+| `systemd/tdxfeed-sync.timer` | 行情同步（`tdxfeed.full_sync`，每晚 18:00）；失败走 `OnFailure=onfailure-alert@…` 推送 | systemd timer |
+| `systemd/predict-daily.timer` | 方案 D 每日预测（收盘后，含 `precheck_freshness.sh` 数据新鲜度守卫）；对 sync 是 `Requires=`（同步失败则整轮不跑），失败同样推送 | systemd timer |
 | `systemd/plan-e-journal.timer` | 方案 E 每日信号清单归档（18:10，After predict-daily）——**2026-10-24 已 disable**：只出研究口径且不给下单建议，而盘前 timer 停用后晚间那次必然拿不到 entry_date=今天 的清单（守卫丢弃，也不再跑 CLI 兜底）| systemd timer（停用） |
 | `systemd/plan-e-today.timer` | 方案 E 盘前今日清单（08:45 跑 `plan_e_backtest.py --today`）——**2026-10-24 已 disable**，方案 E 退出实盘入口，需要时手动 `make plan-e-today` | systemd timer（停用） |
 | `systemd/plan-e-monitor.timer` | 方案 E 持仓监控（18:40）——**2026-10-24 已 disable**：实盘账本为空（无 positions.json，journal.csv 只有表头）| systemd timer（停用） |
 | `systemd/plan-e-weekly.timer` | 方案 E 周报汇总（周五 20:00）——**2026-10-24 已 disable**（无实盘流水可汇总）| systemd timer（停用） |
-| `systemd/canary-health.timer` | 金丝雀健康检查（数据/模型/timer/obsidian 漂移，每 5min）| systemd timer |
+| `systemd/canary-health.timer` | 金丝雀健康检查（数据/模型/timer/obsidian 漂移，每 5min）；它自己是告警员，所以也挂了 `OnFailure`（靠脚本 1h 冷却压重复）| systemd timer |
+| `systemd/onfailure-alert@.service` | 不是 timer：`OnFailure=` 模板单元，把失败单元名拼成 alertmanager 载荷 POST 到 127.0.0.1:5002 的 pushplus 桥（同单元默认 1 小时冷却；`--dry-run` 只看载荷不推送）| 由上面的单元触发 |
 | `systemd/obsidian-sync.path` | Obsidian vault 源↔部署零漂移监控 | systemd path |
 | `.codebuddy/automations/*/memory.md` | 4 个自动化目录仅保留记忆，无 `automation.toml`，**不参与调度** | - |
 
@@ -520,10 +521,10 @@ tdx-data-feed/
 
 ## 7.5 部署形态说明（2026-10-16 审查补正）
 
-- **生产形态 = `venv` 虚拟环境 + 用户级 systemd timer**（唯一实际运行方式）：`tdxfeed-sync` → `predict-daily` 顺序编排，`canary-health` 每 5min 巡检；2026-10-24 起方案 E 那条 `→ plan-e-journal` 的下游链路已整批 disable。
-- **`docker-compose.yml` 是目标架构（未实际部署）**：含 Ollama/PostgreSQL/Redis/Prometheus/Grafana + exporters，但当前生产**未启用**容器栈；Prometheus/Grafana 监控当下不存在，可观测性依赖 `canary` 健康检查与日志。
-- **监控栈(Prometheus/Grafana)维持未部署（2026-10-16 复核）**：资源核查显示 2×RTX 5060Ti(16G) 已被 Ollama 占满(~96% 利用率)，宿主机空闲内存仅 1.4G（13G 可回收缓存）。按"避免与本地 Ollama 争抢资源"约束，**暂不部署**；docker 29.7.2 已就绪，待 GPU/内存宽松时再启。
-- **告警桥(pushplus-bridge)已停用（2026-10-16）**：0 调用方空转，`systemctl --user disable --now` 后 inactive；端口 :5002 关闭；3 个文件（systemd 单元/桥脚本/token）保留供回滚。详见 `docs/pushplus_bridge_status_2026-10-16.md`。
+- **生产形态 = `venv` 虚拟环境 + 用户级 systemd timer**（唯一实际运行方式）：`tdxfeed-sync` → `predict-daily` 顺序编排（predict 对 sync 是 `Requires=`，同步失败就不出榜），`canary-health` 每 5min 巡检；2026-10-24 起方案 E 那条 `→ plan-e-journal` 的下游链路已整批 disable。同一批（2026-10-24）给 `tdxfeed-sync` / `predict-daily` / `canary-health` 挂了 `OnFailure=onfailure-alert@<单元>.service` → `scripts/onfailure_alert.py`，把「单元挂了」变成微信推送；此前这些失败只落在 `logs/*.err` 里。
+- **`docker-compose.yml` 是目标架构（未实际部署）**：仓库里的 compose 栈（Ollama/PostgreSQL/Redis/Prometheus/Grafana + exporters）当前**未启用**；实际跑的监控栈见下条，是宿主机上的系统级 systemd 单元，不是容器。
+- **监控栈已在跑（2026-10-24 实测，推翻 2026-10-16 的「维持未部署」）**：`prometheus` / `alertmanager` / `grafana-server` / `pushplus_bridge` 四个**系统级**单元均 active+enabled，2026-10-22 20:40~20:41 起；Prometheus 5 个抓取目标全 up（`prometheus`/`alertmanager`/`node`/`canary`/`math-sympy-http`），当前 0 条 firing 规则；Grafana 在 :3000。当时「不部署」的理由（GPU 被 Ollama 占满、内存紧）没有复查记录。
+- **告警桥有两个同名东西，别搞混（2026-10-24 核实）**：在用的是系统级 `/etc/systemd/system/pushplus_bridge.service`（以 jiuben 身份跑 `v5/scripts/pushplus_bridge.py`，:5002，`/health` 返回 token 已配置）；2026-10-16 那次「停用」的是仓库里 `systemd/pushplus-bridge.service` 这个 **user 级**单元，至今 disabled——`docs/pushplus_bridge_status_2026-10-16.md` 里「端口 :5002 关闭」只对那次操作负责，现在 :5002 是通的。`onfailure-alert@` 和 Alertmanager 都往这个 :5002 投。
 - **Makefile ≠ 生产口径（已对齐）**：`make data-sync` 实为单标的 `tdxfeed.cli sync`（无参默认 `sh600000`，**不会拉全市场**）；全市场增量同步由 `make full-sync`（`tdxfeed.full_sync`，即 `tdxfeed-sync.timer` 每晚 18:00 调用的生产入口）负责。现已在 Makefile 新增 `full-sync` 目标并加注释澄清分工；改调度须同步两边，避免行为漂移。
 - **systemd 漂移铁律**：凡改 `systemd/` 下文件，提交后必须 `make timer-install` + `daemon-reload`，否则加载旧文件（被 canary 持续检测告警）。
 

@@ -358,7 +358,7 @@ v2 信号更紧，单笔质量更高；适合**小资金高频次**而非大资�
 |---|---|---|
 | canary-health.timer | *:0/5（每 5min）| 健康检查 |
 | tdxfeed-sync.timer | Mon..Fri 18:00 | 拉行情 |
-| predict-daily.timer | Mon..Fri 18:05 | 方案 D 预测 |
+| predict-daily.timer | Mon..Fri 18:05 | 方案 D 预测（`Requires=` tdxfeed-sync，挂了不跑；两者失败都走 `onfailure-alert@`）|
 | plan-e-today.timer | Mon..Fri 08:45 | 盘前「今日开盘入场」清单——**2026-10-24 已 disable**（方案 E 退出实盘入口），需要时手动 `make plan-e-today` |
 | plan-e-journal.timer | Mon..Fri 18:10 | 方案 E 每日清单归档——**2026-10-24 已 disable**：盘前清单没有生产者，晚间那次必然算出 entry_date=明天 而被守卫丢弃，`daily_signals/` 从此不会再有输入 |
 | plan-e-monitor.timer | Mon..Fri 18:40 | 方案 E 实盘 PnL/偏差监控——**2026-10-24 已 disable**：实盘账本为空（无 positions.json，journal.csv 只有表头） |
@@ -563,8 +563,13 @@ http://localhost:11434/api/generate
 ```
 每日 18:00 (systemd) → tdxfeed-sync → 更新 parquet/daily
 每日 18:05 (systemd) → predict-daily → LightGBM 推理 → predict_*.csv/md（daban 榜，不自动建仓）
+                          ↑ Requires=tdxfeed-sync（同步失败整轮不跑，不再拿隔夜数据出榜）
 
 每 5 分钟 (systemd) → canary-health → canary.log + stderr 异常告警
+
+任一上述单元失败 → OnFailure=onfailure-alert@<单元>.service → scripts/onfailure_alert.py
+                     → POST 127.0.0.1:5002（系统级 pushplus_bridge，Alertmanager 也用它）→ 微信推送
+                     同单元默认 1 小时冷却；--dry-run 只看载荷不推送
 
 —— 以下方案 E 的四个 timer 2026-10-24 全部 disable（退出实盘入口，研究产出保留）——
 盘前 08:45 (plan-e-today)  → plan_e_backtest --today → plan_e_today.csv，需要时手动 make plan-e-today

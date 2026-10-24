@@ -1,5 +1,12 @@
 # pushplus-bridge 退役记录
 
+> ⚠️ **本记录只覆盖 user 级单元，别读成「告警通道关了」（2026-10-24 补）。**
+> 下面那次 disable 的对象是 `systemd/pushplus-bridge.service`（仓库里的 user 单元），它至今 disabled。
+> 但宿主机上另有一个**系统级** `/etc/systemd/system/pushplus_bridge.service`，2026-10-22 20:41 起
+> active+enabled，正跑着同一份 `v5/scripts/pushplus_bridge.py` 并监听 :5002（`/health` 里 token 已配置）。
+> 所以「端口 :5002 关闭」只对 10-16 那一刻、那一个单元成立；现在的实况与 Alertmanager/Grafana
+> 一起记在 `docs/WORKFLOW.md` §7.5。2026-10-24 的 `onfailure-alert@` 投的就是这个 :5002。
+
 > 状态：**已停用（disabled + stopped，可逆）**
 > 生效时间：2026-10-16 16:08
 > 退役类型：**可逆停用**（保留所有文件，仅关闭运行时）

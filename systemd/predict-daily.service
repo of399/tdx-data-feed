@@ -1,7 +1,16 @@
 [Unit]
 Description=方案 D 每日预测：收盘后跑全市场 daban 29 维特征 + LightGBM 推理（小仓位 Top5）
 After=tdxfeed-sync.service
-Wants=tdxfeed-sync.service
+# Requires=（原 Wants=）：Wants 只尽力拉起，sync 失败不拦——predict 会拿隔夜数据出榜。
+# 实测（一次性探针单元）：deps 以 exit!=0 失败时这里会得到
+# "Dependency failed for predict-daily.service / Job ... failed with result 'dependency'"，
+# 预测整轮不跑，sync 侧的 OnFailure 负责喊人。
+# 别给 tdxfeed-sync 加 RemainAfterExit=yes：那样它成功后一直是 active/exited，次日 18:00
+# timer 的 start job 会变成空转（探针复现：ExecMainPID 不变、journal 无新条目），同步会静默停掉。
+# 现在 sync 要跑 30 分钟，18:05 的依赖作业与在跑的那个合流，所以不会重复全市场同步；
+# 哪天真出现「5 分钟内跑完的 sync」，这里会重跑一次同步——是 Wants= 时代就有的行为。
+Requires=tdxfeed-sync.service
+OnFailure=onfailure-alert@predict-daily.service
 
 [Service]
 Type=oneshot

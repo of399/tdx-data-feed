@@ -2,6 +2,8 @@
 Description=tdx-data-feed: 全市场日K + 财务增量同步
 After=network-online.target
 Wants=network-online.target
+# 同步失败原先只落 logs/sync.err；挂上 OnFailure 才有人被通知（推送内容只有单元名与退出码）
+OnFailure=onfailure-alert@tdxfeed-sync.service
 
 [Service]
 Type=oneshot

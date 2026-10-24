@@ -1,5 +1,7 @@
 [Unit]
 Description=Canary 健康检查（每 5 分钟）
+# 它是告警员，自己静默崩掉最没人知道；每 5 分钟一次所以靠脚本的 1 小时冷却压重复
+OnFailure=onfailure-alert@canary-health.service
 
 [Service]
 Type=oneshot
