@@ -90,17 +90,20 @@ def test_solve_erc_forwards_cvar():
     assert w is not None and abs(w.sum() - 1.0) < 1e-6
 
 
-def test_mf_backtest_kelly_vol_cvar_metrics():
+def test_mf_backtest_kelly_vol_cvar_metrics(tmp_path):
     # 默认（全关）：应有 CVaR 监控指标，无 Kelly/vol 指标
+    # output_dir 必须给 tmp_path：省略会写进 data/plan_e/，那是 systemd 的生产输出目录
+    # （tests/test_mf_output_injection.py 有一条静态守卫盯着所有调用点）
     from quant.multifactor.engine import run_mf_backtest
-    _, m = run_mf_backtest(MFConfig(limit=80, end="2026-10-15", valuation_mode="proxy"))
+    _, m = run_mf_backtest(MFConfig(limit=80, end="2026-10-15", valuation_mode="proxy"),
+                           output_dir=tmp_path)
     assert "max_cvar" in m and "mean_cvar" in m
     assert "kelly_median_scale" not in m  # 默认关
     # 开启半 Kelly + 波动率目标
     _, m2 = run_mf_backtest(MFConfig(
         limit=80, end="2026-10-15", valuation_mode="proxy",
         kelly_frac=0.5, vol_target=0.30,
-    ))
+    ), output_dir=tmp_path)
     assert "kelly_median_scale" in m2
     assert "mean_vol_scale" in m2
     assert m2["mean_vol_scale"] <= 1.0 + 1e-9

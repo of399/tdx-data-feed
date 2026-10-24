@@ -259,15 +259,21 @@ def _turnover_cost_frac(prev_codes, prev_w, sel_codes, w, nav_level, exec_date,
     return cost["total"] / port_value if port_value > 0 else 0.0
 
 
-def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
+def run_mf_backtest(cfg: MFConfig,
+                    output_dir: Path | None = None) -> tuple[pd.DataFrame, dict]:
     """审计 P1-3-4 补注: 多因子组合回测主入口。
 
     流程: 股票池筛选 -> 因子/IC 计算 -> 复合打分选股 -> 组合权重 ->
     walk-forward 逐周模拟(含成本/整手) -> 指标 + 报告。
     返回 (nav 序列 DataFrame, metrics dict)。
+
+    output_dir: 报告落盘目录；省略时是 OUTPUT_DIR（data/plan_e/，同时也是 systemd
+    的生产输出目录）。测试必须传 tmp_path，否则每跑一次全量都留下一对时间戳产物
+    并覆盖 _latest.md。
     """
     np.random.seed(cfg.seed)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     # 审计 P1 修复 (2026-10-17): 延迟 import 破循环(见文件头注释)
     from plan_e_backtest import dsr_p_from_annual_sharpe  # noqa: E402
@@ -555,13 +561,13 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
     if not out_df.empty:
         out_df["nav"] = (1 + out_df["ret"]).cumprod()
     ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-    csv_fp = OUTPUT_DIR / f"plan_e_backtest_mf_v1_{ts}.csv"
+    csv_fp = out_dir / f"plan_e_backtest_mf_v1_{ts}.csv"
     out_df.to_csv(csv_fp, index=False, encoding="utf-8-sig")
     report = _build_report(metrics, holdings_hist, ic_records, metrics["yearly"],
                            cfg, valp, ts, metrics.get("ic_by_year"))
-    md_fp = OUTPUT_DIR / f"plan_e_backtest_mf_v1_{ts}.md"
+    md_fp = out_dir / f"plan_e_backtest_mf_v1_{ts}.md"
     md_fp.write_text(report, encoding="utf-8")
-    (OUTPUT_DIR / "plan_e_backtest_mf_v1_latest.md").write_text(report, encoding="utf-8")
+    (out_dir / "plan_e_backtest_mf_v1_latest.md").write_text(report, encoding="utf-8")
     return out_df, metrics
 
 
