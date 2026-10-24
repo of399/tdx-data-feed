@@ -82,6 +82,7 @@
 | `systemd/tdxfeed-sync.timer` | 行情同步（`tdxfeed.full_sync`，每晚 18:00）| systemd timer |
 | `systemd/predict-daily.timer` | 方案 D 每日预测（收盘后，含 `precheck_freshness.sh` 数据新鲜度守卫）| systemd timer |
 | `systemd/plan-e-journal.timer` | 方案 E 每日实盘信号归档（18:10，After predict-daily）| systemd timer |
+| `systemd/plan-e-today.timer` | 方案 E 盘前今日清单（08:45 跑 `plan_e_backtest.py --today`，开盘前产出）| systemd timer |
 | `systemd/plan-e-monitor.timer` | 方案 E 持仓监控（18:40）| systemd timer |
 | `systemd/plan-e-weekly.timer` | 方案 E 周报汇总（周五 20:00）| systemd timer |
 | `systemd/canary-health.timer` | 金丝雀健康检查（数据/模型/timer/obsidian 漂移，每 5min）| systemd timer |
@@ -130,7 +131,7 @@
 ### 2.4 自动化任务（automations）
 
 - **现状**：`.codebuddy/automations/` 下有 4 个目录（`v4` / `v5-daemon` / `v8-retrain-review` / `v9-training-watch`），每个只有 `memory.md`，**没有 `automation.toml`**，因此不会被 CodeBuddy 调度。
-- **真实定时任务全部在 systemd user timer**：`tdxfeed-sync` / `predict-daily` / `plan-e-journal` / `plan-e-monitor` / `plan-e-weekly` / `canary-health` / `trainsh-health` / `tdx-clean-logs` 等。
+- **真实定时任务全部在 systemd user timer**：`tdxfeed-sync` / `predict-daily` / `plan-e-today` / `plan-e-journal` / `plan-e-monitor` / `plan-e-weekly` / `canary-health` / `trainsh-health` / `tdx-clean-logs` 等。
 - 若未来要恢复 CodeBuddy automation，必须补 `automation.toml` 并在 IDE 中启用；仅 `memory.md` 不构成自动化。
 
 ---

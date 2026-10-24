@@ -376,7 +376,7 @@ timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@echo "$(CYAN)▶ 重载 systemd$(NC)"
 	systemctl --user daemon-reload
 	@echo "$(CYAN)▶ 启用 timer$(NC)"
-	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-weekly canary-health; do \
+	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-today plan-e-weekly canary-health; do \
 		systemctl --user enable $$t.timer 2>&1 | head -1; \
 		systemctl --user start $$t.timer; \
 	done
@@ -388,7 +388,7 @@ timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@$(MAKE) timer-status
 
 timer-disable:  ## 禁用所有 timer 与 path 单元
-	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-weekly canary-health; do \
+	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-today plan-e-weekly canary-health; do \
 		systemctl --user disable $$t.timer; \
 		systemctl --user stop $$t.timer 2>/dev/null || true; \
 	done

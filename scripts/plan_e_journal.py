@@ -238,25 +238,50 @@ def append_sim_journal(records: list):
 
 # ============== 当日信号 ==============
 
+def _read_today_list(today: str) -> pd.DataFrame | None:
+    """读盘前清单；不是今天写的、或 entry_date 不是今天的，一律返回 None。"""
+    fp = LIVE_DIR.parent / 'plan_e_today.csv'
+    if not fp.exists():
+        return None
+    if datetime.fromtimestamp(fp.stat().st_mtime).strftime('%Y-%m-%d') != today:
+        return None
+    sig = pd.read_csv(fp, dtype={'code': str})
+    if sig.empty:
+        return sig
+    entry = (sig['entry_date'].astype(str).str.slice(0, 10)
+             if 'entry_date' in sig.columns else pd.Series(dtype=str))
+    if entry.empty or not (entry == today).all():
+        print(f"⚠️  清单 entry_date 不是 {today}（实际 {sorted(entry.unique())}），丢弃")
+        return None
+    return sig
+
+
 def get_daily_signals(today: str | None = None) -> pd.DataFrame:
-    """调方案 E 脚本获取当日信号"""
+    """取「今日开盘入场」清单：优先用盘前 timer 写好的那份，缺了才自己跑 CLI。
+
+    盘前 plan-e-today.service 用截至昨日的行情算出 entry_date=今天 的榜单；晚间再跑一次
+    CLI 用的是今日收盘后的数据，算出来的是明天的入场清单，会把今日那份覆盖掉。
+    两道闸：清单必须是今天写的且 entry_date 就是今天；子进程非零退出时不读磁盘残留。
+    """
     import subprocess
     today = today or datetime.now().strftime('%Y-%m-%d')
-    # 调 plan_e_backtest --today
-    result = subprocess.run(
-        ['venv/bin/python', 'scripts/plan_e_backtest.py', '--today'],
-        cwd=ROOT, capture_output=True, text=True, timeout=300
-    )
-    print(result.stdout)
-
-    sig_file = LIVE_DIR.parent / 'plan_e_today.csv'
-    if sig_file.exists():
-        sig = pd.read_csv(sig_file)
-        # 归档
-        archive = SIGNALS_DIR / f'signals_{today.replace("-", "")}.csv'
-        sig.to_csv(archive, index=False, encoding='utf-8-sig')
-        return sig
-    return pd.DataFrame()
+    sig = _read_today_list(today)
+    if sig is None:
+        result = subprocess.run(
+            ['venv/bin/python', 'scripts/plan_e_backtest.py', '--today'],
+            cwd=ROOT, capture_output=True, text=True, timeout=300
+        )
+        print(result.stdout)
+        if result.returncode != 0:
+            print(f"⚠️  plan_e_backtest --today 退出码 {result.returncode}，"
+                  f"不读清单：{(result.stderr or '').strip()[:200]}")
+            return pd.DataFrame()
+        sig = _read_today_list(today)
+    if sig is None or sig.empty:
+        return pd.DataFrame()
+    archive = SIGNALS_DIR / f'signals_{today.replace("-", "")}.csv'
+    sig.to_csv(archive, index=False, encoding='utf-8-sig')
+    return sig
 
 
 # ============== 模拟交易 ==============

@@ -359,6 +359,7 @@ v2 信号更紧，单笔质量更高；适合**小资金高频次**而非大资�
 | canary-health.timer | *:0/5（每 5min）| 健康检查 |
 | tdxfeed-sync.timer | Mon..Fri 18:00 | 拉行情 |
 | predict-daily.timer | Mon..Fri 18:05 | 方案 D 预测 |
+| plan-e-today.timer | Mon..Fri 08:45 | 盘前生成「今日开盘入场」清单 |
 | plan-e-journal.timer | Mon..Fri 18:10 | 方案 E 信号 |
 | plan-e-weekly.timer | Fri 20:00 | 方案 E 周报 |
 
@@ -559,11 +560,12 @@ http://localhost:11434/api/generate
 ```
 每日 18:00 (systemd) → tdxfeed-sync → 更新 parquet/daily
 每日 18:05 (systemd) → predict-daily → LightGBM 推理 → predict_*.csv/md
-每日 18:10 (systemd) → plan-e-journal → plan_e_backtest --today → signals_*.csv
+次日 08:45 (systemd) → plan-e-today → plan_e_backtest --today → plan_e_today.csv（entry_date=今天）
                           ↓
-                      用户决策（09:30 开盘）
+                  用户决策（09:25 集合竞价 / 09:30 开盘）
                           ↓
                      buy/sell CLI → journal.csv + positions.json
+每日 18:10 (systemd) → plan-e-journal → 复用盘前那份清单归档 signals_YYYYMMDD.csv + 打印拆单建议
                           ↓
 每周五 20:00 (systemd) → plan-e-weekly → 周报 week_*.md
 

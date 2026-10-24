@@ -151,6 +151,35 @@ systemctl --user enable plan-e-journal.timer
 systemctl --user start plan-e-journal.timer
 ```
 
+### 4.1 盘前今日清单（`plan-e-today.timer`，2026-10-24 新增）
+
+`--today` 的语义是「今日开盘买入」，清单必须在 **09:25 集合竞价之前**产出；
+上面那个 18:10 的 `plan-e-journal` 跑在收盘后，用的是当日收盘数据，算出来的是
+**明天**入场的榜单，代替不了盘前这次。
+
+```bash
+systemd/plan-e-today.timer    # OnCalendar=Mon..Fri 08:45:00，Persistent=false
+systemd/plan-e-today.service  # precheck_freshness.sh → plan_e_backtest.py --today
+                              # TimeoutStartSec=600：冷启动扫全市场 parquet 会超 user manager 的 90s 默认
+```
+
+三条契约（都有测试盯，`tests/test_plan_e_today_list.py`）：
+
+1. `--today` **无论有无触发都重写** `data/plan_e/plan_e_today.csv`；无触发落一张带表头的空表，
+   上一日的清单不许原地活着。
+2. journal 取清单时校验两件事：文件是**今天写的**，且 `entry_date` **就是今天**；
+   子进程非零退出时不读磁盘残留。
+3. 盘前那份清单若在位，18:10 的 journal 直接复用它并归档 `signals_YYYYMMDD.csv`，
+   **不再重跑 CLI**（重跑等于把今日榜覆盖成明日榜）。
+
+启用：
+
+```bash
+make timer-install && systemctl --user daemon-reload
+systemctl --user enable --now plan-e-today.timer
+systemctl --user list-timers plan-e-today.timer   # NEXT 应为下一个交易日 08:45
+```
+
 ---
 
 ## 5. 风险控制清单

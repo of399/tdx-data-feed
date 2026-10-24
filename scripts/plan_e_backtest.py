@@ -511,6 +511,24 @@ def generate_today_signals(double_up: pd.DataFrame, today: str | None = None) ->
     return pd.DataFrame(signals)
 
 
+TODAY_SIGNAL_COLS = ['code', 'signal_date', 't1_pct', 't1_vol_ratio', 'entry_date', 'note']
+
+
+def emit_today_signals(sig: pd.DataFrame, out_dir: Path) -> Path:
+    """落盘「今日开盘入场」清单。
+
+    无触发时也要写一张带表头的空表：`plan_e_journal` 是照着这张文件读信号的，
+    留着上一日的清单等于让盘前 timer 把昨天的榜单当今天下单。
+    """
+    fp = out_dir / 'plan_e_today.csv'
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    frame = sig.drop(columns=['daily'], errors='ignore')
+    if frame.empty:
+        frame = pd.DataFrame(columns=TODAY_SIGNAL_COLS)
+    frame.to_csv(fp, index=False, encoding='utf-8-sig')
+    return fp
+
+
 def _bootstrap_ci(values: np.ndarray, stat_fn, b: int = 2000, seed: int = 42):
     """bootstrap 95% 置信区间（分位法）。"""
     rng = np.random.default_rng(seed)
@@ -1623,12 +1641,10 @@ def main():
     if args.today:
         print("\n[2/3] 生成今日信号...")
         sig = generate_today_signals(double_up)
+        fp = emit_today_signals(sig, OUTPUT_DIR)
         if sig.empty:
-            print("  (今日无触发信号)")
+            print(f"  (今日无触发信号，{fp} 已落为空表，避免读到上一日清单)")
         else:
-            sig = sig.drop(columns=['daily'], errors='ignore')
-            fp = OUTPUT_DIR / 'plan_e_today.csv'
-            sig.to_csv(fp, index=False, encoding='utf-8-sig')
             print(f"  ✓ {fp}")
             print(sig[['code', 'signal_date', 't1_pct', 't1_vol_ratio']].to_string(index=False))
         return

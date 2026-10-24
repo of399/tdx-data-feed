@@ -1,0 +1,15 @@
+[Unit]
+Description=每个交易日 08:45（开盘前）生成方案 E「今日开盘入场」清单
+
+[Timer]
+# 09:25 集合竞价前要出清单；18:10 的 plan-e-journal 那一次用的是当日收盘数据，
+# 算出来的是明天的入场榜，不能代替盘前这次。
+OnCalendar=Mon..Fri 08:45:00
+# 与兄弟单元不同：这里故意不开 Persistent。补跑会把"今日开盘入场"跑成盘后重算，
+# 生成的榜单 entry_date 是明天，宁可让 journal 走它自己的回退分支。
+Persistent=false
+AccuracySec=60s
+Unit=plan-e-today.service
+
+[Install]
+WantedBy=timers.target

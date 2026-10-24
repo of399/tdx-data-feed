@@ -1,0 +1,21 @@
+[Unit]
+Description=方案 E 盘前今日清单（08:45 开盘前生成"今日开盘入场"候选）
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+# 数据新鲜度守卫：昨日收盘的行情没到位就不出清单
+ExecStartPre=/home/jiuben/tdx-data-feed/scripts/precheck_freshness.sh
+# --today 语义是"今日开盘买入"，必须在 09:25 集合竞价之前跑完；18:10 那次跑出来的是明天的榜单
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/plan_e_backtest.py --today
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/plan_e_today.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/plan_e_today.err
+# 冷启动要扫全市场 parquet（warm 约 1s，cold 观测 >120s），user manager 默认 90s 会被砍
+TimeoutStartSec=600
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=timers.target
