@@ -559,6 +559,8 @@ def deflated_sharpe_ratio(sr_obs: float, n: int, skew: float, excess_kurt: float
 
     H0: SR* = 0；V(SR) = (1 − γ₃·SR + (γ₄−1)/4·SR²) / T（γ₃ 偏度, γ₄ 超额峰度）。
     对 N 次试验做多重性修正：p = (1 − Φ(z)) · N_trials。
+    sr_obs 与 n 必须同量纲（n 个期观测 ⇒ 每期 SR）；拿到年化夏普请走
+    dsr_p_from_annual_sharpe。
     """
     if n < 2 or not np.isfinite(sr_obs):
         return float('nan')
@@ -568,6 +570,23 @@ def deflated_sharpe_ratio(sr_obs: float, n: int, skew: float, excess_kurt: float
     z = sr_obs / np.sqrt(V)
     p = (1 - stats.norm.cdf(z)) * n_trials
     return float(min(max(p, 0.0), 1.0))
+
+
+def dsr_p_from_annual_sharpe(sharpe_annual: float, daily_returns,
+                             n_trials: int | None = None) -> float:
+    """按**年化**夏普 + 日收益序列算 Deflated Sharpe p 值。
+
+    deflated_sharpe_ratio 的方差是 (…)/T，T 为观测期数，所以 SR 必须先是每期的。
+    直接把年化值喂进去等于把 z 放大 √252 倍：本次 110 笔样本年化夏普 0.081，
+    错用得到 p=0.010（"显著"），正确量纲得到 p=1.000。
+    """
+    s = pd.Series(np.asarray(daily_returns, dtype=float)).dropna()
+    if len(s) < 3:
+        return float('nan')
+    return deflated_sharpe_ratio(
+        float(sharpe_annual) / np.sqrt(252), len(s),
+        float(s.skew()), float(s.kurt()),
+        DSR_N_TRIALS if n_trials is None else int(n_trials))
 
 
 def _newey_west_ttest(returns: np.ndarray, maxlags: int = 5):
@@ -650,9 +669,7 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
     dsr_p = float('nan')
     nw_p = float('nan')
     if n_days > 0:
-        _skew = float(daily_full.skew())
-        _exk = float(daily_full.kurt())   # 超额峰度(Fisher 定义)
-        dsr_p = deflated_sharpe_ratio(sharpe, n_days, _skew, _exk, DSR_N_TRIALS)
+        dsr_p = dsr_p_from_annual_sharpe(sharpe, daily_full.values)
         _, nw_p = _newey_west_ttest(daily_full.values)
     ar_p = _bootstrap_pvalue(bt['return_pct'].values, lambda x: float(x.mean()))         # H0: 平均收益=0
     wr_p = float(stats.binomtest(int((bt['return_pct'] > 0).sum()), total, 0.5).pvalue)  # H0: 胜率=50%(随机基准)
@@ -702,11 +719,11 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
 | **最大回撤** | {pct(max_dd)} | — |
 | **Calmar** | {calmar:.2f} | — |
 | 盈亏比 | {pf:.2f} | — |
-| **夏普显著性 (Deflated Sharpe p)** | {dsr_p:.3f} | 多重试验修正 (N={DSR_N_TRIALS}) |
+| **夏普显著性 (Deflated Sharpe p)** | {dsr_p:.3f} | 多重试验修正 (N={DSR_N_TRIALS})，方差按每期 SR 算 |
 | **日收益均值 (Newey-West HAC p)** | {nw_p:.3f} | 自相关稳健 t 检验 |
 | 平均收益 H₀=0 (bootstrap p) | {ar_p:.3f} | 重采样置换 |
 | 胜率 H₀=50% (精确二项 p) | {wr_p:.3f} | 对随机基准 |
-| **策略 vs 随机时序 (置换检验 p)** | {perm_p:.3f} | 打乱时间重排·日收益自相关 (单侧 {perm_p_one:.3f}) |
+| **日收益滞后-1 自相关 (置换检验 p)** | {perm_p:.3f} | 打乱时间重排，判的是曲线时序结构（重叠持仓天然正自相关），**不是**择时 alpha (单侧 {perm_p_one:.3f}) |
 
 ### 整体表现（明细）
 
@@ -745,7 +762,7 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
 3. 收益**已扣除**交易成本与滑点（默认开，双边约 {(fee + slippage) * 2 * 100:.2f}%）；实盘滑点可能高于假设，北交所（920XXX）流动性低时尤甚。
 4. 最大回撤/夏普基于等权聚合的交易日对齐资金曲线，未考虑单股 10% 仓位上限下的现金占用与并发约束。
 5. 标的集中于北交所（920XXX）时流动性低、滑点放大，结论外推需分层验证。
-6. **统计显著性（P0-1 新增）**：夏普/日收益均值/胜率现附假设检验 p 值 —— Deflated Sharpe 修正多次试验偏差、Newey-West 处理收益自相关、二项检验对随机 50% 基准、**置换检验（打乱时间重排）判策略是否优于随机时序**。若 p≥0.05，表示当前样本无法拒绝"策略无超额收益/无择时 alpha"原假设，结论须谨慎。
+6. **统计显著性**：Deflated Sharpe 先把年化夏普换算成每期（÷ √252）再进方差公式，并对 N={DSR_N_TRIALS} 次试验做多重性修正；Newey-West 处理日收益自相关；二项检验对随机 50% 基准。**滞后-1 自相关的置换检验只判时序结构**：资金曲线把每笔持仓的收益摊在 hold={hold} 个连续交易日上，重叠持仓天然造出正自相关，p 小说明曲线被平滑过，**不能**读成择时 alpha。要判 alpha 得按笔重排入场日再重跑出场（随机择时基准），本脚本未实现。若 p≥0.05，表示当前样本无法拒绝"策略无超额收益"原假设，结论须谨慎。
 
 ## 🔧 下一步建议
 

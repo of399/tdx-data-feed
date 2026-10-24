@@ -270,7 +270,7 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # 审计 P1 修复 (2026-10-17): 延迟 import 破循环(见文件头注释)
-    from plan_e_backtest import DSR_N_TRIALS, deflated_sharpe_ratio  # noqa: E402
+    from plan_e_backtest import dsr_p_from_annual_sharpe  # noqa: E402
 
     # 1. 股票池 + 缓存（close/open/amount + 因子原始序列）
     # 仅纳入沪深 A 股个股（剔除指数 / ETF / 债券 / 北交所），且排除迁移备份 .bak；
@@ -498,11 +498,8 @@ def run_mf_backtest(cfg: MFConfig) -> tuple[pd.DataFrame, dict]:
         _s = pd.Series({d: r for d, r in nav_rets})
         _s.index = pd.to_datetime(_s.index)
         _s = _s.sort_index()
-        _skew = float(_s.skew())
-        _exk = float(_s.kurt())  # 超额峰度(Fisher 定义)
-        metrics["dsr_p"] = deflated_sharpe_ratio(
-            metrics.get("sharpe", 0.0), len(_s), _skew, _exk, DSR_N_TRIALS
-        )
+        # metrics['sharpe'] 是 mu/sd·√252 的年化值，DSR 方差按观测期数算，必须换算回每期
+        metrics["dsr_p"] = dsr_p_from_annual_sharpe(metrics.get("sharpe", 0.0), _s.values)
         _perm = permutation_return_test(_s.values)
         metrics["perm_p_two"] = float(_perm["p_two"])
         metrics["perm_p_one"] = float(_perm["p_one"])
@@ -629,8 +626,8 @@ def _build_report(metrics, holdings_hist, ic_records, yearly, cfg, valp, ts, ic_
          f"| IC 正向率 | {metrics.get('ic_pos_rate',0)*100:.1f}% |",
          f"| IC 均值 Newey-West HAC p | {metrics.get('ic_nw_p', float('nan')):.3f} |",
          f"| IC 均值 HAC t | {metrics.get('ic_nw_t', float('nan')):.2f} |",
-         f"| 组合夏普 Deflated Sharpe p | {metrics.get('dsr_p', float('nan')):.3f} | 多重试验修正 (N={DSR_N_TRIALS}) |",
-         f"| 策略 vs 随机时序 (置换检验 p) | {metrics.get('perm_p_two', float('nan')):.3f} | 打乱时间重排·日收益自相关 (单侧 {metrics.get('perm_p_one', float('nan')):.3f}) |",
+         f"| 组合夏普 Deflated Sharpe p | {metrics.get('dsr_p', float('nan')):.3f} | 多重试验修正 (N={DSR_N_TRIALS})，方差按每期 SR 算 |",
+         f"| 日收益滞后-1 自相关 (置换检验 p) | {metrics.get('perm_p_two', float('nan')):.3f} | 打乱时间重排，判时序结构而非择时 alpha (单侧 {metrics.get('perm_p_one', float('nan')):.3f}) |",
          f"| 平均周换手 | {metrics.get('avg_weekly_turnover',0)*100:.1f}% |",
          f"| 最大周换手 | {metrics.get('max_weekly_turnover',0)*100:.1f}% |",
          f"| 调仓次数 | {metrics.get('n_rebalances',0)} |",
