@@ -61,8 +61,8 @@
 | `scripts/top10_deep_dive.py` | Top 10 妖股深度复盘 | v1 by_code + akshare stock_zyjs_ths | 22KB MD（涨停节奏/连板/成交量/行业）|
 | `scripts/find_d_signal_5d.py` | 方案 D：翻倍前 5 日信号识别（LightGBM）| v1 detail + parquet | AUC 0.8144 模型 + 特征重要性报告 |
 | `scripts/predict.py` | **方案 D 上线**：每日全市场 LightGBM 推理；默认 small=`daban`（29 维，次日涨停分类，Top5），full=`vpnl_huber_stage1`（21 维，Top20）| parquet/daily + features_5d | `data/predictions/predict_YYYYMMDD_HHMMSS.{csv,md}` + `predict_top{5,20}_*.csv` | `predict-daily.timer`（18:05）|
-| `scripts/plan_e_backtest.py` | 方案 E：翻倍次日跟随策略回测（v2 最新报告胜率 35.3% / 均 3.16%，含成本）| double_up + parquet/daily | `data/plan_e/plan_e_*.csv\|md` | 手动 / `--compare` |
-| `scripts/plan_e_journal.py` | 方案 E 实盘/模拟跟踪（journal.csv 实盘 / journal_sim.csv 模拟分离）| predict + plan_e 信号 | `data/plan_e/journal_*.csv\|md` | `plan-e-journal.timer` |
+| `scripts/plan_e_backtest.py` | 方案 E：翻倍次日跟随策略回测（诚实成交口径；最新数字看 `data/plan_e/plan_e_backtest_v2_latest.md`，2026-10-24 报告 112 笔：胜率 33.9% / 均收益 +1.16%/笔，四个检验都无法拒绝「无超额收益」）| double_up + parquet/daily | `data/plan_e/plan_e_*.csv\|md` | 手动 / `--compare` |
+| `scripts/plan_e_journal.py` | 方案 E 交易跟踪（journal.csv 实盘 / journal_sim.csv 模拟分离）；2026-10-24 起实盘入口停用，`--mode buy/sell` 仅保留人工记账 | predict + plan_e 信号 | `data/plan_e/journal_*.csv\|md` | `plan-e-journal.timer` |
 | `scripts/train_pnl_huber_*.py` | PnL Huber 回归（33/35 维，Test R² 0.166→0.278）| 行业/市场聚合特征 | PnL 模型（合并 v9 后继）| 手动 |
 
 ### 1.5 评估层（2 个）
@@ -81,8 +81,8 @@
 | `scripts/gen_dashboard.py` | 综合 HTML 仪表盘 | 手动（包含所有数据快照）|
 | `systemd/tdxfeed-sync.timer` | 行情同步（`tdxfeed.full_sync`，每晚 18:00）| systemd timer |
 | `systemd/predict-daily.timer` | 方案 D 每日预测（收盘后，含 `precheck_freshness.sh` 数据新鲜度守卫）| systemd timer |
-| `systemd/plan-e-journal.timer` | 方案 E 每日实盘信号归档（18:10，After predict-daily）| systemd timer |
-| `systemd/plan-e-today.timer` | 方案 E 盘前今日清单（08:45 跑 `plan_e_backtest.py --today`，开盘前产出）| systemd timer |
+| `systemd/plan-e-journal.timer` | 方案 E 每日信号清单归档（18:10，After predict-daily；2026-10-24 起只出研究口径，不再给下单建议）| systemd timer |
+| `systemd/plan-e-today.timer` | 方案 E 盘前今日清单（08:45 跑 `plan_e_backtest.py --today`）——**2026-10-24 已 disable**，方案 E 退出实盘入口，需要时手动 `make plan-e-today` | systemd timer（停用） |
 | `systemd/plan-e-monitor.timer` | 方案 E 持仓监控（18:40）| systemd timer |
 | `systemd/plan-e-weekly.timer` | 方案 E 周报汇总（周五 20:00）| systemd timer |
 | `systemd/canary-health.timer` | 金丝雀健康检查（数据/模型/timer/obsidian 漂移，每 5min）| systemd timer |
@@ -131,7 +131,7 @@
 ### 2.4 自动化任务（automations）
 
 - **现状**：`.codebuddy/automations/` 下有 4 个目录（`v4` / `v5-daemon` / `v8-retrain-review` / `v9-training-watch`），每个只有 `memory.md`，**没有 `automation.toml`**，因此不会被 CodeBuddy 调度。
-- **真实定时任务全部在 systemd user timer**：`tdxfeed-sync` / `predict-daily` / `plan-e-today` / `plan-e-journal` / `plan-e-monitor` / `plan-e-weekly` / `canary-health` / `trainsh-health` / `tdx-clean-logs` 等。
+- **真实定时任务全部在 systemd user timer**：`tdxfeed-sync` / `predict-daily` / `plan-e-journal` / `plan-e-monitor` / `plan-e-weekly` / `canary-health` / `trainsh-health` / `tdx-clean-logs` 等；`plan-e-today` 单元在库但 2026-10-24 起 disable（方案 E 退出实盘入口）。
 - 若未来要恢复 CodeBuddy automation，必须补 `automation.toml` 并在 IDE 中启用；仅 `memory.md` 不构成自动化。
 
 ---

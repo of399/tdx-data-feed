@@ -359,7 +359,7 @@ v2 信号更紧，单笔质量更高；适合**小资金高频次**而非大资�
 | canary-health.timer | *:0/5（每 5min）| 健康检查 |
 | tdxfeed-sync.timer | Mon..Fri 18:00 | 拉行情 |
 | predict-daily.timer | Mon..Fri 18:05 | 方案 D 预测 |
-| plan-e-today.timer | Mon..Fri 08:45 | 盘前生成「今日开盘入场」清单 |
+| plan-e-today.timer | Mon..Fri 08:45 | 盘前「今日开盘入场」清单——**2026-10-24 已 disable**（方案 E 退出实盘入口），需要时手动 `make plan-e-today` |
 | plan-e-journal.timer | Mon..Fri 18:10 | 方案 E 信号 |
 | plan-e-weekly.timer | Fri 20:00 | 方案 E 周报 |
 
@@ -559,15 +559,16 @@ http://localhost:11434/api/generate
 
 ```
 每日 18:00 (systemd) → tdxfeed-sync → 更新 parquet/daily
-每日 18:05 (systemd) → predict-daily → LightGBM 推理 → predict_*.csv/md
-次日 08:45 (systemd) → plan-e-today → plan_e_backtest --today → plan_e_today.csv（entry_date=今天）
+每日 18:05 (systemd) → predict-daily → LightGBM 推理 → predict_*.csv/md（daban 榜，不自动建仓）
+每日 18:10 (systemd) → plan-e-journal → 归档当日清单 signals_YYYYMMDD.csv（研究口径，无下单建议）
+每周五 20:00 (systemd) → plan-e-weekly → 周报 week_*.md
+
+—— 下面这条实盘入口 2026-10-24 停用（方案 E 与 daban 同批处置，见 docs/PLAN_E_LIVE.md 顶部）——
+盘前 08:45 (plan-e-today.timer 已 disable) → plan_e_backtest --today → plan_e_today.csv
                           ↓
                   用户决策（09:25 集合竞价 / 09:30 开盘）
                           ↓
-                     buy/sell CLI → journal.csv + positions.json
-每日 18:10 (systemd) → plan-e-journal → 复用盘前那份清单归档 signals_YYYYMMDD.csv + 打印拆单建议
-                          ↓
-每周五 20:00 (systemd) → plan-e-weekly → 周报 week_*.md
+                     人工 buy/sell CLI → journal.csv + positions.json
 
 每 5 分钟 (systemd) → canary-health → canary.log + stderr 异常告警
 ```

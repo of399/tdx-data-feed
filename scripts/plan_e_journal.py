@@ -63,7 +63,7 @@
 
 【资金规则】
   - 初始资金：默认 100,000 RMB（可配置）
-  - 单股仓位：默认 10% (10,000)
+  - 单股仓位：模拟口径默认 10% (10,000)，只作用于 --mode simulate 的虚拟账本
   - 最大持仓：10 只
   - 出场判定：同一根 K 线同时够到 TP/SL 时取保守侧（先判止损），跳空穿越价位按当日开盘成交
     ——与 scripts/plan_e_backtest.py 的 backtest_one 同一口径
@@ -72,6 +72,12 @@
   daban(默认小仓位 Top5)按诚实成交口径回测为负期望(-0.78%/笔,累计 -94.5%,
   见 docs/DABAN_TOPK_PNL_20261022.md),所以 `--from-predict-list` 不再自动写入
   journal.csv;榜单本身照旧产出,模拟账 journal_sim.csv 仍可用于排序研究。
+
+【方案 E 与实盘入口】
+  2026-10-24 决定：方案 E 同样退出实盘入口，研究产出保留。诚实成交口径 + 修正统计推断后
+  的 112 笔样本拒绝不了「无超额收益」(DSR/ Newey-West / bootstrap / 胜率对盈亏平衡四个检验
+  全部 p≥0.05)，且样本产量约 16~17 笔/年，靠实盘积累永远补不够功效。`--mode daily` 只出
+  研究清单，不再逐笔算下单量；理由与数字见 PLAN_E_LIVE_RETIREMENT。
 """
 
 import argparse
@@ -525,36 +531,42 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
 
 # ============== 实盘每日模式 ==============
 
+# 2026-10-24 决定：方案 E 退出实盘入口，研究产出保留（处理方式同 daban 的 DABAN_LIVE_BLOCK）。
+PLAN_E_LIVE_RETIREMENT = (
+    "⚠️ 方案 E 已退出实盘入口（2026-10-24 决定）。下面的清单是研究产出，不作建仓依据。\n"
+    "\n"
+    "   成交口径与统计推断都改保守之后（data/plan_e/plan_e_backtest_v2_latest.md，112 笔）：\n"
+    "     · Deflated Sharpe p=1.000 / Newey-West 日收益 p=0.748 / bootstrap 均值 p=0.561，\n"
+    "       三个检验都拒绝不了「无超额收益」；\n"
+    "     · 胜率 33.9% 对赔率隐含盈亏平衡 31.2% 的单侧 p=0.296。原先那行「对随机 50% 基准\n"
+    "       p=0.001」测的是 TP+30%/SL-10 的赔付阶梯，不是本事，已改掉；\n"
+    "     · 均收益 +1.16%/笔的 95% CI 跨零（[-2.6%, +5.1%]），年化 0.50% 对 -23.63% 最大回撤，\n"
+    "       Calmar 0.02。\n"
+    "\n"
+    "   这条路也没法靠实盘积累来验证：样本产量约 16~17 笔/年，按当前效应量要 ~1,240 笔才摸到\n"
+    "   p<0.05（80% 功效需 ~2,000 笔），即 70~120 年；约 94% 的清晨盘前清单本就是空表。\n"
+    "\n"
+    "   研究用途照旧：--mode simulate 写 journal_sim.csv，plan_e_backtest.py 随时可跑。\n"
+    "   真要建仓：人工 --mode buy --code ... --price ... --qty ... —— 这个决定本脚本不代做。"
+)
+
+
 def mode_daily(args):
-    """每日模式：生成信号 + 检查持仓 + 给出拆单建议"""
+    """每日模式：输出今日研究清单 + 当前持仓（不再给下单建议）。"""
     ensure_dirs()
     pos = load_positions()
 
     today = datetime.now().strftime('%Y-%m-%d')
     print(f"=== 方案 E 每日模式 {today} ===")
-    print(f"  当前持仓: {len(pos['positions'])} 只")
+    print(PLAN_E_LIVE_RETIREMENT)
+    print(f"\n  当前持仓: {len(pos['positions'])} 只")
     print(f"  可用现金: {pos['cash']:,.0f}")
 
     # 生成信号
     sig = get_daily_signals(today)
     if not sig.empty:
-        print(f"\n  今日触发信号: {len(sig)} 只")
+        print(f"\n  今日触发信号（研究口径，不含入场建议）: {len(sig)} 只")
         print(sig[['code', 'signal_date', 't1_pct', 't1_vol_ratio']].to_string(index=False))
-        print("\n  📋 拆单建议（Almgren-Chriss 最优执行）：")
-        for _, row in sig.iterrows():
-            code = str(row['code']).zfill(6)
-            fp = _find_parquet(code)
-            if fp is None:
-                continue
-            adv, dvol = get_execution_inputs(fp)
-            last_close = get_last_close(fp)
-            if adv is None or dvol is None or last_close <= 0:
-                continue
-            qty = int(pos['cash'] * POSITION_PCT / last_close / 100) * 100
-            if qty <= 0:
-                continue
-            print(format_execution_suggestion(code, 'buy', qty, last_close, adv, dvol,
-                                             lam=args.lam, n_buckets=args.exec_buckets))
     else:
         print("\n  今日无触发信号")
 

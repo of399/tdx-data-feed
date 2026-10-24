@@ -372,11 +372,13 @@ timer-install:  ## 安装 systemd timer/path（复制到 user systemd，凡改 s
 	@cp --remove-destination $(SYSTEMD_DIR)/*.service $(SYSTEMD_DIR)/*.timer $(SYSTEMD_DIR)/*.path $(USER_SYSTEMD)/
 	@echo "$(GREEN)✓ timer/path 已复制（记得 daemon-reload + 必要时 restart/reset-failed）$(NC)"
 
+# plan-e-today 不在启用列表里：2026-10-24 方案 E 退出实盘入口，盘前清单只在研究时手动跑
+# （单元文件保留在 systemd/，timer-disable 仍会扫它以便一键收口）。
 timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@echo "$(CYAN)▶ 重载 systemd$(NC)"
 	systemctl --user daemon-reload
 	@echo "$(CYAN)▶ 启用 timer$(NC)"
-	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-today plan-e-weekly canary-health; do \
+	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-weekly canary-health; do \
 		systemctl --user enable $$t.timer 2>&1 | head -1; \
 		systemctl --user start $$t.timer; \
 	done

@@ -1,5 +1,19 @@
 # 方案 E 实盘启动指南
 
+> ⚠️ **本文档已停用（2026-10-24 决定：方案 E 退出实盘入口，研究产出保留）。**
+> 下面描述的是 2026-09-28 那次尝试的配置，不要再照着建仓。理由（数字可在
+> `data/plan_e/plan_e_backtest_v2_latest.md` 复核）：改成诚实成交口径并修正统计推断后，
+> 112 笔样本上 Deflated Sharpe p=1.000、Newey-West 日收益 p=0.748、bootstrap 均值 p=0.561、
+> 胜率对赔率隐含盈亏平衡（31.2%）单侧 p=0.296，四个检验都拒绝不了「无超额收益」；
+> 均收益 +1.16%/笔的 95% CI 跨零（[-2.6%, +5.1%]），年化 0.50% 对 -23.63% 最大回撤。
+> 这条路也无法靠实盘积累验证：约 16~17 笔/年的产量要 ~1,240 笔才摸到 p<0.05（70 年以上）。
+>
+> 仍然可用：`plan_e_backtest.py` 回测、`--today` 研究清单、`--mode simulate` 虚拟账本。
+> `plan-e-today.timer` 已 disable，需要清单时手动跑
+> `venv/bin/python scripts/plan_e_backtest.py --today`。
+> 同一次处置的另一个案例见 `docs/DABAN_TOPK_PNL_20261022.md` 与
+> `scripts/plan_e_journal.py` 的 `DABAN_LIVE_BLOCK` / `PLAN_E_LIVE_RETIREMENT`。
+
 > 生成：2026-09-27 · 启动日期：2026-09-28（周一，A股开盘）
 > 配套脚本：`scripts/plan_e_journal.py`
 > 数据源：`scripts/plan_e_backtest.py` + 历史翻倍样本
@@ -11,7 +25,7 @@
 | 参数 | 值 | 说明 |
 |---|---|---|
 | **初始资金** | 100,000 RMB | 小资金验证 |
-| **单股仓位** | 10% | 10 只满仓 |
+| **单股仓位** | 10% | 模拟账本口径（`--mode simulate`），非实盘规则 |
 | **最大持仓** | 10 只 | 同时持仓上限 |
 | **止盈 TP** | +30% | 期内最大涨幅 |
 | **止损 SL** | -10% | 期内最大跌幅 |
@@ -172,17 +186,27 @@ systemd/plan-e-today.service  # precheck_freshness.sh → plan_e_backtest.py --t
 3. 盘前那份清单若在位，18:10 的 journal 直接复用它并归档 `signals_YYYYMMDD.csv`，
    **不再重跑 CLI**（重跑等于把今日榜覆盖成明日榜）。
 
-启用：
+启用（**2026-10-24 已决定停用**，下面只在需要重新打开盘前清单时才用；单元文件保留在库里）：
 
 ```bash
 make timer-install && systemctl --user daemon-reload
 systemctl --user enable --now plan-e-today.timer
 systemctl --user list-timers plan-e-today.timer   # NEXT 应为下一个交易日 08:45
+
+# 停用（当前状态）
+systemctl --user disable --now plan-e-today.timer
+venv/bin/python scripts/plan_e_backtest.py --today   # 需要清单时手动跑，只作研究产出
 ```
+
+停用不是因为这些契约没修好——三条契约都还在，`--today` 现在确实能给出「今日开盘入场」的榜单。
+停用的是「拿着这张榜单去建仓」这件事本身：三个收益检验 + 胜率对盈亏平衡的检验都拒绝不了
+「无超额收益」，而约 94% 的清晨这张表本来就是空的。
 
 ---
 
 ## 5. 风险控制清单
+
+> ⚠️ 2026-10-24 起方案 E 退出实盘入口，本章保留作研究/复盘清单，不再作为建仓检查表。
 
 ### 5.1 开仓前必查
 
