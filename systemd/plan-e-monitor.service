@@ -1,6 +1,6 @@
 [Unit]
 Description=Plan E 实盘监控（真实 PnL 跟踪与偏差分析）
-Documentation=scripts/monitor_plan_e_live.py
+Documentation=file:///home/jiuben/tdx-data-feed/scripts/monitor_plan_e_live.py file:///home/jiuben/tdx-data-feed/docs/PLAN_E_LIVE.md
 
 [Service]
 Type=oneshot

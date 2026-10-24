@@ -1,8 +1,9 @@
 """夜间全量同步必须把失败如实反映成进程退出码。
 
-`systemd/tdxfeed-sync.service` 用 `python -m tdxfeed.full_sync` 启动，且
-`predict-daily` / `plan-e-journal` 只靠钟表串在它后面（`Wants=` 而非 `Requires=`）。
-所以只要 full_sync 恒返回 0，下游就会拿着陈旧数据继续出票，且无人被通知。
+`systemd/tdxfeed-sync.service` 用 `python -m tdxfeed.full_sync` 启动。2026-10-24 起
+`predict-daily` 对它是 `Requires=`（依赖失败就不出榜），两只单元又都挂了
+`OnFailure=onfailure-alert@…` 发微信告警——而这两件事都以**非零退出码**为前提：
+full_sync 恒返回 0 时 systemd 判它「成功」，下游照旧拿隔夜数据出票，告警也不会响。
 """
 from __future__ import annotations
 

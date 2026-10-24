@@ -13,8 +13,9 @@
 > 这条路也无法靠实盘积累验证：约 16~17 笔/年的产量要 ~1,240 笔才摸到 p<0.05（70 年以上）。
 >
 > 仍然可用：`plan_e_backtest.py` 回测、`--today` 研究清单、`--mode simulate` 虚拟账本。
-> 方案 E 的四个 systemd timer（`plan-e-today` / `plan-e-journal` / `plan-e-monitor` /
-> `plan-e-weekly`）已全部 disable 并从 `make timer-enable` 的列表里摘掉，单元文件留在 `systemd/`；
+> 方案 E 的五个 systemd timer（`plan-e-today` / `plan-e-journal` / `plan-e-monitor` /
+> `plan-e-weekly` / `plan-e-real-refresh`，最后那只周日 21:00 拿实盘样本回灌调参、从来没被启用过）
+> 现在全部 disabled，也都不在 `make timer-enable` 的启用列表里，单元文件留在 `systemd/`；
 > 需要清单时手动跑 `make plan-e-today`。
 > 同一次处置的另一个案例见 `docs/DABAN_TOPK_PNL_20261022.md`，两段停用声明都在
 > `scripts/plan_e_journal.py`：`PLAN_E_LIVE_RETIREMENT`（方案 E）与 `DABAN_LIVE_BLOCK`（daban 榜）。
@@ -58,14 +59,14 @@
 
 ## 3. 每日工作流程
 
-### 3.1 信号生成（每日 18:30 自动化）
+### 3.1 信号生成（手动；2026-10-24 起方案 E 一侧没有任何 timer）
 
 ```bash
-# 已由 predict-daily.timer 配套：每日 18:05 跑方案 D 预测
-# 方案 E 信号需要单独触发（建议加 timer 18:10）
+# 方案 D 预测仍由 predict-daily.timer 每日 18:05 自动跑。
+# 方案 E 的清单/归档/周报/实盘调参五只 timer 已全部 disable，需要时手动：
 
-# 手动触发今日信号
-venv/bin/python scripts/plan_e_journal.py --mode daily
+make plan-e-today                                       # 研究口径的今日清单
+venv/bin/python scripts/plan_e_journal.py --mode daily  # 先打印停用声明，不再给拆单量
 ```
 
 ### 3.2 开盘前检查（每个工作日 09:00）
@@ -129,6 +130,8 @@ venv/bin/python scripts/plan_e_journal.py --mode weekly
 
 > ⚠️ `plan-e-journal.timer` / `plan-e-monitor.timer` / `plan-e-weekly.timer` 与 4.1 的
 > `plan-e-today.timer` 已于 2026-10-24 一并 `disable`，也都不在 `make timer-enable` 的启用列表里。
+> 第五只 `plan-e-real-refresh.timer`（周日 21:00 拿实盘样本回灌调参）从没被启用过，输入同样是那份
+> 空账本，所以本节没有它的恢复步骤。
 > 停用后 `--mode daily` 读不到 entry_date=今天 的清单时**不再自己跑 CLI**，直接输出
 > 「盘前清单已停用」。下面的单元内容只在真要重新打开这条链路时才照做：
 

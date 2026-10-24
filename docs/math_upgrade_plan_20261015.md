@@ -31,11 +31,11 @@
 | 1 | **BH-FDR 多重检验校正** | `from statsmodels.stats.multitest import multipletests; reject, q, _, _ = multipletests(pvals, method='fdr_bh')` | `factor_significance.py` 显著性表新增 q-value 列 + "校正后仍显著因子数" |
 | 2 | **Deflated Sharpe Ratio** | Bailey & López de Prado (2014)：`z = √T·(SR−SR*)·[1−γ₃·SR+(γ₄−1)/4·SR²]⁻¹`；`p = 1−norm.cdf(z)`；`SR*=0`，`N≥180`（Optuna 150 + 27 网格 + 其他，保守取值） | `plan_e_backtest.py` 报告新增 DSR p-value |
 | 3 | **Newey-West HAC 标准误（IC 序列）** | `OLS(ic, const).fit(cov_type='HAC', cov_kwds={'maxlags':5})`；IC 强自相关，OLS 标准误会低估 | `plan_e_backtest.py` 新增 IC 均值显著性（HAC） |
-| 4 | **置换检验**（P0-1 ④，非参数假设检验） | H₀：策略日盈亏顺序随机 → 无择时 alpha（≈ 随机抽样同分布）；对日收益序列做 b=2000 次**无放回时间重排**，经验 `p = mean(perm_stat ≥ obs_stat)`；默认统计量取**滞后-1 自相关**（均值/夏普对重排不变会令检验退化）；返回 `p_one`(单侧)/`p_two`(两尾 min 法则) | `quant/multifactor/cv_utils.py:permutation_return_test` + `plan_e_backtest.py` import 调用（区别于 `_bootstrap_ci` 分位 CI 与 `_bootstrap_pvalue` bootstrap-SE z 检验） |
+| 4 | **置换检验**（P0-1 ④，非参数假设检验） | ~~H₀：策略日盈亏顺序随机 → 无择时 alpha~~（**2026-10-24 更正**：这个统计量判的是时序结构，不是择时——资金曲线把每笔持仓摊在 hold 个连续交易日上，重叠持仓天然造出正自相关，p 小只说明曲线被平滑过。判择时改用按笔重排入场日的随机择时基线，见 `plan_e_backtest.py --random-timing-trials`）；对日收益序列做 b=2000 次**无放回时间重排**，经验 `p = mean(perm_stat ≥ obs_stat)`；默认统计量取**滞后-1 自相关**（均值/夏普对重排不变会令检验退化）；返回 `p_one`(单侧)/`p_two`(两尾 min 法则) | `quant/multifactor/cv_utils.py:permutation_return_test` + `plan_e_backtest.py` import 调用（区别于 `_bootstrap_ci` 分位 CI 与 `_bootstrap_pvalue` bootstrap-SE z 检验） |
 
 **验收标准**：
 - `factor_significance.py` 输出含"BH-FDR 校正后显著因子数"
-- `plan_e_backtest.py` 报告含 DSR p-value、Newey-West（日收益 HAC）显著性、bootstrap 平均收益 H₀=0 检验 p-value、二项检验（胜率 H₀=50%）p-value；并新增 ④ 置换检验（打乱时间重排）经 `cv_utils.permutation_return_test` 计算，在风险提示中说明其判定口径（p≥0.05 ⇒ 不拒绝"无择时 alpha"）
+- `plan_e_backtest.py` 报告含 DSR p-value、Newey-West（日收益 HAC）显著性、bootstrap 平均收益 H₀=0 检验 p-value、二项检验 p-value（**2026-10-24 更正**：原假设不是 50%，而是赔率阶梯隐含的盈亏平衡胜率 31.2%——止盈+30%/止损−10% 下任何零边际策略的胜率都远低于 50%，"显著偏离 50%"是赔付结构的同义反复）；并新增 ④ 置换检验经 `cv_utils.permutation_return_test` 计算，在风险提示中说明它只判时序结构（见上表第 4 行的更正）
 - 对今日全量回测复跑：DSR 与 Newey-West **判定不显著**（验证工具正确拒绝噪声）
 - `make lint` 通过
 

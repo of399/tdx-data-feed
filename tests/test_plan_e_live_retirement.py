@@ -5,13 +5,15 @@ Deflated Sharpe p=1.000、Newey-West p=0.748、bootstrap 均值 p=0.561、胜率
 盈亏平衡（31.2%）单侧 p=0.296。而 `--mode daily` 原来会照着清单逐笔算
 `cash × 10% / 收盘价` 的买入拆单量并打印——等于把一个测不出边际的信号包装成下单指令。
 
-本测试锁四件事：
+本测试锁五件事：
 1. 停用话术必须带着可核验的证据留在脚本里（和 daban 的 `DABAN_LIVE_BLOCK` 同一处理方式），
    证据包括最后那条随机择时基线——不写进去，读者会以为择时还没验证、值得再留一条路；
 2. daily 模式不再输出拆单/仓位建议，清单本身照旧打印，研究用途不受影响；
 3. 头部文档里"单股仓位 10%"不能再被读成实盘规则；
 4. `plan-e-today.timer` 停用后，晚间那次 journal 既不该为重跑一次全量回测买单，
-   更不该把"今天根本没有盘前清单"报成"今日无触发信号"。
+   更不该把"今天根本没有盘前清单"报成"今日无触发信号"；
+5. 文档与 Makefile 数得清 plan-e 到底有几只 timer：`plan-e-real-refresh.timer` 一直在 `systemd/`
+   里躺着、从没进过任何清单，所以"四个 timer 已停用"这类话和 `timer-disable` 的收口列表都漏了它。
 
 测试用 tmp_path 隔离，绝不碰仓库里的真实账本与清单。
 """
@@ -171,3 +173,58 @@ def test_fresh_empty_list_still_reports_no_trigger(tmp_path, capsys, monkeypatch
     out = capsys.readouterr().out
     assert "今日无触发信号" in out
     assert "盘前清单已停用" not in out
+
+
+PLAN_E_TIMERS = tuple(sorted(p.name[: -len(".timer")] for p in (ROOT / "systemd").glob("plan-e-*.timer")))
+
+
+def _recipe(target: str) -> str:
+    """取出 Makefile 里某个目标的整段配方（含它上方的注释块）。"""
+    lines = (ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+    start = next((i for i, l in enumerate(lines) if l.startswith(f"{target}:")), None)
+    assert start is not None, f"Makefile 找不到目标 {target}"
+    top = start
+    while top > 0 and lines[top - 1].startswith("#"):
+        top -= 1
+    end = len(lines)
+    for k in range(start + 1, len(lines)):
+        if lines[k] and not lines[k].startswith(("\t", " ")):
+            end = k
+            break
+    return "\n".join(lines[top:end])
+
+
+def test_retirement_docs_account_for_every_plan_e_timer_unit():
+    """plan-e-real-refresh.timer 从来没进过任何清单，文档只点「四个」就一直漏着它。"""
+    for rel in ("docs/PLAN_E_LIVE.md", "docs/WORKFLOW.md", "docs/ARCHITECTURE.md"):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        missing = [t for t in PLAN_E_TIMERS if t not in text]
+        assert not missing, f"{rel} 的 plan-e timer 说明漏了 {missing}（systemd/ 实际有 {len(PLAN_E_TIMERS)} 个）"
+
+
+def test_no_doc_still_says_four_plan_e_timers():
+    for rel in ("docs/PLAN_E_LIVE.md", "docs/WORKFLOW.md", "docs/ARCHITECTURE.md", "Makefile"):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        for stale in ("四个 timer", "四个单元", "这四个名字"):
+            assert stale not in text, f"{rel} 仍写着「{stale}」，而 systemd/ 有 {len(PLAN_E_TIMERS)} 个 plan-e timer"
+
+
+def _timer_loop(recipe: str) -> list[str]:
+    """取出配方里 `for t in …; do` 枚举的单元名（行首的 `@` 是 make 的静默符）——
+    注释里提没提某只 timer 不算启用/禁用。"""
+    for line in recipe.splitlines():
+        stripped = line.strip().lstrip("@").strip()
+        if stripped.startswith("for t in "):
+            return stripped[len("for t in ") :].split(";")[0].split()
+    raise AssertionError(f"配方里找不到 for t in …：\n{recipe}")
+
+
+def test_makefile_timer_disable_sweeps_every_plan_e_timer():
+    sweep = _timer_loop(_recipe("timer-disable"))
+    missing = [t for t in PLAN_E_TIMERS if t not in sweep]
+    assert not missing, f"timer-disable 漏扫 {missing}，一键收口收不全"
+
+
+def test_makefile_timer_enable_never_enables_a_plan_e_timer():
+    enabled = [t for t in _timer_loop(_recipe("timer-enable")) if t.startswith("plan-e-")]
+    assert not enabled, f"timer-enable 又把 {enabled} 放回启用列表，与 2026-10-24 停用决定相反"

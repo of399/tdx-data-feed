@@ -1,6 +1,7 @@
 [Unit]
 Description=PushPlus Bridge for Alertmanager (tdx-data-feed)
-Documentation=https://www.pushplus.plus/doc/ | token 见 v5/scripts/.pushplus.env
+# token 从 v5/scripts/.pushplus.env 读，轮换后 restart 本单元即可生效
+Documentation=https://www.pushplus.plus/doc/
 After=network-online.target
 Wants=network-online.target
 

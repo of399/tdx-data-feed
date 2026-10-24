@@ -1,6 +1,7 @@
 [Unit]
 Description=tdx-data-feed 旧日志清理（保留最近 7 天）
-Documentation=make -C /home/jiuben/tdx-data-feed clean-logs
+# 手动跑同一个清理：make clean-logs
+Documentation=file:///home/jiuben/tdx-data-feed/docs/WORKFLOW.md
 
 [Service]
 Type=oneshot

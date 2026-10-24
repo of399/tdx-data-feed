@@ -1,6 +1,6 @@
 [Unit]
 Description=Plan E 实盘监控（每日 18:40，周五自动出周报）
-Documentation=scripts/monitor_plan_e_live.py
+Documentation=file:///home/jiuben/tdx-data-feed/scripts/monitor_plan_e_live.py file:///home/jiuben/tdx-data-feed/docs/PLAN_E_LIVE.md
 
 [Timer]
 OnCalendar=*-*-* 18:40:00

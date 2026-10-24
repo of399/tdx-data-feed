@@ -85,6 +85,7 @@
 | `systemd/plan-e-today.timer` | 方案 E 盘前今日清单（08:45 跑 `plan_e_backtest.py --today`）——**2026-10-24 已 disable**，方案 E 退出实盘入口，需要时手动 `make plan-e-today` | systemd timer（停用） |
 | `systemd/plan-e-monitor.timer` | 方案 E 持仓监控（18:40）——**2026-10-24 已 disable**：实盘账本为空（无 positions.json，journal.csv 只有表头）| systemd timer（停用） |
 | `systemd/plan-e-weekly.timer` | 方案 E 周报汇总（周五 20:00）——**2026-10-24 已 disable**（无实盘流水可汇总）| systemd timer（停用） |
+| `systemd/plan-e-real-refresh.timer` | 方案 E 实盘样本回灌调参（周日 21:00）——**从未启用**，2026-10-24 一并确认停用（输入是同一份空账本）| systemd timer（停用） |
 | `systemd/canary-health.timer` | 金丝雀健康检查（数据/模型/timer/obsidian 漂移，每 5min）；它自己是告警员，所以也挂了 `OnFailure`（靠脚本 1h 冷却压重复）| systemd timer |
 | `systemd/onfailure-alert@.service` | 不是 timer：`OnFailure=` 模板单元，把失败单元名拼成 alertmanager 载荷 POST 到 127.0.0.1:5002 的 pushplus 桥（同单元默认 1 小时冷却；`--dry-run` 只看载荷不推送）| 由上面的单元触发 |
 | `systemd/obsidian-sync.path` | Obsidian vault 源↔部署零漂移监控 | systemd path |
@@ -132,7 +133,7 @@
 ### 2.4 自动化任务（automations）
 
 - **现状**：`.codebuddy/automations/` 下有 4 个目录（`v4` / `v5-daemon` / `v8-retrain-review` / `v9-training-watch`），每个只有 `memory.md`，**没有 `automation.toml`**，因此不会被 CodeBuddy 调度。
-- **真实定时任务全部在 systemd user timer**：在跑的五个是 `tdxfeed-sync` / `predict-daily` / `canary-health` / `trainsh-health` / `tdx-clean-logs`（外加 `obsidian-sync.path`）。方案 E 的四个单元（`plan-e-today` / `plan-e-journal` / `plan-e-monitor` / `plan-e-weekly`）文件仍在库里，但 2026-10-24 起全部 disable——方案 E 退出实盘入口，且停用后 `--mode daily` 已不可能拿到 entry_date=今天 的清单。注意 `make timer-enable` 只启用前三个通用 timer 与 obsidian path，`trainsh-health` / `tdx-clean-logs` 靠持久化的 enable 状态活着。
+- **真实定时任务全部在 systemd user timer**：在跑的五个是 `tdxfeed-sync` / `predict-daily` / `canary-health` / `trainsh-health` / `tdx-clean-logs`（外加 `obsidian-sync.path`）。方案 E 的五只单元（`plan-e-today` / `plan-e-journal` / `plan-e-monitor` / `plan-e-weekly` / `plan-e-real-refresh`，最后一只从未启用过）文件仍在库里，但 2026-10-24 起全部 disable——方案 E 退出实盘入口，且停用后 `--mode daily` 已不可能拿到 entry_date=今天 的清单。注意 `make timer-enable` 只启用前三个通用 timer 与 obsidian path，`trainsh-health` / `tdx-clean-logs` 靠持久化的 enable 状态活着。
 - 若未来要恢复 CodeBuddy automation，必须补 `automation.toml` 并在 IDE 中启用；仅 `memory.md` 不构成自动化。
 
 ---
