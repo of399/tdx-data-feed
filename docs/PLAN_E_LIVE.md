@@ -1,6 +1,6 @@
 # 方案 E 实盘启动指南
 
-> ⚠️ **本文档已停用（2026-10-24 决定：方案 E 退出实盘入口，研究产出保留）。**
+> ⚠️ **本文档的建仓流程已停用（2026-10-24 决定：方案 E 退出实盘入口，研究产出保留）。**
 > 下面描述的是 2026-09-28 那次尝试的配置，不要再照着建仓。理由（数字可在
 > `data/plan_e/plan_e_backtest_v2_latest.md` 复核）：改成诚实成交口径并修正统计推断后，
 > 112 笔样本上 Deflated Sharpe p=1.000、Newey-West 日收益 p=0.748、bootstrap 均值 p=0.561、
@@ -13,10 +13,11 @@
 > 这条路也无法靠实盘积累验证：约 16~17 笔/年的产量要 ~1,240 笔才摸到 p<0.05（70 年以上）。
 >
 > 仍然可用：`plan_e_backtest.py` 回测、`--today` 研究清单、`--mode simulate` 虚拟账本。
-> 方案 E 的五个 systemd timer（`plan-e-today` / `plan-e-journal` / `plan-e-monitor` /
-> `plan-e-weekly` / `plan-e-real-refresh`，最后那只周日 21:00 拿实盘样本回灌调参、从来没被启用过）
-> 现在全部 disabled，也都不在 `make timer-enable` 的启用列表里，单元文件留在 `systemd/`；
-> 需要清单时手动跑 `make plan-e-today`。
+> 方案 E 的五只 systemd timer 里，`plan-e-today`（工作日 08:45 出盘前清单）与 `plan-e-journal`
+> （18:10 复用那份清单归档）已于 2026-10-24 晚**重开自动调度**——重开的只是「每天自动把研究清单算出来」，
+> `--mode daily` 依旧不逐笔算下单量、上面那段停用声明照旧打印。`plan-e-monitor` / `plan-e-weekly` /
+> `plan-e-real-refresh` 维持 disabled（输入是那份空账本：无 positions.json，journal.csv 只有表头），
+> 单元文件都留在 `systemd/`。临时补一张清单仍可手动 `make plan-e-today`。
 > 同一次处置的另一个案例见 `docs/DABAN_TOPK_PNL_20261022.md`，两段停用声明都在
 > `scripts/plan_e_journal.py`：`PLAN_E_LIVE_RETIREMENT`（方案 E）与 `DABAN_LIVE_BLOCK`（daban 榜）。
 
@@ -59,14 +60,16 @@
 
 ## 3. 每日工作流程
 
-### 3.1 信号生成（手动；2026-10-24 起方案 E 一侧没有任何 timer）
+### 3.1 信号生成（工作日 08:45 自动出盘前清单，18:10 自动归档）
 
 ```bash
-# 方案 D 预测仍由 predict-daily.timer 每日 18:05 自动跑。
-# 方案 E 的清单/归档/周报/实盘调参五只 timer 已全部 disable，需要时手动：
+# plan-e-today.timer   Mon..Fri 08:45 → plan_e_backtest.py --today → data/plan_e/plan_e_today.csv
+# plan-e-journal.timer Mon..Fri 18:10 → 复用那份盘前清单，归档 signals_YYYYMMDD.csv
+# 两只于 2026-10-24 晚重开（同日上午曾整批停用）。自动跑出来的仍然是研究口径：
+# --mode daily 先打印 PLAN_E_LIVE_RETIREMENT，不逐笔给拆单量。
 
-make plan-e-today                                       # 研究口径的今日清单
-venv/bin/python scripts/plan_e_journal.py --mode daily  # 先打印停用声明，不再给拆单量
+make plan-e-today                                       # 临时补一张清单（例如 08:45 那次失败）
+venv/bin/python scripts/plan_e_journal.py --mode daily  # 手动看当日清单
 ```
 
 ### 3.2 开盘前检查（每个工作日 09:00）
@@ -126,14 +129,14 @@ venv/bin/python scripts/plan_e_journal.py --mode weekly
 
 ---
 
-## 4. systemd timer 集成（2026-10-24 起全部停用，仅留作恢复手册）
+## 4. systemd timer 集成（today/journal 已重开，monitor/weekly 留作恢复手册）
 
-> ⚠️ `plan-e-journal.timer` / `plan-e-monitor.timer` / `plan-e-weekly.timer` 与 4.1 的
-> `plan-e-today.timer` 已于 2026-10-24 一并 `disable`，也都不在 `make timer-enable` 的启用列表里。
-> 第五只 `plan-e-real-refresh.timer`（周日 21:00 拿实盘样本回灌调参）从没被启用过，输入同样是那份
-> 空账本，所以本节没有它的恢复步骤。
-> 停用后 `--mode daily` 读不到 entry_date=今天 的清单时**不再自己跑 CLI**，直接输出
-> 「盘前清单已停用」。下面的单元内容只在真要重新打开这条链路时才照做：
+> ⚠️ 当前状态（2026-10-24 晚）：4.1 的 `plan-e-today.timer` 与 `plan-e-journal.timer` 已回到
+> `make timer-enable` 的启用列表并在自动跑；`plan-e-monitor.timer` / `plan-e-weekly.timer` 仍
+> disabled，`plan-e-real-refresh.timer`（周日 21:00 拿实盘样本回灌调参）从来没被启用过——它们的
+> 输入是那份空账本，所以下面的单元内容只在真要重开那两只时才照做。
+> 晚间那次 `--mode daily` 读不到 entry_date=今天 的清单时**不跑 CLI 兜底**（用的是当日收盘数据，
+> 算出来必然是明日榜），直接如实输出「今天没有盘前清单」。
 
 ```bash
 # /home/jiuben/.config/systemd/user/plan-e-journal.timer
@@ -167,7 +170,7 @@ StandardError=append:/home/jiuben/tdx-data-feed/logs/plan_e_journal.err
 WantedBy=timers.target
 ```
 
-恢复启用（**当前是停用状态**，`make timer-disable` 会一并收口）：
+`plan-e-journal.timer` 现在由 `make timer-enable` 自动启用（2026-10-24 晚重开）。只想单独拉起它：
 
 ```bash
 cp systemd/plan-e-journal.{service,timer} ~/.config/systemd/user/
@@ -188,35 +191,33 @@ systemd/plan-e-today.service  # precheck_freshness.sh → plan_e_backtest.py --t
                               # TimeoutStartSec=600：冷启动扫全市场 parquet 会超 user manager 的 90s 默认
 ```
 
-契约（都有测试盯，`tests/test_plan_e_today_list.py`；停用态由 `tests/test_plan_e_live_retirement.py` 锁）：
+契约（都有测试盯，`tests/test_plan_e_today_list.py`；调度状态与输出措辞由 `tests/test_plan_e_live_retirement.py` 锁）：
 
 1. `--today` **无论有无触发都重写** `data/plan_e/plan_e_today.csv`；无触发落一张带表头的空表，
    上一日的清单不许原地活着。
-2. 盘前路径在位时（`PLAN_E_PREMARKET_LIST_ACTIVE=True`）journal 才允许自己跑 CLI 兜底，
+2. 只有晚间兜底开着（`PLAN_E_PREMARKET_LIST_ACTIVE=True`）journal 才允许自己跑 CLI，
    且校验两件事：文件是**今天写的**，且 `entry_date` **就是今天**；子进程非零退出时不读磁盘残留。
+   这个开关的名字容易误读，它的本名是「晚间要不要自己跑 CLI」，**与 timer 是否启用无关**。
 3. 盘前那份清单若在位，18:10 的 journal 直接复用它并归档 `signals_YYYYMMDD.csv`，
-   **不再重跑 CLI**（重跑等于把今日榜覆盖成明日榜）。
-4. **停用态（当前）读不到今日清单就不跑 CLI**：晚间那次跑的是当日收盘数据，产出必然是明日榜，
-   守卫一定丢弃——白付一次全量回测还把研究产物覆盖掉。此时 daily 模式如实说「盘前清单已停用」，
-   不把「没有清单」报成「今日无触发信号」；后者只在今天确实扫过、落的是空表时才说。
+   **不再重跑 CLI**（重跑等于把今日榜覆盖成明日榜）——这条路径不看上面那个开关。
+4. **当前（兜底关着）读不到今日清单就不跑 CLI**：晚间那次跑的是当日收盘数据，产出必然是明日榜，
+   守卫一定丢弃——白付一次全量回测还把研究产物覆盖掉。此时 daily 模式如实说「今天没有盘前清单」
+   （08:45 那次没跑成或被数据守卫拦下），不把「没有清单」报成「今日无触发信号」；
+   后者只在今天确实扫过、落的是空表时才说。
 
-启用（**2026-10-24 已决定停用**，下面只在需要重新打开盘前清单时才用；单元文件保留在库里）：
+调度开关（2026-10-24 晚的现状：today + journal 开，monitor / weekly / real-refresh 关）：
 
 ```bash
-make timer-install && systemctl --user daemon-reload
-systemctl --user enable --now plan-e-today.timer
-systemctl --user list-timers plan-e-today.timer   # NEXT 应为下一个交易日 08:45
+make timer-enable                                    # 循环里是 plan-e-today 与 plan-e-journal
+systemctl --user list-timers plan-e-today.timer       # NEXT 应为下一个交易日 08:45
 
-# 停用（当前状态；journal/monitor/weekly 三个 timer 同批停用）
-systemctl --user disable --now plan-e-today.timer plan-e-journal.timer \
-    plan-e-monitor.timer plan-e-weekly.timer
-venv/bin/python scripts/plan_e_backtest.py --today   # 需要清单时手动跑，只作研究产出
+systemctl --user disable --now plan-e-today.timer plan-e-journal.timer   # 只想临时收口这两只
+venv/bin/python scripts/plan_e_backtest.py --today    # 手动补一张清单，只作研究产出
 ```
 
-停用不是因为这些契约没修好——契约都还在，`--today` 现在确实能给出「今日开盘入场」的榜单。
-停用的是「拿着这张榜单去建仓」这件事本身：三个收益检验 + 胜率对盈亏平衡的检验都拒绝不了
-「无超额收益」，随机择时基线也没测出入场日的信息（真实胜率 33.9% 低于随机 45.1%），
-而约 94% 的清晨这张表本来就是空的。
+重开自动调度不等于回到实盘入口——被停用的从来不是「算清单」，而是「拿着这张榜单去建仓」这件事本身：
+三个收益检验 + 胜率对盈亏平衡的检验都拒绝不了「无超额收益」，随机择时基线也没测出入场日的信息
+（真实胜率 33.9% 低于随机 45.1%），而约 94% 的清晨这张表本来就是空的。
 
 ---
 

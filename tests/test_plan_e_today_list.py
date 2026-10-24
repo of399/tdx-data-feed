@@ -84,8 +84,10 @@ def _rc_ok(monkeypatch, stdout: str = "今日开盘入场: 0 只"):
 def _journal_with_cli_fallback(tmp_path):
     """盘前 timer 在位时的 journal：读不到今日清单才允许自己跑 CLI。
 
-    2026-10-24 停用 plan-e-today.timer 后默认不再兜底（PLAN_E_PREMARKET_LIST_ACTIVE=False），
-    所以下面这几条要显式回到"timer 在位"那个口径。停用态由 tests/test_plan_e_live_retirement.py 锁。
+    PLAN_E_PREMARKET_LIST_ACTIVE 是「晚间读不到清单时要不要自己跑 CLI」的开关，与
+    plan-e-today.timer 是否启用无关，默认关着（晚间跑的是收盘数据，产出必然是明日榜）。
+    所以下面这几条要显式把兜底打开，才测得到那条分支。停用态与兜底关闭由
+    tests/test_plan_e_live_retirement.py 锁。
     """
     pej, live = _isolate_journal(tmp_path)
     pej.PLAN_E_PREMARKET_LIST_ACTIVE = True

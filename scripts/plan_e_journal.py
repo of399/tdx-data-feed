@@ -4,7 +4,7 @@
 =====================
 
 【功能】
-  1. 每日打印当日研究清单（读盘前 timer 落下的 plan_e_today.csv；该 timer 已停用，见下）
+  1. 每日打印当日研究清单（读盘前 timer 落下的 plan_e_today.csv；该 timer 已于 2026-10-24 晚重开，见下）
   2. 维护交易日志（journal.csv）：每笔交易的买卖价、收益、出场原因
   3. 维护持仓状态（positions.json）：当前持仓 + 监控价格
   4. 每日盈亏统计 + 周报
@@ -79,11 +79,12 @@
   全部 p≥0.05)，随机择时基线(标的池不动只重排入场日)也没测出择时信息——真实胜率 33.9% 反而
   低于随机入场日的 45.1%。加上样本产量约 16~17 笔/年，靠实盘积累永远补不够功效。`--mode daily`
   只出研究清单，不再逐笔算下单量；理由与数字见 PLAN_E_LIVE_RETIREMENT。
-  同日 08:45 的 plan-e-today.timer 已 disable，随后 plan-e-journal / plan-e-monitor /
-  plan-e-weekly 三个 timer 也一并 disable：实盘账本为空（无 positions.json，journal.csv 只有
-  表头），而晚间那次 daily 已不可能拿到 entry_date=今天 的清单。停用态下 get_daily_signals
-  不再自己跑 CLI 兜底（PLAN_E_PREMARKET_LIST_ACTIVE=False），并把"没有清单"如实说成
-  "没有清单"，不报成"今日无触发信号"。要清单请手动跑 plan_e_backtest.py --today。
+  调度：2026-10-24 晚 plan-e-today（工作日 08:45 盘前清单）与 plan-e-journal（18:10 归档）重新
+  回到 `make timer-enable` 的启用列表——自动产出的仍然只是研究口径。plan-e-monitor /
+  plan-e-weekly / plan-e-real-refresh 维持停用：它们的输入是那份空账本（无 positions.json，
+  journal.csv 只有表头）。晚间那次依旧不自己跑 CLI 兜底（PLAN_E_PREMARKET_LIST_ACTIVE 的本名是
+  「晚间兜底开关」，跟 timer 状态无关），读不到今日清单就如实说"今天没有盘前清单"，
+  不报成"今日无触发信号"。要临时补一张清单，手动跑 plan_e_backtest.py --today。
 """
 
 import argparse
@@ -250,9 +251,10 @@ def append_sim_journal(records: list):
 
 # ============== 当日信号 ==============
 
-# 2026-10-24 停用 plan-e-today.timer 后，盘前清单不再有自动生产者。这个开关决定
-# get_daily_signals 还能不能自己跑 CLI 兜底：晚间那次跑的是今日收盘数据，算出来必然是
-# entry_date=明天 的榜单（守卫一定丢弃），既白付一次全量回测，又把研究产物覆盖成明日榜。
+# 晚间 CLI 兜底开关（与 plan-e-today.timer 是否启用无关，别顺手翻它）。
+# 盘前那份清单在位时 journal 直接复用（走 _read_today_list，不看这个开关）；开关只管
+# 「读不到清单时要不要自己跑 plan_e_backtest --today」。晚间跑的是当日收盘数据，算出来必然
+# 是 entry_date=明天 的榜单，守卫一定丢弃——既白付一次全量回测，又把今日那份覆盖成明日榜。
 PLAN_E_PREMARKET_LIST_ACTIVE = False
 
 
@@ -280,16 +282,16 @@ def get_daily_signals(today: str | None = None) -> pd.DataFrame:
     盘前 plan-e-today.service 用截至昨日的行情算出 entry_date=今天 的榜单；晚间再跑一次
     CLI 用的是今日收盘后的数据，算出来的是明天的入场清单，会把今日那份覆盖掉。
     两道闸：清单必须是今天写的且 entry_date 就是今天；子进程非零退出时不读磁盘残留。
-    盘前路径停用后（PLAN_E_PREMARKET_LIST_ACTIVE=False）不再有 CLI 兜底，读不到就是没有，
-    并且要如实说"没有清单"，不能报成"扫过、无触发"。
+    晚间兜底关着（PLAN_E_PREMARKET_LIST_ACTIVE=False）时读不到就是没有，并且要如实说
+    "今天没有盘前清单"，不能报成"今日无触发信号"。
     """
     import subprocess
     today = today or datetime.now().strftime('%Y-%m-%d')
     sig = _read_today_list(today)
     if sig is None:
         if not PLAN_E_PREMARKET_LIST_ACTIVE:
-            print("\n  盘前清单已停用（plan-e-today.timer 2026-10-24 disable）："
-                  "本模式不再产出入场清单，这里也没有可看的榜单。")
+            print("\n  今天没有盘前清单（08:45 的 plan-e-today 没跑成，或被数据新鲜度守卫拦下）："
+                  "晚间不跑 CLI 兜底——那用的是当日收盘数据，算出来是明天的入场榜。")
             return pd.DataFrame()
         result = subprocess.run(
             ['venv/bin/python', 'scripts/plan_e_backtest.py', '--today'],

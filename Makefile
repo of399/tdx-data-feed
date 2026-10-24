@@ -372,16 +372,16 @@ timer-install:  ## 安装 systemd timer/path（复制到 user systemd，凡改 s
 	@cp --remove-destination $(SYSTEMD_DIR)/*.service $(SYSTEMD_DIR)/*.timer $(SYSTEMD_DIR)/*.path $(USER_SYSTEMD)/
 	@echo "$(GREEN)✓ timer/path 已复制（记得 daemon-reload + 必要时 restart/reset-failed）$(NC)"
 
-# 方案 E 的五个 timer 都不在启用列表里：2026-10-24 方案 E 退出实盘入口后，
-# plan-e-today（盘前清单）改手动跑，plan-e-journal / plan-e-monitor / plan-e-weekly
-# 的输入（今日清单 + 实盘账本）已恒空——实盘侧没有 positions.json，journal.csv 只有表头。
-# plan-e-real-refresh（周日 21:00 拿实盘样本回灌调参）从来没进过启用列表，输入同样是那份空账本。
-# 单元文件保留在 systemd/，timer-disable 仍会扫这五个名字以便一键收口。
+# 方案 E 五只 timer 里的两只在启用列表里：2026-10-24 晚 plan-e-today（工作日 08:45 出盘前清单）
+# 与 plan-e-journal（18:10 复用那份清单归档 signals_YYYYMMDD.csv）重开——自动产出的仍是研究口径，
+# `--mode daily` 依旧不逐笔算下单量。plan-e-monitor / plan-e-weekly / plan-e-real-refresh 维持停用：
+# 实盘账本恒空（无 positions.json，journal.csv 只有表头），而 real-refresh 是每周一次的重算。
+# 单元文件都在 systemd/，timer-disable 扫全部五个名字以保证一键收口。
 timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@echo "$(CYAN)▶ 重载 systemd$(NC)"
 	systemctl --user daemon-reload
 	@echo "$(CYAN)▶ 启用 timer$(NC)"
-	@for t in tdxfeed-sync predict-daily canary-health; do \
+	@for t in tdxfeed-sync predict-daily plan-e-today plan-e-journal canary-health; do \
 		systemctl --user enable $$t.timer 2>&1 | head -1; \
 		systemctl --user start $$t.timer; \
 	done

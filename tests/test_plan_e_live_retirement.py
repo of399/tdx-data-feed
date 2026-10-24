@@ -10,10 +10,12 @@ Deflated Sharpe p=1.000、Newey-West p=0.748、bootstrap 均值 p=0.561、胜率
    证据包括最后那条随机择时基线——不写进去，读者会以为择时还没验证、值得再留一条路；
 2. daily 模式不再输出拆单/仓位建议，清单本身照旧打印，研究用途不受影响；
 3. 头部文档里"单股仓位 10%"不能再被读成实盘规则；
-4. `plan-e-today.timer` 停用后，晚间那次 journal 既不该为重跑一次全量回测买单，
-   更不该把"今天根本没有盘前清单"报成"今日无触发信号"；
-5. 文档与 Makefile 数得清 plan-e 到底有几只 timer：`plan-e-real-refresh.timer` 一直在 `systemd/`
-   里躺着、从没进过任何清单，所以"四个 timer 已停用"这类话和 `timer-disable` 的收口列表都漏了它。
+4. 盘前清单缺失时（timer 已于 2026-10-24 晚重开，缺失只可能是那天 08:45 没跑成），晚间那次
+   journal 既不该为重跑一次全量回测买单，也不该把原因说成"timer 被停用"这种过期的话；
+5. 文档与 Makefile 数得清 plan-e 到底有几只 timer、哪几只在启用列表里：
+   `plan-e-real-refresh.timer` 一直在 `systemd/` 里躺着、从没进过任何清单，所以"四个 timer
+   已停用"这类话和 `timer-disable` 的收口列表都漏了它；而 today + journal 重开之后，
+   "五只全停用"也同样是错的。
 
 测试用 tmp_path 隔离，绝不碰仓库里的真实账本与清单。
 """
@@ -118,6 +120,17 @@ def test_header_doc_does_not_present_10pct_as_the_live_rule():
     assert "退出实盘入口" in head, "头部文档没记录实盘入口已停用"
 
 
+def test_header_doc_does_not_claim_the_premarket_timer_is_stopped():
+    """plan-e-today 2026-10-24 晚重开了，头部第 1 行不能再写"该 timer 已停用"。
+
+    这类句子是要被当成运行现状读的。
+    """
+    pej = _load("plan_e_journal_head_timer", "plan_e_journal.py")
+    head = pej.__doc__
+    assert "该 timer 已停用" not in head, "头部还宣称盘前 timer 停着"
+    assert "启用列表" in head, "没说清 today/journal 已重回 make timer-enable 的启用列表"
+
+
 # ---------- 盘前 timer 停用之后，晚间那条路不能再自作主张 ----------
 
 
@@ -149,15 +162,21 @@ def test_retired_pre_market_path_does_not_rerun_the_cli(monkeypatch, tmp_path):
     assert pej.get_daily_signals(_today()).empty
 
 
-def test_daily_mode_reports_retired_instead_of_a_false_no_trigger(tmp_path, capsys, monkeypatch):
+def test_missing_premarket_list_says_so_without_lying_about_the_timer(tmp_path, capsys, monkeypatch):
+    """2026-10-24 晚盘前 timer 重开了，所以「读不到清单」的原因只能是那天那次没跑成。
+
+    输出既不能把「没有清单」报成「扫过、无触发」，也不能再把原因说成 timer 被 disable——
+    那是一句会被当成交班现状读的假话。
+    """
     pej, live = _isolate_journal(tmp_path)
     _write_today_list(live, _yesterday())
     _forbid_cli(monkeypatch)
 
     pej.mode_daily(SimpleNamespace(lam=0.05, exec_buckets=6))
     out = capsys.readouterr().out
-    assert "盘前清单已停用" in out, "没有告知今日根本没有清单"
+    assert "今天没有盘前清单" in out, "没有告知今日根本没有清单"
     assert "今日无触发信号" not in out, "把「没有清单」报成了「扫过、无触发」"
+    assert "已停用" not in out and "disable" not in out, "timer 已重开，不能再声称它被停用"
 
 
 def test_fresh_empty_list_still_reports_no_trigger(tmp_path, capsys, monkeypatch):
@@ -172,7 +191,18 @@ def test_fresh_empty_list_still_reports_no_trigger(tmp_path, capsys, monkeypatch
     pej.mode_daily(SimpleNamespace(lam=0.05, exec_buckets=6))
     out = capsys.readouterr().out
     assert "今日无触发信号" in out
-    assert "盘前清单已停用" not in out
+    assert "今天没有盘前清单" not in out
+
+
+def test_evening_cli_fallback_stays_off_after_the_timers_came_back(tmp_path):
+    """重开的是盘前 timer，不是晚间兜底。
+
+    晚间那次跑的是当日收盘数据，`--today` 算出的 entry_date 必然是明天，守卫一定丢弃——
+    翻成 True 等于每天白付一次全量回测，还把今日那份清单覆盖成明日榜。所以这个开关与
+    timer 状态无关，后来人别顺手翻它。
+    """
+    pej, _ = _isolate_journal(tmp_path)
+    assert pej.PLAN_E_PREMARKET_LIST_ACTIVE is False, "晚间 CLI 兜底不能随 timer 一起打开"
 
 
 PLAN_E_TIMERS = tuple(sorted(p.name[: -len(".timer")] for p in (ROOT / "systemd").glob("plan-e-*.timer")))
@@ -225,6 +255,15 @@ def test_makefile_timer_disable_sweeps_every_plan_e_timer():
     assert not missing, f"timer-disable 漏扫 {missing}，一键收口收不全"
 
 
-def test_makefile_timer_enable_never_enables_a_plan_e_timer():
-    enabled = [t for t in _timer_loop(_recipe("timer-enable")) if t.startswith("plan-e-")]
-    assert not enabled, f"timer-enable 又把 {enabled} 放回启用列表，与 2026-10-24 停用决定相反"
+def test_timer_enable_restarts_only_the_premarket_and_archive_pair():
+    """2026-10-24 晚：today + journal 重回启用列表，另外三只仍然不开。
+
+    monitor / weekly 的输入是那份空账本，real-refresh 是每周一次的重算——都不构成
+    「研究产出自动调度」的一部分，被顺手加回来就等于把停用决定改回去。
+    """
+    enabled = _timer_loop(_recipe("timer-enable"))
+    assert "plan-e-today" in enabled and "plan-e-journal" in enabled, \
+        f"盘前清单与晚间归档必须自动跑，当前启用列表 = {enabled}"
+    must_stay_off = [t for t in ("plan-e-monitor", "plan-e-weekly", "plan-e-real-refresh")
+                     if t in enabled]
+    assert not must_stay_off, f"{must_stay_off} 不该被自动启用"

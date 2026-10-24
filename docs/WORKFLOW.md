@@ -62,7 +62,7 @@
 | `scripts/find_d_signal_5d.py` | 方案 D：翻倍前 5 日信号识别（LightGBM）| v1 detail + parquet | AUC 0.8144 模型 + 特征重要性报告 |
 | `scripts/predict.py` | **方案 D 上线**：每日全市场 LightGBM 推理；默认 small=`daban`（29 维，次日涨停分类，Top5），full=`vpnl_huber_stage1`（21 维，Top20）| parquet/daily + features_5d | `data/predictions/predict_YYYYMMDD_HHMMSS.{csv,md}` + `predict_top{5,20}_*.csv` | `predict-daily.timer`（18:05）|
 | `scripts/plan_e_backtest.py` | 方案 E：翻倍次日跟随策略回测（诚实成交口径；最新数字看 `data/plan_e/plan_e_backtest_v2_latest.md`，2026-10-24 报告 112 笔：胜率 33.9% / 均收益 +1.16%/笔，四个检验都无法拒绝「无超额收益」；`--random-timing-trials` 的随机择时基线另测择时，入场日与蒙无异）| double_up + parquet/daily | `data/plan_e/plan_e_*.csv\|md` | 手动 / `--compare` |
-| `scripts/plan_e_journal.py` | 方案 E 交易跟踪（journal.csv 实盘 / journal_sim.csv 模拟分离）；2026-10-24 起实盘入口停用，`--mode buy/sell` 仅保留人工记账 | predict + plan_e 信号 | `data/plan_e/journal_*.csv\|md` | `plan-e-journal.timer`（2026-10-24 已 disable） |
+| `scripts/plan_e_journal.py` | 方案 E 交易跟踪（journal.csv 实盘 / journal_sim.csv 模拟分离）；2026-10-24 起实盘入口停用，`--mode buy/sell` 仅保留人工记账 | predict + plan_e 信号 | `data/plan_e/journal_*.csv\|md` | `plan-e-journal.timer`（2026-10-24 晚重开，产出仍是研究口径） |
 | `scripts/train_pnl_huber_*.py` | PnL Huber 回归（33/35 维，Test R² 0.166→0.278）| 行业/市场聚合特征 | PnL 模型（合并 v9 后继）| 手动 |
 
 ### 1.5 评估层（2 个）
@@ -81,8 +81,8 @@
 | `scripts/gen_dashboard.py` | 综合 HTML 仪表盘 | 手动（包含所有数据快照）|
 | `systemd/tdxfeed-sync.timer` | 行情同步（`tdxfeed.full_sync`，每晚 18:00）；失败走 `OnFailure=onfailure-alert@…` 推送 | systemd timer |
 | `systemd/predict-daily.timer` | 方案 D 每日预测（收盘后，含 `precheck_freshness.sh` 数据新鲜度守卫）；对 sync 是 `Requires=`（同步失败则整轮不跑），失败同样推送 | systemd timer |
-| `systemd/plan-e-journal.timer` | 方案 E 每日信号清单归档（18:10，After predict-daily）——**2026-10-24 已 disable**：只出研究口径且不给下单建议，而盘前 timer 停用后晚间那次必然拿不到 entry_date=今天 的清单（守卫丢弃，也不再跑 CLI 兜底）| systemd timer（停用） |
-| `systemd/plan-e-today.timer` | 方案 E 盘前今日清单（08:45 跑 `plan_e_backtest.py --today`）——**2026-10-24 已 disable**，方案 E 退出实盘入口，需要时手动 `make plan-e-today` | systemd timer（停用） |
+| `systemd/plan-e-journal.timer` | 方案 E 每日信号清单归档（18:10，After predict-daily）——**2026-10-24 晚重开**：直接复用 08:45 那份盘前清单归档 `signals_YYYYMMDD.csv`，产出仍是研究口径、不给下单建议；读不到今日清单时不跑 CLI 兜底（晚间用的是收盘数据）| systemd timer |
+| `systemd/plan-e-today.timer` | 方案 E 盘前今日清单（08:45 跑 `plan_e_backtest.py --today`）——**2026-10-24 晚重开**（当天上午曾随「退出实盘入口」一起停用）；退出实盘入口这件事不变，`--mode daily` 依旧不算拆单量 | systemd timer |
 | `systemd/plan-e-monitor.timer` | 方案 E 持仓监控（18:40）——**2026-10-24 已 disable**：实盘账本为空（无 positions.json，journal.csv 只有表头）| systemd timer（停用） |
 | `systemd/plan-e-weekly.timer` | 方案 E 周报汇总（周五 20:00）——**2026-10-24 已 disable**（无实盘流水可汇总）| systemd timer（停用） |
 | `systemd/plan-e-real-refresh.timer` | 方案 E 实盘样本回灌调参（周日 21:00）——**从未启用**，2026-10-24 一并确认停用（输入是同一份空账本）| systemd timer（停用） |
@@ -133,7 +133,7 @@
 ### 2.4 自动化任务（automations）
 
 - **现状**：`.codebuddy/automations/` 下有 4 个目录（`v4` / `v5-daemon` / `v8-retrain-review` / `v9-training-watch`），每个只有 `memory.md`，**没有 `automation.toml`**，因此不会被 CodeBuddy 调度。
-- **真实定时任务全部在 systemd user timer**：在跑的五个是 `tdxfeed-sync` / `predict-daily` / `canary-health` / `trainsh-health` / `tdx-clean-logs`（外加 `obsidian-sync.path`）。方案 E 的五只单元（`plan-e-today` / `plan-e-journal` / `plan-e-monitor` / `plan-e-weekly` / `plan-e-real-refresh`，最后一只从未启用过）文件仍在库里，但 2026-10-24 起全部 disable——方案 E 退出实盘入口，且停用后 `--mode daily` 已不可能拿到 entry_date=今天 的清单。注意 `make timer-enable` 只启用前三个通用 timer 与 obsidian path，`trainsh-health` / `tdx-clean-logs` 靠持久化的 enable 状态活着。
+- **真实定时任务全部在 systemd user timer**：在跑的五个是 `tdxfeed-sync` / `predict-daily` / `canary-health` / `trainsh-health` / `tdx-clean-logs`（外加 `obsidian-sync.path`）。方案 E 的五只单元（`plan-e-today` / `plan-e-journal` / `plan-e-monitor` / `plan-e-weekly` / `plan-e-real-refresh`，最后一只从未启用过）文件都在库里：2026-10-24 上午五只一起 disable，当晚 `plan-e-today` + `plan-e-journal` 重开（自动产出的仍只是研究清单，退出实盘入口的决定不变），monitor / weekly / real-refresh 维持停用——它们的输入是那份空账本。`make timer-enable` 启用三只通用 timer + 这两只 plan-e timer 与 obsidian path，`trainsh-health` / `tdx-clean-logs` 靠持久化的 enable 状态活着。
 - 若未来要恢复 CodeBuddy automation，必须补 `automation.toml` 并在 IDE 中启用；仅 `memory.md` 不构成自动化。
 
 ---
@@ -522,7 +522,7 @@ tdx-data-feed/
 
 ## 7.5 部署形态说明（2026-10-16 审查补正）
 
-- **生产形态 = `venv` 虚拟环境 + 用户级 systemd timer**（唯一实际运行方式）：`tdxfeed-sync` → `predict-daily` 顺序编排（predict 对 sync 是 `Requires=`，同步失败就不出榜），`canary-health` 每 5min 巡检；2026-10-24 起方案 E 那条 `→ plan-e-journal` 的下游链路已整批 disable。同一批（2026-10-24）给 `tdxfeed-sync` / `predict-daily` / `canary-health` 挂了 `OnFailure=onfailure-alert@<单元>.service` → `scripts/onfailure_alert.py`，把「单元挂了」变成微信推送；此前这些失败只落在 `logs/*.err` 里。
+- **生产形态 = `venv` 虚拟环境 + 用户级 systemd timer**（唯一实际运行方式）：`tdxfeed-sync` → `predict-daily` 顺序编排（predict 对 sync 是 `Requires=`，同步失败就不出榜），`canary-health` 每 5min 巡检；方案 E 那条 `→ plan-e-journal` 下游链路 2026-10-24 上午整批 disable、当晚 `plan-e-today` + `plan-e-journal` 重开（只恢复自动算研究清单，不恢复建仓入口）。同一批（2026-10-24）给 `tdxfeed-sync` / `predict-daily` / `canary-health` 挂了 `OnFailure=onfailure-alert@<单元>.service` → `scripts/onfailure_alert.py`，把「单元挂了」变成微信推送；此前这些失败只落在 `logs/*.err` 里。
 - **`docker-compose.yml` 是目标架构（未实际部署）**：仓库里的 compose 栈（Ollama/PostgreSQL/Redis/Prometheus/Grafana + exporters）当前**未启用**；实际跑的监控栈见下条，是宿主机上的系统级 systemd 单元，不是容器。
 - **监控栈已在跑（2026-10-24 实测，推翻 2026-10-16 的「维持未部署」）**：`prometheus` / `alertmanager` / `grafana-server` / `pushplus_bridge` 四个**系统级**单元均 active+enabled，2026-10-22 20:40~20:41 起；Prometheus 5 个抓取目标全 up（`prometheus`/`alertmanager`/`node`/`canary`/`math-sympy-http`），当前 0 条 firing 规则；Grafana 在 :3000。当时「不部署」的理由（GPU 被 Ollama 占满、内存紧）没有复查记录。
 - **告警桥有两个同名东西，别搞混（2026-10-24 核实）**：在用的是系统级 `/etc/systemd/system/pushplus_bridge.service`（以 jiuben 身份跑 `v5/scripts/pushplus_bridge.py`，:5002，`/health` 返回 token 已配置）；2026-10-16 那次「停用」的是仓库里 `systemd/pushplus-bridge.service` 这个 **user 级**单元，至今 disabled——`docs/pushplus_bridge_status_2026-10-16.md` 里「端口 :5002 关闭」只对那次操作负责，现在 :5002 是通的。`onfailure-alert@` 和 Alertmanager 都往这个 :5002 投。
