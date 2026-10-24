@@ -5,10 +5,12 @@ Deflated Sharpe p=1.000、Newey-West p=0.748、bootstrap 均值 p=0.561、胜率
 盈亏平衡（31.2%）单侧 p=0.296。而 `--mode daily` 原来会照着清单逐笔算
 `cash × 10% / 收盘价` 的买入拆单量并打印——等于把一个测不出边际的信号包装成下单指令。
 
-本测试锁三件事：
+本测试锁四件事：
 1. 停用话术必须带着可核验的证据留在脚本里（和 daban 的 `DABAN_LIVE_BLOCK` 同一处理方式）；
 2. daily 模式不再输出拆单/仓位建议，清单本身照旧打印，研究用途不受影响；
-3. 头部文档里"单股仓位 10%"不能再被读成实盘规则。
+3. 头部文档里"单股仓位 10%"不能再被读成实盘规则；
+4. `plan-e-today.timer` 停用后，晚间那次 journal 既不该为重跑一次全量回测买单，
+   更不该把"今天根本没有盘前清单"报成"今日无触发信号"。
 
 测试用 tmp_path 隔离，绝不碰仓库里的真实账本与清单。
 """
@@ -16,8 +18,9 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -98,3 +101,60 @@ def test_header_doc_does_not_present_10pct_as_the_live_rule():
     head = pej.__doc__
     assert "单股仓位：默认 10% (10,000)\n" not in head, "头部文档把模拟口径写成了实盘规则"
     assert "退出实盘入口" in head, "头部文档没记录实盘入口已停用"
+
+
+# ---------- 盘前 timer 停用之后，晚间那条路不能再自作主张 ----------
+
+
+def _today() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def _yesterday() -> str:
+    return (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def _forbid_cli(monkeypatch) -> None:
+    """任何一次 plan_e_backtest --today 调用都算失败（用真实 venv 会写脏仓库里的清单）。"""
+    def boom(*a, **k):
+        raise AssertionError("盘前路径已停用，却又跑了 plan_e_backtest.py --today")
+    monkeypatch.setattr(subprocess, "run", boom)
+
+
+def test_retired_pre_market_path_does_not_rerun_the_cli(monkeypatch, tmp_path):
+    """停用态里 get_daily_signals 只剩"读今天那份"这一个动作，读不到就返回空。
+
+    原来它会自己跑一次 CLI 兜底，而晚间那次跑的是今日收盘数据，产出 entry_date=明天，
+    守卫必然丢弃 —— 每个交易日白付一次全量回测，还顺手把研究产物覆盖成明日榜。
+    """
+    pej, live = _isolate_journal(tmp_path)
+    _write_today_list(live, _yesterday())
+    _forbid_cli(monkeypatch)
+
+    assert pej.get_daily_signals(_today()).empty
+
+
+def test_daily_mode_reports_retired_instead_of_a_false_no_trigger(tmp_path, capsys, monkeypatch):
+    pej, live = _isolate_journal(tmp_path)
+    _write_today_list(live, _yesterday())
+    _forbid_cli(monkeypatch)
+
+    pej.mode_daily(SimpleNamespace(lam=0.05, exec_buckets=6))
+    out = capsys.readouterr().out
+    assert "盘前清单已停用" in out, "没有告知今日根本没有清单"
+    assert "今日无触发信号" not in out, "把「没有清单」报成了「扫过、无触发」"
+
+
+def test_fresh_empty_list_still_reports_no_trigger(tmp_path, capsys, monkeypatch):
+    """今天 08:45 那份空表是真扫过的答案，这句真话不能跟着停用分支一起删掉。"""
+    pe = _load("plan_e_backtest_retire_test", "plan_e_backtest.py")
+    pej, live = _isolate_journal(tmp_path)
+    _forbid_cli(monkeypatch)
+    fp = pe.emit_today_signals(pd.DataFrame(), live.parent)
+    ts = datetime.strptime(f"{_today()} 08:45:00", "%Y-%m-%d %H:%M:%S").timestamp()
+    os.utime(fp, (ts, ts))
+
+    pej.mode_daily(SimpleNamespace(lam=0.05, exec_buckets=6))
+    out = capsys.readouterr().out
+    assert "今日无触发信号" in out
+    assert "盘前清单已停用" not in out

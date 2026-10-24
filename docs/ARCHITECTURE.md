@@ -360,8 +360,11 @@ v2 信号更紧，单笔质量更高；适合**小资金高频次**而非大资�
 | tdxfeed-sync.timer | Mon..Fri 18:00 | 拉行情 |
 | predict-daily.timer | Mon..Fri 18:05 | 方案 D 预测 |
 | plan-e-today.timer | Mon..Fri 08:45 | 盘前「今日开盘入场」清单——**2026-10-24 已 disable**（方案 E 退出实盘入口），需要时手动 `make plan-e-today` |
-| plan-e-journal.timer | Mon..Fri 18:10 | 方案 E 信号 |
-| plan-e-weekly.timer | Fri 20:00 | 方案 E 周报 |
+| plan-e-journal.timer | Mon..Fri 18:10 | 方案 E 每日清单归档——**2026-10-24 已 disable**：盘前清单没有生产者，晚间那次必然算出 entry_date=明天 而被守卫丢弃，`daily_signals/` 从此不会再有输入 |
+| plan-e-monitor.timer | Mon..Fri 18:40 | 方案 E 实盘 PnL/偏差监控——**2026-10-24 已 disable**：实盘账本为空（无 positions.json，journal.csv 只有表头） |
+| plan-e-weekly.timer | Fri 20:00 | 方案 E 周报——**2026-10-24 已 disable**（同上，无实盘流水可汇总） |
+
+四个 plan-e timer 都不在 `make timer-enable` 的启用列表里，`make timer-disable` 仍会扫这四个名字做一键收口；单元文件保留在 `systemd/`。
 
 ### 权衡
 
@@ -560,17 +563,16 @@ http://localhost:11434/api/generate
 ```
 每日 18:00 (systemd) → tdxfeed-sync → 更新 parquet/daily
 每日 18:05 (systemd) → predict-daily → LightGBM 推理 → predict_*.csv/md（daban 榜，不自动建仓）
-每日 18:10 (systemd) → plan-e-journal → 归档当日清单 signals_YYYYMMDD.csv（研究口径，无下单建议）
-每周五 20:00 (systemd) → plan-e-weekly → 周报 week_*.md
-
-—— 下面这条实盘入口 2026-10-24 停用（方案 E 与 daban 同批处置，见 docs/PLAN_E_LIVE.md 顶部）——
-盘前 08:45 (plan-e-today.timer 已 disable) → plan_e_backtest --today → plan_e_today.csv
-                          ↓
-                  用户决策（09:25 集合竞价 / 09:30 开盘）
-                          ↓
-                     人工 buy/sell CLI → journal.csv + positions.json
 
 每 5 分钟 (systemd) → canary-health → canary.log + stderr 异常告警
+
+—— 以下方案 E 的四个 timer 2026-10-24 全部 disable（退出实盘入口，研究产出保留）——
+盘前 08:45 (plan-e-today)  → plan_e_backtest --today → plan_e_today.csv，需要时手动 make plan-e-today
+每日 18:10 (plan-e-journal) → 读盘前那份清单归档 signals_YYYYMMDD.csv；清单没有生产者时不再跑 CLI 兜底，
+                              并如实输出"盘前清单已停用"，不报成"今日无触发信号"
+每日 18:40 (plan-e-monitor) → 实盘 PnL 跟踪；实盘账本为空（无 positions.json，journal.csv 只有表头）
+每周五 20:00 (plan-e-weekly) → 周报 week_*.md
+研究口径随时可跑：make plan-e / make simulate / venv/bin/python scripts/plan_e_journal.py --mode status
 ```
 
 ---

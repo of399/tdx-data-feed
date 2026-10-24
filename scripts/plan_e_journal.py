@@ -4,7 +4,7 @@
 =====================
 
 【功能】
-  1. 每日 18:30 自动跑方案 E 当日信号（plan_e_backtest.py --today）
+  1. 每日打印当日研究清单（读盘前 timer 落下的 plan_e_today.csv；该 timer 已停用，见下）
   2. 维护交易日志（journal.csv）：每笔交易的买卖价、收益、出场原因
   3. 维护持仓状态（positions.json）：当前持仓 + 监控价格
   4. 每日盈亏统计 + 周报
@@ -25,7 +25,7 @@
   └── pnl_summary.csv             # 累计 P&L
 
 【运行模式】
-  --mode daily           # 每日跑（生成信号 + 更新持仓）
+  --mode daily           # 打印停用声明 + 当前持仓 + 今日研究清单（不产下单量、不改持仓）
   --mode weekly          # 周报生成
   --mode status          # 查看当前状态（持仓 + 累计 P&L）
   --mode buy --code 600519 --price 10.5  # 手动买入（实盘用）
@@ -78,6 +78,11 @@
   的 112 笔样本拒绝不了「无超额收益」(DSR/ Newey-West / bootstrap / 胜率对盈亏平衡四个检验
   全部 p≥0.05)，且样本产量约 16~17 笔/年，靠实盘积累永远补不够功效。`--mode daily` 只出
   研究清单，不再逐笔算下单量；理由与数字见 PLAN_E_LIVE_RETIREMENT。
+  同日 08:45 的 plan-e-today.timer 已 disable，随后 plan-e-journal / plan-e-monitor /
+  plan-e-weekly 三个 timer 也一并 disable：实盘账本为空（无 positions.json，journal.csv 只有
+  表头），而晚间那次 daily 已不可能拿到 entry_date=今天 的清单。停用态下 get_daily_signals
+  不再自己跑 CLI 兜底（PLAN_E_PREMARKET_LIST_ACTIVE=False），并把"没有清单"如实说成
+  "没有清单"，不报成"今日无触发信号"。要清单请手动跑 plan_e_backtest.py --today。
 """
 
 import argparse
@@ -244,6 +249,12 @@ def append_sim_journal(records: list):
 
 # ============== 当日信号 ==============
 
+# 2026-10-24 停用 plan-e-today.timer 后，盘前清单不再有自动生产者。这个开关决定
+# get_daily_signals 还能不能自己跑 CLI 兜底：晚间那次跑的是今日收盘数据，算出来必然是
+# entry_date=明天 的榜单（守卫一定丢弃），既白付一次全量回测，又把研究产物覆盖成明日榜。
+PLAN_E_PREMARKET_LIST_ACTIVE = False
+
+
 def _read_today_list(today: str) -> pd.DataFrame | None:
     """读盘前清单；不是今天写的、或 entry_date 不是今天的，一律返回 None。"""
     fp = LIVE_DIR.parent / 'plan_e_today.csv'
@@ -263,16 +274,22 @@ def _read_today_list(today: str) -> pd.DataFrame | None:
 
 
 def get_daily_signals(today: str | None = None) -> pd.DataFrame:
-    """取「今日开盘入场」清单：优先用盘前 timer 写好的那份，缺了才自己跑 CLI。
+    """取「今日开盘入场」清单：只认盘前 timer 写好的那份。
 
     盘前 plan-e-today.service 用截至昨日的行情算出 entry_date=今天 的榜单；晚间再跑一次
     CLI 用的是今日收盘后的数据，算出来的是明天的入场清单，会把今日那份覆盖掉。
     两道闸：清单必须是今天写的且 entry_date 就是今天；子进程非零退出时不读磁盘残留。
+    盘前路径停用后（PLAN_E_PREMARKET_LIST_ACTIVE=False）不再有 CLI 兜底，读不到就是没有，
+    并且要如实说"没有清单"，不能报成"扫过、无触发"。
     """
     import subprocess
     today = today or datetime.now().strftime('%Y-%m-%d')
     sig = _read_today_list(today)
     if sig is None:
+        if not PLAN_E_PREMARKET_LIST_ACTIVE:
+            print("\n  盘前清单已停用（plan-e-today.timer 2026-10-24 disable）："
+                  "本模式不再产出入场清单，这里也没有可看的榜单。")
+            return pd.DataFrame()
         result = subprocess.run(
             ['venv/bin/python', 'scripts/plan_e_backtest.py', '--today'],
             cwd=ROOT, capture_output=True, text=True, timeout=300
@@ -283,7 +300,10 @@ def get_daily_signals(today: str | None = None) -> pd.DataFrame:
                   f"不读清单：{(result.stderr or '').strip()[:200]}")
             return pd.DataFrame()
         sig = _read_today_list(today)
-    if sig is None or sig.empty:
+        if sig is None or sig.empty:
+            return pd.DataFrame()
+    elif sig.empty:
+        print("\n  今日无触发信号")
         return pd.DataFrame()
     archive = SIGNALS_DIR / f'signals_{today.replace("-", "")}.csv'
     sig.to_csv(archive, index=False, encoding='utf-8-sig')
@@ -562,13 +582,11 @@ def mode_daily(args):
     print(f"\n  当前持仓: {len(pos['positions'])} 只")
     print(f"  可用现金: {pos['cash']:,.0f}")
 
-    # 生成信号
+    # 取盘前那份清单；"没有清单"和"扫过无触发"两类否定话术由 get_daily_signals 自己分辨着说
     sig = get_daily_signals(today)
     if not sig.empty:
         print(f"\n  今日触发信号（研究口径，不含入场建议）: {len(sig)} 只")
         print(sig[['code', 'signal_date', 't1_pct', 't1_vol_ratio']].to_string(index=False))
-    else:
-        print("\n  今日无触发信号")
 
 
 def mode_status():

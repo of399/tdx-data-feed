@@ -81,6 +81,17 @@ def _rc_ok(monkeypatch, stdout: str = "今日开盘入场: 0 只"):
                         lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout, ""))
 
 
+def _journal_with_cli_fallback(tmp_path):
+    """盘前 timer 在位时的 journal：读不到今日清单才允许自己跑 CLI。
+
+    2026-10-24 停用 plan-e-today.timer 后默认不再兜底（PLAN_E_PREMARKET_LIST_ACTIVE=False），
+    所以下面这几条要显式回到"timer 在位"那个口径。停用态由 tests/test_plan_e_live_retirement.py 锁。
+    """
+    pej, live = _isolate_journal(tmp_path)
+    pej.PLAN_E_PREMARKET_LIST_ACTIVE = True
+    return pej, live
+
+
 # ---------- 洞 1：无触发也要把清单落成空，不许留旧文件 ----------
 
 def test_emit_today_signals_writes_even_when_empty(tmp_path):
@@ -111,7 +122,7 @@ def test_main_uses_the_single_emit_seam():
 
 def test_daily_signals_rejects_yesterday_list(monkeypatch, tmp_path):
     """清单既不是今天写的、entry_date 也不是今天 ⇒ 一个字都不吃。"""
-    pej, live = _isolate_journal(tmp_path)
+    pej, live = _journal_with_cli_fallback(tmp_path)
     _write_list(live, _sig_frame("2026-10-23"), generated_on="2026-10-23")
     _rc_ok(monkeypatch)
 
@@ -122,7 +133,7 @@ def test_daily_signals_rejects_yesterday_list(monkeypatch, tmp_path):
 
 def test_daily_signals_rejects_failed_subprocess(monkeypatch, tmp_path):
     """子进程非零退出时，磁盘上残留的旧清单绝不能被读成今日信号。"""
-    pej, live = _isolate_journal(tmp_path)
+    pej, live = _journal_with_cli_fallback(tmp_path)
     _write_list(live, _sig_frame("2026-10-23"), generated_on="2026-10-23")
     monkeypatch.setattr(subprocess, "run",
                         lambda *a, **k: subprocess.CompletedProcess(
@@ -164,7 +175,7 @@ def test_daily_signals_trusts_fresh_empty_list(monkeypatch, tmp_path):
 
 def test_daily_signals_regenerates_stale_empty_list(monkeypatch, tmp_path):
     """上一日留下的空表不能顶替今天：必须重跑 CLI。"""
-    pej, live = _isolate_journal(tmp_path)
+    pej, live = _journal_with_cli_fallback(tmp_path)
     pe = _load("plan_e_backtest_under_test", "plan_e_backtest.py")
     out = pe.emit_today_signals(pd.DataFrame(), live.parent)
     _stamp(out, "2026-10-23")
