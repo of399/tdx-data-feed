@@ -31,14 +31,14 @@
 
 ## 模型与蒸馏
 
-- 教师 tag 必须是 `make deploy-list` 当前输出里真实存在的项，并用 `TDX_DISTILL_MODEL` 显式传入；守卫 `tests/test_distill_teacher_model.py`。历史教训：写死过的 `tdx-lora:latest` 在本仓库没有任何生产者（无 Modelfile、无 create 步骤），本机也早已不存在。
-- 蒸馏失败是静默的：`scripts/distill_outputs.py` 的 `call()` 重试三次后返回空串并照样退出 0。长跑前先用小批量 `LIMIT` 出一批，确认 output 非空再放开。
-- `make distill` 是**追加**续跑（按已写行数跳过），skeleton 变更后要把输出指到新文件，否则两套口径混进同一个语料。
+- 源码里出现的教师 tag 一律不可信，包括写死的默认值：`tdx-lora:latest` 在本仓库没有任何生产者（无 Modelfile、无 create 步骤），本机也早已不存在。跑之前用 `ollama list` 或 `make deploy-list` 挑一个真实存在的 tag，并先确认当前这份脚本从哪儿读它——显式传环境变量的入口是后加的，旧版本会无视它继续用写死的 tag。
+- 蒸馏「跑成功」不等于答案非空：`main()` 自己不做非空校验，它只把 `call()` 交回来的东西写进行并打 `DISTILL_DONE`——所以整片空语料的形状是「退出码 0 + 行数对得上」。这条静默与否取决于 `call()` 的实现、会随版本漂，口径因此固定：**长跑前先用小批量 `LIMIT` 出一批，人工确认 output 非空再放开**。
+- `scripts/distill_outputs.py` 的输出是**追加**续跑（按已写行数跳过），skeleton 变更后要把输出指到新文件，否则两套口径混进同一个语料。
 
 ## 历史产物不是现状
 
 - `_archive/`、`data/`、`logs/`、`models/`、`downloads/` 不用于推断架构；`docs/` 下带日期的 `CODE_AUDIT_*`、`COMPARE_*`、`*_RESEARCH_*` 是一次性研究快照，写作历史结论而非现状规格。
-- 根 `skills/*.yaml` 是给 LLM 工具调用用的技能声明，与 `.qoder/skills/`（Qoder Skill）无关；`.qoder/repowiki/wiki_plan.yaml` 只影响知识生成，不是运行配置。
+- 根 `skills/*.yaml` 是给 LLM 工具调用用的技能声明，与 Qoder 客户端自己加载的 Skill 目录（`.qoder/skills/`，不入库）无关；`.qoder/repowiki/wiki_plan.yaml` 只影响知识生成，不是运行配置。
 
 ## 风险边界（动手前读）
 
