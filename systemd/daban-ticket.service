@@ -1,0 +1,21 @@
+[Unit]
+Description=daban 试验仓盘中轮询（产人工委托单文本，本单元不下单）
+Documentation=file:///home/jiuben/tdx-data-feed/docs/superpowers/specs/2026-10-25-daban-daily-ticket-design.md
+OnFailure=onfailure-alert@daban-ticket.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/daban_entry.py
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/daban_ticket.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/daban_ticket.err
+# 一轮 = 候选池扫描 + 80 只/批 × 8 线程抓行情；给足冷启动余量，但不许拖到下一轮重叠——
+# 两个进程同时改同一份 ticket_YYYYMMDD.json 会打穿「首触发生效」的去重。
+TimeoutStartSec=180
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=timers.target

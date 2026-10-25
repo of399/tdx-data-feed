@@ -1,0 +1,16 @@
+[Unit]
+Description=daban 试验仓：工作日盘中每 5 分钟产一份人工委托单
+
+[Timer]
+# 分钟级区间在 systemd.time 里不可解析（`09:25..11:25/5:00` → 无效的参数），所以只能粗放到
+# 小时：09/10/11 + 13/14 两段小时、每 5 分钟一跳 = 60 次触发，落在连续竞价窗内的约 48 次，
+# 其余由 daban_entry.py 里的 current_session() 精门丢弃。
+OnCalendar=Mon..Fri *-*-* 09..11,13..14:00/5
+AccuracySec=60s
+Unit=daban-ticket.service
+# 有意不写 Persistent=true（与 plan-e-double-up 相反）：那边是全量重算、幂等，错过一天补跑
+# 是对的；这边补跑会拿旧行情出今天的票，属于有害补跑。
+# 停止线靠 data/daban/tickets/STOP 这个 marker 生效，不靠本 timer——禁用 timer 只是运维收口。
+
+[Install]
+WantedBy=timers.target

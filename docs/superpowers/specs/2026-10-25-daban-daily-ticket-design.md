@@ -27,6 +27,14 @@
 - 成交逆向选择已被量化（`docs/DABAN_EXEC_RESEARCH_20261022.md`）：**未成交**的那批封板率 95.4%，**成交到**的那批只有 39.7%。含义是「委托单发出 ≠ 买到」，而且买到的恰好是更容易输的那批。停止线的统计口径必须按这个事实设计，见 §7。
 - 现有守卫不能被本设计弄红：`tests/test_plan_e_journal_daban_entry.py`、`tests/test_predict_report_daban_caveat.py`、`tests/test_plan_e_live_retirement.py`、`tests/test_systemd_units.py`（`Documentation=` 每个空白分隔的 token 必须是 `http:// https:// file:// man: html:` 之一，且 `file://` 指向的库内路径必须存在）。
 
+2026-10-25 落地时的复测（这些直接改了上面/下面的措辞，不是补充说明）：
+
+- **横幅引用的三份 `docs/DABAN_*_20261022.md` 已入库**（commit `bac0544`）。`docs/` 下另有 7 份同日研究快照仍未入库，本设计不引用它们。原写「五份全部未入库」是定稿时的状态。
+- **`Scanner._trade_date()` 返回 `2026-10-26`（带横杠）**，只有行情缺日期时才回退 `%Y%m%d`（`tdxfeed/daban/scanner.py:735` 读 `Quote.date`）。交易日门与日文件键都必须先归一化成紧凑形——否则「行情日期不等于今天」永远成立，一张票都出不来。守卫 `tests/test_daban_entry_session_gate.py::test_dash_form_quote_date_lands_on_the_compact_day_file`。
+- **`Candidate.sector_name` 在真实扫描里就是行业代码**（`Scanner.sector_names` 是空 dict；实测 301502→630101、603448→280203、002979→640701）。表头必须写「板块代码」。可读的同概念信息在 `concept_name`（实测三只同为「智能穿戴」），那是 `OrderIntent` 之外的字段，本设计不带出——但它意味着**同日的几笔可能是同一注**，见 §11。
+- **一轮真盘彩排 3.5s 跑完**（`scripts/daban_entry.py --root /tmp/... --at 2026-10-23T10:00`，universe 5020 只、`bj` 0 只）：抓行情 63 批 / 8 线程实测 <1s，`TimeoutStartSec=180` 有余量。
+- **`OnFailure=` 只在 `[Unit]` 生效**。隔壁 `plan-e-double-up.service` 把它写在 `[Service]` 里，`systemd-analyze verify` 报 `Unknown key ... ignoring`——那只 timer 的失败告警从来没发过（本设计顺带改正，守卫 `tests/test_systemd_units.py::test_on_failure_is_declared_in_the_unit_section`）。
+
 ## 3. 参数（用户已定）与算术自洽检查
 
 本金 **20 万**，试验仓 **总仓 10% / 单票 5%**：
@@ -42,9 +50,9 @@
 
 由此得出两条**设计后果**，不是 bug：
 
-1. **单日最多 2 只**。`total_cap=2万 / single_cap=1万` ⇒ 打满即 `used >= total_cap` 停。⇒ n=30 的统计判停最快 15 个交易日，约 3 周。这是 daban 与方案 E 的关键差别（方案 E 的样本产量 17 笔/年 ⇒ 需 70~120 年，所以「用实盘验证」对它不可行；这条线在 3~6 周内真能攒到 n=30）。
+1. **单日笔数由金额决定，不是 2 只**（2026-10-25 实测更正）。初稿按「每笔顶满 1 万」推成 ≤2 只；实际单笔金额 = 涨停价 × 1 手，落在 `[MIN_ORDER_AMOUNT, SINGLE_CAP]` 内时一天能塞进更多笔。2026-10-23 那一轮真盘彩排（`--at` 指到最后一个交易日）出的是 **3 笔：6480 / 5624 / 5415 元，合计 17519/20000**，剩余 2481 元低于最小委托额后自动收口。理论上界 `floor(20000/5000) = 4` 笔。⇒ n=30 最快 8~10 个交易日（约 2 周），不是 15 日。这是 daban 与方案 E 的关键差别（方案 E 的样本产量 17 笔/年 ⇒ 需 70~120 年，所以「用实盘验证」对它不可行；这条线在 2~6 周内真能攒到 n=30）。
 2. **约 100 元以上的票自动出不了**。`shares = int(budget // price // lot) * lot`，`budget=10000`、`price=101` ⇒ 0 手 ⇒ 该票被静默跳过。横幅里写一句「本试验仓只覆盖单手金额 ≤ 额度的高价股以外的票」。
-3. **北交所（bj）不进试验仓**。`build_intents` 只有一个全局 `lot=100`，没有按板块区分申报单位；本设计不改 `order.py`（非目标），所以只对「100 股整手」这个前提成立的板块出票。这是「不确定就不下」，不是对北交所申报规则的断言。
+3. **北交所（bj）不进试验仓**。`build_intents` 只有一个全局 `lot=100`，没有按板块区分申报单位；本设计不改 `order.py`（非目标），所以只对「100 股整手」这个前提成立的板块出票。这是「不确定就不下」，不是对北交所申报规则的断言。实测当前 universe 只有 `sh`/`sz` 共 5020 只、`bj` 0 只（2026-10-25），所以这道门现在是**防 universe 扩容的前置门**，不是在过滤现存标的。
 4. `allow_st=False`（`Scanner` 默认）沿用：主板 ST/*ST 在 2026-07-06 并轨前是 ±5%，而本仓库还没有历史 ST 名称表可判（`get_limit` 的 name/on_date 已修，但训练标签那条线未解），试验仓不去踩这个不确定。
 
 ## 4. 架构：三个新单元 + 两只 timer
@@ -175,7 +183,7 @@ Unit=daban-ticket.service
 
 统计只用**已平仓** pair（`closed=1`）的 `net_pct`，未成交笔只进成交率。五条，任一命中即写 marker：
 
-1. **样本量到即停**：`n ≥ 30` ⇒ 停，出报告。（最快 15 个交易日；这是「试验仓」的期限本身）
+1. **样本量到即停**：`n ≥ 30` ⇒ 停，出报告。（按 §3 第 1 条的实测形状：单笔金额决定日笔数，2026-10-23 那轮 3 笔 ⇒ 最快 10 个交易日，上界 8 日；这是「试验仓」的期限本身）
 2. **前 10 笔不判均值**：`n < 10` 时继续（早期噪声不构成停或续的依据，也不许反过来说「暂时是正的」）。
 3. **负期望确认**：`n ≥ 10` 且已平仓净均值 `< −0.20%/笔` ⇒ 停。阈值沿用 `DABAN_PAPER_TRADE_RULES_20261022.md` 里那条 +0.20% 停止线的量级，方向改负。
 4. **真金止损**：累计已实现净亏 ≥ `TOTAL_CAP` 的 20%（= 4000 元）⇒ 停。这条不等统计量，亏钱先看住。
@@ -192,16 +200,17 @@ marker 是**唯一权威**：删掉它才会恢复出票，`systemctl --user dis
 | `tests/test_daban_trial_idempotence.py` | 同交易日同 code 二次 upsert 被丢弃、首次触发保留；换交易日重新计 |
 | `tests/test_daban_entry_session_gate.py` | 注入 `auction/lunch_break/closed` 时刻 → 不调用行情层（用 `fetch_quote_map` 的调用计数器证明它一次都没跑）；`continuous` → 跑 |
 | `tests/test_daban_ticket_banner.py` | 横幅含 −0.78 与 39.7；正则抓出所有 `docs/*.md`，逐个断言 `exists()` **且** `git ls-files --error-unmatch` 不报错（抓「只在工作树里存在」这一类） |
-| `tests/test_daban_fill_net.py` | 净额 = 毛额 − 真实回单费用；缺费用 → 该笔被排除且 `--report` 报出被排除笔数；`filled=0` 参与成交率、不参与均值 |
+| `tests/test_daban_trial_budget.py`（追加）+ `tests/test_daban_trial_idempotence.py`（追加） | 落地时补的两条：单笔金额决定日笔数（实测 3 笔，上界 `floor(TOTAL_CAP/MIN_ORDER_AMOUNT)`）；真实 `sector` 是行业代码，表头必须写「板块代码」 |
+| `tests/test_daban_fill_ledger_net.py` | 净额 = 毛额 − 真实回单费用；缺费用 → 该笔被排除且 `--report` 报出被排除笔数；`filled=0` 参与成交率、不参与均值 |
 | `tests/test_daban_stop_lines.py` | 五条各一正一反：`n=29` 不停 / `n=30` 停；`n=9` 均值为负不停 / `n=10` 停；回撤 3900 不停 / 4100 停；成交率 69% 不停 / 70% 停 |
 | `tests/test_daban_channel_isolated.py` | 跑一轮 `daban_entry` 的桩执行后，`journal.csv` 与 `positions.json` 仍未被创建（把「不进 plan_e 实盘账本」钉住） |
-| `tests/test_daban_ticket_timer_shape.py` | `OnCalendar` 字符串形态、**无** `Persistent=true`、`Documentation=` 是 URL；`Makefile` 的 `timer-enable`/`timer-disable`/`timer-status` 三个列表都含 `daban-ticket` |
+| `tests/test_daban_ticket_timer_shape.py` | `OnCalendar` 字符串形态、**无** `Persistent=true`、`Documentation=` 是 URL；`Makefile` 的 `timer-enable`/`timer-disable`/`timer-status`/`status` 四处名单都含 `daban-ticket`（`status` 那行是同一类 grep 名单，出事时人读的就是这页）|
 
 行情层与 `order.py` 的既有测试不复写。全量验证口径：`venv/bin/pytest tests/ -q`（主集）+ `make test`（v5，本设计不该碰它）+ `make lint`（v5）。因为守卫里 shell out 了 git，入库后的复验用 `git worktree add --detach` 的干净 checkout，不用 `git archive | tar -x`（没有 `.git` 时 `git ls-files` rc=128，会把守卫测成假红）。
 
 ## 9. 非目标
 
-不接券商 API / 不自动下单 / 不启用 `risk_gateway.py`（不在 HEAD）/ 不动 `daban_scan.py`、`order.py`、`scanner.py`、`plan_e_journal.py` 一行 / 不把委托单接回 predict 榜单或 journal 的 real 通道 / 不做手机推送（`pushplus-bridge` 不参与）/ 不修复历史 ST 名称表这条线 / 不改回测口径与四条显著性约定。
+不接券商 API / 不自动下单 / 不启用 `risk_gateway.py`（不在 HEAD）/ 不动 `daban_scan.py`、`order.py`、`scanner.py`、`plan_e_journal.py` 一行 / 不把委托单接回 predict 榜单或 journal 的 real 通道 / 不做手机推送（`pushplus-bridge` 不参与）/ 不修复历史 ST 名称表这条线 / **不按板块或概念做同日限注**（那是改出票口径，要先另立设计，见 §11）/ 不改回测口径与四条显著性约定。
 
 ## 10. 落地与回滚
 
@@ -221,8 +230,9 @@ marker 是**唯一权威**：删掉它才会恢复出票，`systemctl --user dis
 
 ## 11. 已知风险（写清楚，不粉饰）
 
-- 这条线的**先验是负的**。两份独立研究 + 一份执行研究都说同一件事：按诚实成交口径 daban 排序没有正期望。本试验仓的意义是「用 ≤2 万、3~6 周、带自动停止线的方式，在**当前**市场上重新量一次」，不是「这次一定能赚」。若 −0.20%/笔 的判定成立，它会在 n=10 就关掉开关。
+- 这条线的**先验是负的**。两份独立研究 + 一份执行研究都说同一件事：按诚实成交口径 daban 排序没有正期望。本试验仓的意义是「用 ≤2 万、2~6 周、带自动停止线的方式，在**当前**市场上重新量一次」，不是「这次一定能赚」。若 −0.20%/笔 的判定成立，它会在 n=10 就关掉开关。
 - 委托单不等于成交，样本天然是「成交到的那批」（封板率 39.7% vs 未成交 95.4%）。`--no-fill` 强制回填是唯一把这一半补回来的办法；人不回填，统计就不可信——`--report` 会显式报未回填笔数。
 - 行情是新浪 L1（`1ae2a78` 才改正 34 段口径：段 8/9 = 成交量/成交额、档位顺序「量,价」、seal = 买一量）。修正前采集的封单/撤单数字与本试验无关，但同源数据的可靠性只有 L1 级。
 - 统计功效有限：n=30 在 σ≈20%/笔 的量级下，判不出 ±0.2% 的差别。所以停止线写成「均值 < −0.20% 即停」而不是「证明它显著为负才停」——它是**止损**，不是**检验**。
+- **同日的几笔可能是同一注**（2026-10-25 彩排实测）。2026-10-23 那轮的 3 笔 `concept_name` 全是「智能穿戴」：单票 5% / 总仓 10% 只切开了资金，没切开概念暴露——真按这单子执行，2 万是押在同一个题材上的一注，不是三注。`§9` 把「按板块/概念再做一层分散」列为非目标（要改 `Scanner`/`order.py` 之外的口径就得重训），所以现在只能靠人在抄单前自己看一眼同不同概念；带概念的自动限注需要先补设计，再拍一次。
 - 共享工作树风险：`timer-enable` 名单、`data/daban/` 目录、横幅引用的文档都可能被并行会话改动；每步提交前 `git status` 复核，`git add` 永远带显式路径。

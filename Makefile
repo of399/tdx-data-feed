@@ -387,12 +387,16 @@ timer-install:  ## 安装 systemd timer/path（复制到 user systemd，凡改 s
 # 不重建候选池就等于新触发日永远进不了清单）。自动产出的仍是研究口径，
 # `--mode daily` 依旧不逐笔算下单量。plan-e-monitor / plan-e-weekly / plan-e-real-refresh
 # 维持停用：实盘账本恒空（无 positions.json，journal.csv 只有表头），而 real-refresh 是每周一次的重算。
-# 单元文件都在 systemd/，timer-disable 扫全部六个名字以保证一键收口。
+# 单元文件都在 systemd/，timer-disable 扫全部 timer 名字以保证一键收口（名单会随提交变，别按只数判断）。
+# daban-ticket（2026-10-25 试验仓）也在三个名单里：它是盘中每 5 分钟出人工委托单的 timer，
+# 名单里没有它，`make timer-disable` 就停不掉它、`make timer-status` 也看不见它。
+# 注意 `make timer-enable` 因此会一并打开试验仓产出（设计 §10 第 4 步本来就该由人显式 enable）；
+# 它只产文本不下单，真停靠 data/daban/tickets/STOP marker。
 timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@echo "$(CYAN)▶ 重载 systemd$(NC)"
 	systemctl --user daemon-reload
 	@echo "$(CYAN)▶ 启用 timer$(NC)"
-	@for t in tdxfeed-sync predict-daily plan-e-today plan-e-journal plan-e-double-up canary-health; do \
+	@for t in tdxfeed-sync predict-daily plan-e-today plan-e-journal plan-e-double-up canary-health daban-ticket; do \
 		systemctl --user enable $$t.timer 2>&1 | head -1; \
 		systemctl --user start $$t.timer; \
 	done
@@ -404,7 +408,7 @@ timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@$(MAKE) timer-status
 
 timer-disable:  ## 禁用所有 timer 与 path 单元
-	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-today plan-e-double-up plan-e-monitor plan-e-weekly plan-e-real-refresh canary-health; do \
+	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-today plan-e-double-up plan-e-monitor plan-e-weekly plan-e-real-refresh canary-health daban-ticket; do \
 		systemctl --user disable $$t.timer; \
 		systemctl --user stop $$t.timer 2>/dev/null || true; \
 	done
@@ -414,7 +418,7 @@ timer-disable:  ## 禁用所有 timer 与 path 单元
 
 timer-status:  ## 查看所有 timer/path 状态
 	@echo "$(CYAN)$(BOLD)=== tdx-data-feed Timers ===$(NC)"
-	systemctl --user list-timers --all | grep -E "tdxfeed|predict-daily|plan-e|canary" || echo "  (无 timer 运行)"
+	systemctl --user list-timers --all | grep -E "tdxfeed|predict-daily|plan-e|canary|daban-ticket" || echo "  (无 timer 运行)"
 	@echo "$(CYAN)$(BOLD)--- path 单元 ---$(NC)"
 	systemctl --user list-units --all --type=path | grep -E "tdxfeed|obsidian|plan-e" || echo "  (无 path 运行)"
 
@@ -450,7 +454,7 @@ status:  ## 系统全状态（数据/模型/timer/canary）
 	@$(OLLAMA) list 2>/dev/null | grep tdx | awk '{printf "  %-30s %s\n", $$1, $$3}'
 	@echo ""
 	@echo "$(YELLOW)$(BOLD)⏰ Timer:$(NC)"
-	@systemctl --user list-timers --all 2>/dev/null | grep -E "tdxfeed|predict-daily|plan-e|canary|obsidian" | awk '{printf "  %-30s %s %s\n", $$NF, $$1, $$2}'
+	@systemctl --user list-timers --all 2>/dev/null | grep -E "tdxfeed|predict-daily|plan-e|canary|obsidian|daban-ticket" | awk '{printf "  %-30s %s %s\n", $$NF, $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)$(BOLD)🏥 Canary:$(NC)"
 	@tail -1 $(LOGS)/canary.log 2>/dev/null || echo "  (无 canary 日志)"
