@@ -6,8 +6,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import pandas as pd
+import pytest
 
-from tdxfeed.features_5d import LIMIT_MAP, compute_window_features, get_limit
+from tdxfeed.features_5d import (
+    LIMIT_MAP,
+    MAIN_ST_RULE_CHANGE_DATE,
+    compute_window_features,
+    get_limit,
+)
 
 
 def _make_window(n: int = 10, start_close: float = 10.0, trend: float = 0.05) -> pd.DataFrame:
@@ -32,6 +38,52 @@ def test_get_limit_basic():
     assert get_limit("920001") == LIMIT_MAP["bse"]
     assert get_limit("sz300750") == LIMIT_MAP["gem"]
     assert get_limit("sh688000") == LIMIT_MAP["gem"]
+
+
+def test_get_limit_main_st_before_rule_change_uses_five_percent():
+    """主板 ST/*ST 在 2026-07-06 并轨前是 ±5%，判定阈值须随之降档。"""
+    assert get_limit("600001", name="ST康达", on_date="2026-07-03") == pytest.approx(0.045)
+    assert get_limit("sz000001", name="*ST新城", on_date="20200102") == pytest.approx(0.045)
+
+
+def test_get_limit_main_st_on_and_after_rule_change_uses_ten_percent():
+    """生效日**含当日**起与主板普通票并轨，不再单列一档。"""
+    assert get_limit("600001", name="ST康达", on_date=MAIN_ST_RULE_CHANGE_DATE) == pytest.approx(0.095)
+    assert get_limit("600001", name="ST康达", on_date="2026-08-01") == pytest.approx(0.095)
+
+
+def test_get_limit_st_flag_does_not_change_gem_or_bse():
+    """创业板/科创板 ST 维持 20%，北交所 ST 维持 30%，全程与日期无关。"""
+    for on_date in ("2020-01-02", "2026-07-05", "2026-07-06", "2026-10-01"):
+        assert get_limit("sz300750", name="ST宁德", on_date=on_date) == pytest.approx(0.195)
+        assert get_limit("sh688000", name="*ST科创", on_date=on_date) == pytest.approx(0.195)
+        assert get_limit("bj920001", name="ST北晶", on_date=on_date) == pytest.approx(0.295)
+
+
+def test_get_limit_without_name_or_date_keeps_legacy_values():
+    """不传 name/on_date 必须逐值等于旧行为：既有调用点与历史模型输入不受影响。"""
+    for code, expected in (
+        ("600000", LIMIT_MAP["main"]),
+        ("sz000001", LIMIT_MAP["main"]),
+        ("300750", LIMIT_MAP["gem"]),
+        ("688000", LIMIT_MAP["gem"]),
+        ("bj920001", LIMIT_MAP["bse"]),
+    ):
+        assert get_limit(code) == expected
+        assert get_limit(code, on_date="2021-06-01") == expected
+        assert get_limit(code, name="ST无关") == expected
+
+
+def test_get_limit_threshold_equals_ratio_minus_buffer():
+    """四档阈值恒 = 交易所真实比例 − 0.5% 缓冲：比例独立重述一遍，改动须两处同时。"""
+    for code, name, on_date, ratio in (
+        ("600000", "", "2021-06-01", 0.10),
+        ("600001", "ST康达", "2026-07-03", 0.05),
+        ("600001", "ST康达", MAIN_ST_RULE_CHANGE_DATE, 0.10),
+        ("sz300750", "ST宁德", "2021-06-01", 0.20),
+        ("bj920001", "ST北晶", "2026-07-03", 0.30),
+    ):
+        assert get_limit(code, name=name, on_date=on_date) == pytest.approx(ratio - 0.005)
 
 
 def test_compute_returns_18_dims():
