@@ -102,20 +102,34 @@ def test_service_alerts_and_logs_like_the_neighbours():
 
 
 def test_documentation_points_at_the_committed_spec():
+    """`Documentation=` 指向的设计文档必须**已入库**，而且路径要能自己定位仓库。
+
+    systemd 要求这里是绝对路径（邻居单元都写死 `/home/jiuben/tdx-data-feed/...`），所以不能拿
+    `ROOT` 去相对化：2026-10-25 在 `git worktree add --detach` 的干净 checkout 里复验时，
+    ROOT 变成 /tmp/... 而 token 仍是绝对路径，`git ls-files` 报 rc=128「outside repository」——
+    那是守卫的位置假设错了，不是单元错了。仓库根交给 git 自己回答。
+
+    未入库的文档在干净 checkout 里必然不存在，这正是横幅守卫那天踩过的坑，所以要连
+    `ls-files` 一起查，不能只查 `exists()`。
+    """
     service = _ini(SERVICE.read_text(encoding="utf-8"))
     tokens = service["Unit"]["Documentation"].split()
     assert len(tokens) == 1, f"Documentation 按空白切段，多写就整段被丢：{tokens}"
     token = tokens[0]
     assert token.startswith("file://"), token
-    rel = token[len("file://"):].removeprefix(str(ROOT) + "/")
-    target = ROOT / rel
-    assert target.exists(), f"指向不存在的文档 {rel}"
-    # 未入库的文档在干净 checkout 里必然不存在——这条正是 2026-10-25 横幅守卫踩过的坑。
-    rc = subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", rel],
-        capture_output=True,
+
+    target = Path(token[len("file://"):]).resolve()
+    assert target.exists(), f"指向不存在的文档 {target}"
+
+    top = subprocess.run(
+        ["git", "-C", str(target.parent), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True,
     )
-    assert rc.returncode == 0, f"{rel} 未入库，干净 checkout 里这个出处会消失"
+    assert top.returncode == 0, f"{target} 不在任何 git 仓库里，出处无法核验"
+    repo = Path(top.stdout.strip())
+    rel = target.relative_to(repo)
+    rc = subprocess.run(["git", "-C", str(repo), "ls-files", "--error-unmatch", str(rel)], capture_output=True)
+    assert rc.returncode == 0, f"{rel} 未入库（在 {repo}），干净 checkout 里这个出处会消失"
 
 
 def _make_target_block(name: str) -> str:
