@@ -1,6 +1,6 @@
-"""单元文件里的 `Documentation=` 必须是 URL（2026-10-24 校准）。
+"""单元文件里「自称生效、实际被 systemd 丢掉」的写法（2026-10-24/25 两轮校准）。
 
-systemd 按空白切分 `Documentation=`，逐段要求 `scheme://...`；写不进这个形状的就整段丢掉。
+`Documentation=` 必须是 URL：systemd 按空白切分它，逐段要求 `scheme://...`，写不进这个形状的整段丢掉。
 `systemd-analyze --user verify` 对本仓库报了三处，等于这些单元自称的出处从来没人看见过：
 
   systemd/plan-e-monitor.service:3: Invalid URL, ignoring: scripts/monitor_plan_e_live.py
@@ -45,3 +45,23 @@ def test_documentation_targets_exist_in_repo():
         rel = token[len("file://"):].removeprefix(str(ROOT) + "/")
         target = ROOT / rel
         assert target.exists(), f"{fp.name} 指向不存在的文档 {rel}"
+
+
+def test_on_failure_is_declared_in_the_unit_section():
+    """`OnFailure=` 只在 `[Unit]` 生效；写进 `[Service]` 会被 systemd 静默忽略。
+
+    `systemd-analyze --user verify` 就是这么报 plan-e-double-up.service 的
+    （`Unknown key 'OnFailure' in section [Service], ignoring.`）——也就是那只在跑的 timer
+    自称「失败会告警」，实际一次也没发过。新单元照抄它就把同一个洞复制了一份，所以这里守住
+    全部单元，而不是只守新写的那只。
+    """
+    misplaced = []
+    for fp in sorted((ROOT / "systemd").glob("*.service")):
+        section = None
+        for lineno, line in enumerate(fp.read_text(encoding="utf-8").splitlines(), start=1):
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                section = stripped[1:-1]
+            elif stripped.startswith("OnFailure=") and section != "Unit":
+                misplaced.append(f"{fp.name}:{lineno} 在 [{section}]")
+    assert not misplaced, f"OnFailure 写错段、等于没写（systemd 会 ignoring）：{misplaced}"
