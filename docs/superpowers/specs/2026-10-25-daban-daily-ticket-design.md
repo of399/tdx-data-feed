@@ -1,6 +1,6 @@
 # daban 试验仓每日委托单产出 · 设计文档
 
-日期：2026-10-25 ｜ 状态：待用户复核 ｜ 方案：A（新增薄编排层，不改 `daban_scan.py` / `order.py`）
+日期：2026-10-25 ｜ 状态：已实现并入库；同日两次补充决定 —— timer 已启用、概念限注 2 笔已落地（§3 第 5 条）｜ 方案：A（新增薄编排层，不改 `daban_scan.py` / `order.py`）
 
 ## 1. 这次改的是什么，不改的是什么
 
@@ -31,7 +31,7 @@
 
 - **横幅引用的三份 `docs/DABAN_*_20261022.md` 已入库**（commit `bac0544`）。`docs/` 下另有 7 份同日研究快照仍未入库，本设计不引用它们。原写「五份全部未入库」是定稿时的状态。
 - **`Scanner._trade_date()` 返回 `2026-10-26`（带横杠）**，只有行情缺日期时才回退 `%Y%m%d`（`tdxfeed/daban/scanner.py:735` 读 `Quote.date`）。交易日门与日文件键都必须先归一化成紧凑形——否则「行情日期不等于今天」永远成立，一张票都出不来。守卫 `tests/test_daban_entry_session_gate.py::test_dash_form_quote_date_lands_on_the_compact_day_file`。
-- **`Candidate.sector_name` 在真实扫描里就是行业代码**（`Scanner.sector_names` 是空 dict；实测 301502→630101、603448→280203、002979→640701）。表头必须写「板块代码」。可读的同概念信息在 `concept_name`（实测三只同为「智能穿戴」），那是 `OrderIntent` 之外的字段，本设计不带出——但它意味着**同日的几笔可能是同一注**，见 §11。
+- **`Candidate.sector_name` 在真实扫描里就是行业代码**（`Scanner.sector_names` 是空 dict；实测 301502→630101、603448→280203、002979→640701）。表头必须写「板块代码」。可读的同概念信息在 `concept_name`（实测三只同为「智能穿戴」），它不是 `OrderIntent` 的字段，所以只作为**判据**注入账本行（§3 第 5 条），不进委托单表格（§9）——它意味着**同日的几笔可能是同一注**，限注削掉一半，见 §11。
 - **一轮真盘彩排 3.5s 跑完**（`scripts/daban_entry.py --root /tmp/... --at 2026-10-23T10:00`，universe 5020 只、`bj` 0 只）：抓行情 63 批 / 8 线程实测 <1s，`TimeoutStartSec=180` 有余量。
 - **`OnFailure=` 只在 `[Unit]` 生效**。隔壁 `plan-e-double-up.service` 把它写在 `[Service]` 里，`systemd-analyze verify` 报 `Unknown key ... ignoring`——那只 timer 的失败告警从来没发过（本设计顺带改正，守卫 `tests/test_systemd_units.py::test_on_failure_is_declared_in_the_unit_section`）。
 
@@ -47,6 +47,7 @@
 | `MIN_ORDER_AMOUNT` | 5000 元 | 必须低于 `SINGLE_CAP`，否则一张都出不来（`build_intents` 的 `if min_amount and amount < min_amount: continue`） |
 | `LOT` | 100 股 | 沿用 `order.py:157` 默认 |
 | `STOP_LOSS` / `TAKE_PROFIT` | −5% / +10% | 沿用 `daban_scan.py` 默认 |
+| `CONCEPT_CAP` | 同一概念当日 **2 笔** | 2026-10-25 用户就这一条参数拍的板（见 §11 的暴露问题） |
 
 由此得出两条**设计后果**，不是 bug：
 
@@ -54,6 +55,9 @@
 2. **约 100 元以上的票自动出不了**。`shares = int(budget // price // lot) * lot`，`budget=10000`、`price=101` ⇒ 0 手 ⇒ 该票被静默跳过。横幅里写一句「本试验仓只覆盖单手金额 ≤ 额度的高价股以外的票」。
 3. **北交所（bj）不进试验仓**。`build_intents` 只有一个全局 `lot=100`，没有按板块区分申报单位；本设计不改 `order.py`（非目标），所以只对「100 股整手」这个前提成立的板块出票。这是「不确定就不下」，不是对北交所申报规则的断言。实测当前 universe 只有 `sh`/`sz` 共 5020 只、`bj` 0 只（2026-10-25），所以这道门现在是**防 universe 扩容的前置门**，不是在过滤现存标的。
 4. `allow_st=False`（`Scanner` 默认）沿用：主板 ST/*ST 在 2026-07-06 并轨前是 ±5%，而本仓库还没有历史 ST 名称表可判（`get_limit` 的 name/on_date 已修，但训练标签那条线未解），试验仓不去踩这个不确定。
+5. **同一概念当日只出 2 笔**（`CONCEPT_CAP`，2026-10-25 补）。判据在 `trial.candidates_under_cap`：先按当日的概念账本数一遍，再按原排序贪心放行，被挡掉的候选**不占预算**——它让出的坑给下一个异概念候选。两个刻意的口径：
+   - **跨轮才成立**：概念写进当日账本行（`ticket_YYYYMMDD.json` 的 `concept` 字段，注入点与 `limit_src` 同一个），`intents_for_poll` 每轮读账本。只数本轮候选的话，第二轮照样会把同一概念补到 3 笔。
+   - **空概念不并桶**：实测 92 只候选里 59 只 `concept_name` 为空。把空值当同一个概念，限注会退化成「全日只出 2 笔」，把 §3 第 1 条的金额口径整条推翻。所以空标签不参与限注、也不占别人的桶——这条线现在只能管住**带标签的那一半**。
 
 ## 4. 架构：三个新单元 + 两只 timer
 
@@ -64,7 +68,8 @@ flowchart TD
   E -->|1. 先读| M[STOP marker<br/>data/daban/tickets/STOP]
   E -->|2| G[trial.remaining_budget_today<br/>读今日已出票累计]
   E -->|3| SC[Scanner + realtime.fetch_quote_map<br/>（原样调用，不改）]
-  SC --> BI[order.build_intents<br/>cash=R, pct 由绝对额反算]
+  SC --> CP[trial.intents_for_poll 内的<br/>candidates_under_cap：同概念当日 CONCEPT_CAP 笔]
+  CP --> BI[order.build_intents<br/>cash=R, pct 由绝对额反算]
   BI --> UP[trial.upsert_tickets<br/>按 交易日+code 首触发生效]
   UP --> TK[ticket_YYYYMMDD.md + .json]
   HK[人工在券商端下单] --> FL[scripts/daban_fill.py<br/>成交回填 ledger]
@@ -74,17 +79,22 @@ flowchart TD
 
 ### 4.1 `tdxfeed/daban/trial.py`（新，纯逻辑，不碰网络不碰行情）
 
-唯一职责：**额度、幂等、停止线**。可脱离行情单测。按完整路径 import（`from tdxfeed.daban.trial import ...`），**不改 `tdxfeed/daban/__init__.py`**（`tdxfeed/` 不 import `tdxfeed/daban/` 的既有边界靠它维持）。
+唯一职责：**额度、幂等、概念限注、停止线**。可脱离行情单测。按完整路径 import（`from tdxfeed.daban.trial import ...`），**不改 `tdxfeed/daban/__init__.py`**（`tdxfeed/` 不 import `tdxfeed/daban/` 的既有边界靠它维持）。
 
 ```python
 CASH, TOTAL_CAP, SINGLE_CAP, MIN_ORDER_AMOUNT = 200000.0, 20000.0, 10000.0, 5000.0
 STOP_LOSS_PCT, TAKE_PROFIT_PCT = 0.05, 0.10
+CONCEPT_CAP = 2
 
 def tickets_path(root, trade_date) -> Path          # data/daban/tickets/ticket_YYYYMMDD.{md,json}
 def load_day(root, trade_date) -> DayLedger          # 缺文件 → 空账本（首笔）
 def committed_amount(ledger) -> float                # 当日已出票金额合计
 def remaining_budget(ledger, total_cap=TOTAL_CAP) -> float
 def build_kwargs(R: float) -> dict                   # 见下方换算
+def candidates_under_cap(cands, ledger) -> tuple[list, list]
+                                                     # (放行, 被概念限注挡掉)；空概念不并桶
+def intents_for_poll(cands, ledger) -> list[OrderIntent]
+                                                     # 内部先过 candidates_under_cap，调用方绕不过
 def upsert_tickets(root, trade_date, intents, banner) -> tuple[list, list]
                                                      # (新出票, 因重复被丢弃)，首次触发优先
 def evaluate_stop(fills) -> StopVerdict              # 见 §7；只算已平仓 pair
@@ -110,8 +120,8 @@ def build_kwargs(R: float) -> dict:
    `tdxfeed/freshness.py:31` 的 `CN_HOLIDAYS` 只列到 **2026-10-08**，没有 2026-11/12 和 2027 元旦，所以它不能当唯一依据（可作早退的补充）；`scripts/precheck_freshness.sh` 那条 EOD parquet 新鲜度守卫在这里**不适用**，盘中轮询不读当日收盘数据。
 4. 构造 `Scanner(phase=args.phase, min_pct=4.0, allow_st=False, use_sector=True, session_mode="auto", ...)`（取值与 `scripts/daban_scan.py:247` 那条人工路径一致；`--phase` 是**市场环境标签**，默认 `震荡市`，不是时刻。`session_mode="auto"` 让 `Scanner.scan()` 自己再读一次 `current_session()`（`scanner.py:390`），§4.2 第 2 步那道门只是省一次网络）。
 5. `symbols = scanner.symbols()`，然后**先按板块过滤再拉行情**：丢掉 `bj` 前缀（§3 第 3 条），形状照抄 `daban_scan.py:261-263` 那个候选池过滤（`symbols = [s for s in symbols if s[2:] in keep]`）。随后 `quotes = fetch_quote_map(symbols)`、`result = scanner.scan(quotes)` —— 与人工入口同一条调用链，不自己发明。
-6. `R = trial.remaining_budget(load_day(...))` → `build_intents(candidates, **trial.build_kwargs(R))`。
-7. `trial.upsert_tickets(...)` —— 同 code 当日已有则丢弃，不重复出票。
+6. `R = trial.remaining_budget(load_day(...))` → `trial.intents_for_poll(candidates, day)`，它内部先过 `candidates_under_cap`（§3 第 5 条的概念限注）、再 `build_intents(candidates, **trial.build_kwargs(R))`。
+7. `trial.upsert_tickets(...)` —— 同 code 当日已有则丢弃，不重复出票；账本行同时记下该候选的 `concept`，供下一轮的限注读。
 8. 落 `ticket_YYYYMMDD.md`（给人看，可直接抄进券商 App）+ 同名 `.json`（给 `daban_fill.py` 读）；两个文件都是**就地覆写当日的完整列表**，靠 upsert 保证幂等，不靠追加。
 9. 行情源失败/空候选：记一行日志，`exit 0`（这是常态，不是故障——触板本来就不是每分钟都有）。
 
@@ -173,6 +183,7 @@ Unit=daban-ticket.service
 | 非连续竞价 / 非交易日 | 退出 0，日志一行 |
 | 新浪行情源挂了或空返回 | 本轮 0 票，退出 0；判定「是不是源失效」不靠轮次计数，而靠当日是否有 `ticket_YYYYMMDD.json` —— `daban_fill.py --report` 遇到当日文件不存在就报「当日零出票，检查行情源 / 候选池 / 是否休市」，人工再去 `logs/daban_ticket.log` 看那一轮的门禁日志 |
 | 当日额度已用满（`R<=0`） | 0 票，日志写明已用额 |
+| 概念快照整榜无标签（实测 59/92 只是空的） | 限注必然 0 命中 ⇒ 入口打一行「限注未生效」，**不能静默通过**——否则「没跳过任何票」会被读成「已经限过了」 |
 | 高价股凑不出一手 | 该票被 `build_intents` 跳过，横幅已声明这个约束 |
 | 腾讯源挂了（`scanner.py:394` 静默 `tquotes={}`） | 官方涨停价缺失，退回新浪 L1 算出的 `limit_price`。这会直接影响股数（`shares` 按 `limit_price` 反算），所以委托单里必须打出**涨停价来源**字段，人工抄单前能看出是不是回退值 |
 | tickets 目录不存在 / 半写状态 | 写临时文件 + `os.replace` 原子覆写（`data/` 被 gitignore，救不回来 ⇒ 覆写当日文件前先留 `.bak-<ts>`，与蒸馏语料同一条纪律） |
@@ -205,12 +216,19 @@ marker 是**唯一权威**：删掉它才会恢复出票，`systemctl --user dis
 | `tests/test_daban_stop_lines.py` | 五条各一正一反：`n=29` 不停 / `n=30` 停；`n=9` 均值为负不停 / `n=10` 停；回撤 3900 不停 / 4100 停；成交率 69% 不停 / 70% 停 |
 | `tests/test_daban_channel_isolated.py` | 跑一轮 `daban_entry` 的桩执行后，`journal.csv` 与 `positions.json` 仍未被创建（把「不进 plan_e 实盘账本」钉住） |
 | `tests/test_daban_ticket_timer_shape.py` | `OnCalendar` 字符串形态、**无** `Persistent=true`、`Documentation=` 是 URL；`Makefile` 的 `timer-enable`/`timer-disable`/`timer-status`/`status` 四处名单都含 `daban-ticket`（`status` 那行是同一类 grep 名单，出事时人读的就是这页）|
+| `tests/test_daban_concept_cap.py`（2026-10-25 补） | 同概念第 3 只在**本轮内**被跳、让出的坑给下一个异概念候选；跨轮从账本读概念也挡得住；**空概念不并桶**（4 只无标签仍出 3 笔）；无标签候选不被满桶挡掉；账本行 `concept` 落盘、缺 `concept_map` 时写空串且不占桶；入口打印「跳过 N 只」与全榜无标签时的「未生效」 |
 
 行情层与 `order.py` 的既有测试不复写。全量验证口径：`venv/bin/pytest tests/ -q`（主集）+ `make test`（v5，本设计不该碰它）+ `make lint`（v5）。因为守卫里 shell out 了 git，入库后的复验用 `git worktree add --detach` 的干净 checkout，不用 `git archive | tar -x`（没有 `.git` 时 `git ls-files` rc=128，会把守卫测成假红）。
 
 ## 9. 非目标
 
-不接券商 API / 不自动下单 / 不启用 `risk_gateway.py`（不在 HEAD）/ 不动 `daban_scan.py`、`order.py`、`scanner.py`、`plan_e_journal.py` 一行 / 不把委托单接回 predict 榜单或 journal 的 real 通道 / 不做手机推送（`pushplus-bridge` 不参与）/ 不修复历史 ST 名称表这条线 / **不按板块或概念做同日限注**（那是改出票口径，要先另立设计，见 §11）/ 不改回测口径与四条显著性约定。
+不接券商 API / 不自动下单 / 不启用 `risk_gateway.py`（不在 HEAD）/ 不动 `daban_scan.py`、`order.py`、`scanner.py`、`plan_e_journal.py` 一行 / 不把委托单接回 predict 榜单或 journal 的 real 通道 / 不做手机推送（`pushplus-bridge` 不参与）/ 不修复历史 ST 名称表这条线 / 不改回测口径与四条显著性约定。
+
+**概念限注已不再是非目标**（2026-10-25 用户拍板每概念 2 笔，见 §3 第 5 条），但留下三条边界：
+
+- **不按板块（行业代码）限注**：实测 `Candidate.sector_name` 回落成 `sector_code`（630101 之类），`Scanner.sector_names` 是空 dict——拿代码当分组名限注，等于用一串数字建桶。
+- **概念不进委托单 md 表格**：只写进 `.json` 当判据。表头那一列仍是「板块代码」，可读分组信息透出给人看要另立设计。
+- **不改 `OrderIntent`**：概念由 `daban_entry._concept_map` 在写账本行时注入，与 `limit_src` 同一注入点（`order.py` 一行没动）。
 
 ## 10. 落地与回滚
 
@@ -234,5 +252,5 @@ marker 是**唯一权威**：删掉它才会恢复出票，`systemctl --user dis
 - 委托单不等于成交，样本天然是「成交到的那批」（封板率 39.7% vs 未成交 95.4%）。`--no-fill` 强制回填是唯一把这一半补回来的办法；人不回填，统计就不可信——`--report` 会显式报未回填笔数。
 - 行情是新浪 L1（`1ae2a78` 才改正 34 段口径：段 8/9 = 成交量/成交额、档位顺序「量,价」、seal = 买一量）。修正前采集的封单/撤单数字与本试验无关，但同源数据的可靠性只有 L1 级。
 - 统计功效有限：n=30 在 σ≈20%/笔 的量级下，判不出 ±0.2% 的差别。所以停止线写成「均值 < −0.20% 即停」而不是「证明它显著为负才停」——它是**止损**，不是**检验**。
-- **同日的几笔可能是同一注**（2026-10-25 彩排实测）。2026-10-23 那轮的 3 笔 `concept_name` 全是「智能穿戴」：单票 5% / 总仓 10% 只切开了资金，没切开概念暴露——真按这单子执行，2 万是押在同一个题材上的一注，不是三注。`§9` 把「按板块/概念再做一层分散」列为非目标（要改 `Scanner`/`order.py` 之外的口径就得重训），所以现在只能靠人在抄单前自己看一眼同不同概念；带概念的自动限注需要先补设计，再拍一次。
+- **同日的几笔可能是同一注**（2026-10-25 彩排实测）。2026-10-23 那轮的 3 笔 `concept_name` 全是「智能穿戴」：单票 5% / 总仓 10% 只切开了资金，没切开概念暴露。同日限注 2 笔（§3 第 5 条）已经落地，但它**只盖住带标签的候选**——实测 92 只里 59 只 `concept_name` 为空，这些票既不限别人也不被别人限，人在抄单前仍然要自己看一眼同不同概念。另一半风险没消：同概念的**两只**票照样同涨同跌，n=30 的有效独立样本仍小于 30，这条只能算把最糟的「一注三票」削成「一注两票」。
 - 共享工作树风险：`timer-enable` 名单、`data/daban/` 目录、横幅引用的文档都可能被并行会话改动；每步提交前 `git status` 复核，`git add` 永远带显式路径。

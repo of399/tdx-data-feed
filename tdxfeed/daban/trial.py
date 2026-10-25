@@ -1,4 +1,4 @@
-"""daban 试验仓的**额度、幂等与停止线**（设计 docs/superpowers/specs/2026-10-25-daban-daily-ticket-design.md）。
+"""daban 试验仓的**额度、幂等、概念限注与停止线**（设计 docs/superpowers/specs/2026-10-25-daban-daily-ticket-design.md）。
 
 本模块是纯逻辑：不联网、不读行情、不 import 行情层。可测的部分全在这里，
 `scripts/daban_entry.py` 只负责按顺序调用它。
@@ -27,6 +27,7 @@ __all__ = [
     "BANNER",
     "BANNER_HEAD",
     "CASH",
+    "CONCEPT_CAP",
     "LOT",
     "MIN_ORDER_AMOUNT",
     "SINGLE_CAP",
@@ -36,7 +37,10 @@ __all__ = [
     "UpsertResult",
     "add_tickets",
     "build_kwargs",
+    "candidates_under_cap",
     "committed_amount",
+    "concept_counts",
+    "concept_of",
     "evaluate_stop",
     "intents_for_poll",
     "load_day",
@@ -58,6 +62,7 @@ MIN_ORDER_AMOUNT = 5000.0  # 必须 < SINGLE_CAP，否则一笔都出不来
 STOP_LOSS_PCT = 0.05
 TAKE_PROFIT_PCT = 0.10
 LOT = 100
+CONCEPT_CAP = 2  # 同一概念当日最多 2 笔（2026-10-25 用户定；空概念不参与限注）
 
 # 停止线（五条，任一命中即停）
 STOP_N_FINAL = 30  # 1. 样本量到即停：试验仓的期限本身
@@ -156,21 +161,70 @@ def build_kwargs(remaining: float) -> dict:
     }
 
 
+def concept_of(candidate) -> str:
+    """候选的概念标签；空值就是空串（真候选 92 只里 59 只是空的）。"""
+    return str(getattr(candidate, "concept_name", "") or "").strip()
+
+
+def concept_counts(day: dict) -> dict[str, int]:
+    """当日账本里每个**有标签**的概念已用几笔；空概念不计数，也不并成一个桶。"""
+    counts: dict[str, int] = {}
+    for row in day.get("tickets", []):
+        name = str(row.get("concept", "") or "").strip()
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def candidates_under_cap(candidates, day: dict) -> tuple[list, list]:
+    """按原顺序放行，返回 (留下的, 被概念限注挡掉的)。
+
+    坑按「留下」计而不是按「成交」计：`build_intents` 之后还会因预算/整手再丢一些候选，
+    所以这里偏保守——宁可当日少一笔，也不让同一概念吃到 3 笔。空掉的坑下一轮按真实
+    账本重算就回来了（限注的跨轮依据只有 `concept_counts(day)`）。
+    """
+    used = concept_counts(day)
+    kept: list = []
+    dropped: list = []
+    for c in candidates:
+        name = concept_of(c)
+        if name and used.get(name, 0) >= CONCEPT_CAP:
+            dropped.append(c)
+            continue
+        if name:
+            used[name] = used.get(name, 0) + 1
+        kept.append(c)
+    return kept, dropped
+
+
 def intents_for_poll(candidates, day: dict) -> list[OrderIntent]:
-    """本轮该出的订单意图：只看当日剩余额度，额度不足最小单笔就整轮零票。"""
+    """本轮该出的订单意图：先按概念限注过滤候选，再看当日剩余额度。
+
+    限注放在**进 `build_intents` 之前**：预算切完再限就只剩「丢掉已算好的单子」，
+    而让出来的坑本来可以给下一个异概念候选。
+    """
     remaining = remaining_budget(day)
     if remaining < MIN_ORDER_AMOUNT:
         return []
-    return build_intents(candidates, **build_kwargs(remaining))
+    kept, _capped = candidates_under_cap(candidates, day)
+    if not kept:
+        return []
+    return build_intents(kept, **build_kwargs(remaining))
 
 
-def _ticket_dict(intent, limit_src: str) -> dict:
+def _ticket_dict(intent, limit_src: str, concept: str = "") -> dict:
     row = dict(intent.to_dict())
     row["limit_src"] = limit_src
+    row["concept"] = concept
     return row
 
 
-def add_tickets(day: dict, intents, limit_src_map: dict[str, str] | None = None) -> dict:
+def add_tickets(
+    day: dict,
+    intents,
+    limit_src_map: dict[str, str] | None = None,
+    concept_map: dict[str, str] | None = None,
+) -> dict:
     """按 (交易日, code) 首次触发生效去重，返回新账本（不改动入参）。"""
     out = copy.deepcopy(day)
     seen = {str(t.get("code")) for t in out["tickets"]}
@@ -179,7 +233,13 @@ def add_tickets(day: dict, intents, limit_src_map: dict[str, str] | None = None)
         if not code or code in seen:
             continue
         seen.add(code)
-        out["tickets"].append(_ticket_dict(it, (limit_src_map or {}).get(code, "-")))
+        out["tickets"].append(
+            _ticket_dict(
+                it,
+                (limit_src_map or {}).get(code, "-"),
+                (concept_map or {}).get(code, ""),
+            )
+        )
     return out
 
 
@@ -239,7 +299,8 @@ def _intent_from_row(row: dict) -> OrderIntent:
 
 
 def upsert_tickets(root: Path, trade_date: str, intents, day: dict | None = None,
-                   banner: str = BANNER, limit_src_map: dict[str, str] | None = None) -> UpsertResult:
+                   banner: str = BANNER, limit_src_map: dict[str, str] | None = None,
+                   concept_map: dict[str, str] | None = None) -> UpsertResult:
     """把本轮意图并进当日账本并落盘（md + json），同 code 重复的丢弃。"""
     base = load_day(root, trade_date) if day is None else day
     seen = {str(t.get("code")) for t in base["tickets"]}
@@ -252,7 +313,7 @@ def upsert_tickets(root: Path, trade_date: str, intents, day: dict | None = None
         seen.add(code)
         new.append(it)
 
-    merged = add_tickets(base, new, limit_src_map=limit_src_map)
+    merged = add_tickets(base, new, limit_src_map=limit_src_map, concept_map=concept_map)
     merged["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
     json_path = _day_file(root, trade_date, ".json")

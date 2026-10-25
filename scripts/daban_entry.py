@@ -60,6 +60,16 @@ def _limit_src_map(scanner, intents) -> dict[str, str]:
     return out
 
 
+def _concept_map(candidates, intents) -> dict[str, str]:
+    """把候选的概念标签带到账本行上——跨轮限注读的是账本，不是本轮候选列表。
+
+    概念来自 `Candidate.concept_name`（`OrderIntent` 没这个字段，故在这里注入，
+    与 `limit_src` 同一注入点）。空标签写空串，`concept_counts` 会跳过它。
+    """
+    by_code = {str(getattr(c, "code", "") or ""): trial.concept_of(c) for c in candidates}
+    return {str(it.code): by_code.get(str(it.code), "") for it in intents}
+
+
 def poll_once(root: Path, now: datetime | None = None, *, phase: str = PHASE,
               build_scanner: Callable | None = None, fetch: Callable | None = None) -> int:
     """跑一轮。返回 0 = 本轮无事可做或正常出票；抛异常 = 真故障（让 OnFailure= 能叫）。"""
@@ -100,6 +110,17 @@ def poll_once(root: Path, now: datetime | None = None, *, phase: str = PHASE,
         return 0
 
     day = trial.load_day(root, trade_date)
+    _kept, capped = trial.candidates_under_cap(result.candidates, day)
+    labelled = sum(1 for c in result.candidates if trial.concept_of(c))
+    if capped:
+        print(
+            f"[cap] 概念限注（每概念 {trial.CONCEPT_CAP} 笔/日）本轮跳过 {len(capped)} 只候选："
+            f"{', '.join(sorted({trial.concept_of(c) for c in capped}))}"
+        )
+    elif not labelled:
+        # 全榜无标签 = 限注一次都没生效。静默通过会被读成「没有超限」，所以这里必须明说。
+        print(f"[cap] 概念快照无标签（0/{len(result.candidates)} 只），每概念 {trial.CONCEPT_CAP} 笔的限注未生效")
+
     intents = trial.intents_for_poll(result.candidates, day)
     if not intents:
         print(
@@ -110,7 +131,12 @@ def poll_once(root: Path, now: datetime | None = None, *, phase: str = PHASE,
         return 0
 
     res = trial.upsert_tickets(
-        root, trade_date, intents, day=day, limit_src_map=_limit_src_map(scanner, intents)
+        root,
+        trade_date,
+        intents,
+        day=day,
+        limit_src_map=_limit_src_map(scanner, intents),
+        concept_map=_concept_map(result.candidates, intents),
     )
     used = trial.committed_amount(res.day)
     print(
