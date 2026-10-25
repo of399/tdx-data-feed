@@ -17,7 +17,7 @@
 #   开发      install / lint / fix / format / test
 #   数据      data-universe / data-sync / data-adj
 #   分析      analyze-double-up / analyze-signal-d / analyze-top10
-#   训练      train-v5 / train-v6 / train-v7
+#   训练      train-v5 / train-v6 / train-v7 / distill
 #   部署      deploy-v5 / deploy-v6 / deploy-v7
 #   应用      predict / plan-e / journal
 #   自动化    timer-install / timer-enable / timer-disable / timer-status
@@ -47,6 +47,10 @@ MODEL_V5 := qwen3-14b-tdx-v5
 MODEL_V6 := qwen3-14b-tdx-v6
 MODEL_V7 := qwen3-14b-tdx-v7
 MODEL_BASE := qwen3-14b-tdx-fast
+
+# 蒸馏参数（make distill MODEL=<tag> 用；教师模型不给就不启动）
+LIMIT ?= 0
+CONC ?= 8
 
 # 颜色
 GREEN := \033[0;32m
@@ -80,7 +84,7 @@ help:  ## 显示所有目标（默认）
 	@grep -E "^analyze-.*:.*?## .*$$" $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)$(BOLD)🎓 模型训练:$(NC)"
-	@grep -E "^train-.*:.*?## .*$$" $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
+	@grep -E "^(train-.*|distill):.*?## .*$$" $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)$(BOLD)🚀 模型部署:$(NC)"
 	@grep -E "^deploy-.*:.*?## .*$$" $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
@@ -275,6 +279,11 @@ train-plot:  ## 画 loss 曲线
 
 train-monitor:  ## 启动 GPU 温度监控
 	bash $(SCRIPTS)/monitor_gpu_temp.sh &
+
+distill:  ## 教师模型蒸馏指令数据（MODEL=<ollama tag>，可选 LIMIT/CONC）
+	@if [ -z "$(MODEL)" ]; then echo "$(RED)✗ 必须指定教师模型：make distill MODEL=<tag> [LIMIT=200] [CONC=8]$(NC)"; echo "$(CYAN)本机可选 tag：make deploy-list$(NC)"; exit 2; fi
+	@echo "$(CYAN)▶ 用 $(MODEL) 蒸馏 → data/distill/full.jsonl（已有 output 会按行数续跑）$(NC)"
+	TDX_DISTILL_MODEL=$(MODEL) $(PYTHON) $(SCRIPTS)/distill_outputs.py $(DATA)/distill/skeleton.jsonl $(DATA)/distill/full.jsonl $(LIMIT) $(CONC)
 
 # ============== 模型部署 ==============
 deploy-v5:  ## 部署 v5 到 Ollama（4 步：merge → GGUF → Modelfile → create）

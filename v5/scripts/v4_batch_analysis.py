@@ -140,9 +140,20 @@ def call_v4(instruction: str, input_str: str) -> tuple[str, float, int]:
     return d.get("response", ""), d.get("eval_duration", 0) / 1e9, d.get("eval_count", 0)
 
 
+_LT, _GT, _PIPE, _SLASH, _BS = chr(60), chr(62), chr(124), chr(47), chr(92)
+# 旧写法剥的是尖括号那对标记——模型从不发它，实测剥掉 0 字节。标签一律按字符拼：这些控制标记
+# 在部分渲染/传输链路里会被整段吞掉，写错成「从来没出现过的那一对」从源码里也看不出来。
+# 形状与用例见 tests/test_distill_think_filter.py，跨文件守卫见 tests/test_think_filter_behavior.py。
+_OPT = _BS + _PIPE + "?"                       # 正则里的「可选竖线」
+_THINK_OPEN = _LT + _OPT + "think" + _OPT + _GT
+_THINK_CLOSE = _LT + _OPT + _SLASH + "think" + _OPT + _GT
+_IM_END = _LT + _BS + _PIPE + "im_end" + _OPT + _GT
+_THINK_BLOCK = re.compile(
+    _THINK_OPEN + ".*?(?:" + _THINK_CLOSE + "|" + _IM_END + ")" + _BS + "s*", re.S)
+_THINK_STRAY = re.compile(_THINK_OPEN + "|" + _THINK_CLOSE + "|" + _IM_END)
 def strip_think(text: str) -> str:
     """移除 <think>...</think> 块"""
-    return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
+    return re.sub(_THINK_STRAY, '', re.sub(_THINK_BLOCK, '', text)).strip()
 
 
 def analyze_one(parquet_stem: str, window: int, dry: bool, skip_existing: bool) -> dict:

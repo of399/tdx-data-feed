@@ -14,8 +14,19 @@ SK = "/home/jiuben/tdx-data-feed/data/distill/skeleton.jsonl"
 OUT = "/home/jiuben/tdx-data-feed/data/distill/full.jsonl"
 NUM_PREDICT = int(os.environ.get("NUM_PREDICT", "120"))
 
+_LT, _GT, _PIPE, _SLASH, _BS = chr(60), chr(62), chr(124), chr(47), chr(92)
+# 旧写法剥的是尖括号那对标记——模型从不发它，实测剥掉 0 字节。标签一律按字符拼：这些控制标记
+# 在部分渲染/传输链路里会被整段吞掉，写错成「从来没出现过的那一对」从源码里也看不出来。
+# 形状与用例见 tests/test_distill_think_filter.py，跨文件守卫见 tests/test_think_filter_behavior.py。
+_OPT = _BS + _PIPE + "?"                       # 正则里的「可选竖线」
+_THINK_OPEN = _LT + _OPT + "think" + _OPT + _GT
+_THINK_CLOSE = _LT + _OPT + _SLASH + "think" + _OPT + _GT
+_IM_END = _LT + _BS + _PIPE + "im_end" + _OPT + _GT
+_THINK_BLOCK = re.compile(
+    _THINK_OPEN + ".*?(?:" + _THINK_CLOSE + "|" + _IM_END + ")" + _BS + "s*", re.S)
+_THINK_STRAY = re.compile(_THINK_OPEN + "|" + _THINK_CLOSE + "|" + _IM_END)
 def clean(t):
-    return re.sub(r'<think>.*?</think>\s*', '', t, flags=re.S).strip()
+    return re.sub(_THINK_STRAY, '', re.sub(_THINK_BLOCK, '', t, flags=re.S)).strip()
 
 def main():
     ap = argparse.ArgumentParser()
