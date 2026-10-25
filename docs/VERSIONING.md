@@ -7,7 +7,7 @@
 
 | 版本线 | 形态 | 作用 | 新版本频率 |
 |---|---|---|---|
-| **LLM 线** | Qwen3-14B + LoRA（`train/output/qwen3-14b-tdx-vX/`）| **仅评估**（`training/eval/run_v4_eval.py` 方向准确率验证），**不进实盘** | 低——配方实质变化才开 |
+| **LLM 线** | Qwen3-14B + LoRA（`train/output/qwen3-14b-tdx-vX/`）| **仅评估**（评估脚本已归档 `training/eval/_archive/run_v4_eval.deprecated.py`，方向准确率验证），**不进实盘** | 低——配方实质变化才开 |
 | **LightGBM 线** | `data/double_up/d_signal_5d_model_*.txt`（`scripts/predict.py` 的 `MODEL_REGISTRY`）| **实盘主力**（默认 `vpnl_huber_stage1`）| 较高——特征/目标升级即开 |
 
 **铁律**：LLM 线的版本成败**不影响实盘**（实盘走 LightGBM）。评估 LLM 失败≠生产事故。
@@ -61,6 +61,8 @@
 2. ckpt-100 sanity: direction_acc ≥ 0.20 → 继续训练; < 0.20 → 立即停训止损
 3. 完整训练(2000 step) + load_best_model_at_end
 4. 终评: run_v4_eval 全指标(direction_acc/spearman/cls_acc/top-k)
+   ↑ 该脚本已归档 training/eval/_archive/run_v4_eval.deprecated.py（带已知缺陷），
+     重开 LLM 线前先评审它或重建评估入口，不要直接执行
 5. 达标 → 合并部署(models/Qwen3-14B-tdx-vXr-merged) + 旧现役退休归档
 6. 报告 + commit + memory 三件套
 ```

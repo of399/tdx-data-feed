@@ -172,7 +172,7 @@ cutoff_len: 512
 
 ## 10. 模型评估
 - **训练内评估**：`eval_dataset` + `eval_strategy: steps` 盯 `eval_loss`（今日实测 eval_loss 1.0856 → 困惑度 2.96）。
-- **独立评估脚本**：`training/eval/run_v4_eval.py` 用 peft+transformers 加载 **base + LoRA adapter** 算下游指标（方向准确率、Top-k 命中、夏普、格式遵循率）。注意其 base 默认硬编码 HF 在线路径，离线需改本地 `/home/jiuben/models/Qwen3-14B`。
+- **独立评估脚本**：`training/eval/run_v4_eval.py` 已归档到 `training/eval/_archive/run_v4_eval.deprecated.py`（带已知缺陷，勿直接执行）；其形态是用 peft+transformers 加载 **base + LoRA adapter** 算下游指标（方向准确率、Top-k 命中、夏普、格式遵循率），重开 LLM 线时按归档件重建入口。注意原脚本 base 默认硬编码 HF 在线路径，离线需改本地 `/home/jiuben/models/Qwen3-14B`。
 - **指标取向**：v7/v7r 在 2000 样本上准确率≈48~49%（接近多数类基线），续训未提升"直接翻倍判定"；**v8r 偏跌退化 → 不部署**。翻倍判定属不平衡分类，loss 低 ≠ 任务准。🔲 本轮 40 步有界训练未做下游准确率评估（需满训后）。
 
 ## 11. 模型导出（合并 → GGUF → Ollama）
@@ -186,7 +186,7 @@ cutoff_len: 512
 3. **配置**：复制现役 yaml（如 `tdx_v7_resume.yaml`）→ 调整 dataset / adapter / rank / lr / deepspeed。
 4. **训练**：`llamafactory-cli train config.yaml`（多卡加 deepspeed 字段或 torchrun）。
 5. **监控**：盯 loss / eval_loss / grad_norm（§9）。
-6. **评估**：`run_v4_eval.py` 算任务指标；决定部署。
+6. **评估**：算任务指标；决定部署（`run_v4_eval.py` 已归档 `training/eval/_archive/`，见 §10）。
 7. **导出**：合并 → llama.cpp master 转 GGUF → Modelfile 进 Ollama。
 8. **迭代**：结论回写配置注释与记忆；失败配置（如 v8r）标注不部署原因。
 

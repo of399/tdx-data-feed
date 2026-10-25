@@ -111,7 +111,7 @@ cutoff_len: 512
 
 ## 8. 模型评估
 - **训练内评估**：`eval_dataset` + `eval_strategy: steps` 持续盯 `eval_loss`。
-- **独立评估脚本**：项目已有 `training/eval/run_v4_eval.py`，用 `peft + transformers` 加载 **base + LoRA adapter**（指定 checkpoint 路径）做下游任务准确率评估。
+- **独立评估脚本**：原 `training/eval/run_v4_eval.py` 已归档到 `training/eval/_archive/run_v4_eval.deprecated.py`（v9r 止损时判定为带已知缺陷，勿直接执行）；可复用的是它的形态——用 `peft + transformers` 加载 **base + LoRA adapter**（指定 checkpoint 路径）做下游任务准确率评估，重开 LLM 线时按归档件重建入口。
 - **指标取向**：本项目经验——2000 样本稳健验证 v7/v7r 准确率≈48~49%（接近多数类基线），续训未提升"直接翻倍判定"；**v8r 续训出现偏跌退化 → 不部署**。评估结论须结合任务（翻倍判定属不平衡分类），不只看 loss。
 
 ## 9. 模型导出（合并 → GGUF → Ollama）
@@ -124,7 +124,7 @@ cutoff_len: 512
 2. **配置**：复制现役 yaml（如 `tdx_v7_resume.yaml`）→ 调整 dataset / adapter / rank / lr / deepspeed。
 3. **训练**：`llamafactory-cli train config.yaml`（多卡加 deepspeed 字段或 torchrun）。
 4. **监控**：wandb/tensorboard 盯 loss / eval_loss / grad_norm，按 §7 判定。
-5. **评估**：`run_v4_eval.py` 加载 base+adapter 算任务指标；决定是否部署。
+5. **评估**：加载 base+adapter 算任务指标；决定是否部署（`run_v4_eval.py` 已归档，见 §8）。
 6. **导出**：合并 → llama.cpp master 转 GGUF → Modelfile 进 Ollama。
 7. **迭代**：结论回写 `training/config/*.yaml` 注释与记忆；失败配置（如 v8r）标注不部署原因。
 

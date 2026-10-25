@@ -7,8 +7,8 @@ eval_v4_vs_v7r.py — v4 测试集方向准确率/格式遵循率 双模型并�
     - 方向准确率：模型预测方向 vs 测试集参考 output 方向
     - 格式遵循率：模型输出可被解析出方向(parsed_ok)的占比
     - 解析失败率
-复用 run_v4_eval.py 的解析与评测逻辑，保证口径一致；两模型均以
-4-bit(nf4) 加载以在单卡 16GB 上放下 14B，对比公平。
+复用 run_v4_eval.py（已归档 training/eval/_archive/run_v4_eval.deprecated.py）的解析
+与评测逻辑，保证口径一致；两模型均以 4-bit(nf4) 加载以在单卡 16GB 上放下 14B，对比公平。
 
 用法:
     python eval_v4_vs_v7r.py \
