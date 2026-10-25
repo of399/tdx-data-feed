@@ -36,7 +36,9 @@ def run_math_sympy_tests() -> dict:
     t0 = time.time()
     try:
         result = subprocess.run(
-            [str(V5_ROOT / "venv/bin/python"), str(V5_ROOT / "v5/tests/test_math_sympy.py")],
+            # venv-math：这份 harness 直接 import sympy 走 parse_latex，主 venv 的 antlr 被
+            # omegaconf 锁在 4.9.*，用主 venv 跑会让 sympy 段整片抛 ImportError 静默降级。
+            [str(V5_ROOT / "venv-math/bin/python"), str(V5_ROOT / "v5/tests/test_math_sympy.py")],
             capture_output=True,
             text=True,
             timeout=300,

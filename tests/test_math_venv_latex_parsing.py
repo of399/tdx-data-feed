@@ -17,10 +17,13 @@
 2. 系统单元的 `ExecStart` 与 `PATH` 都指向 `venv-math/bin/python`（否则改清单不改进程，等于没修）；
 3. 手工拉起脚本也走同一解释器，别再出现「脚本用主 venv、服务用 math venv」两套口径；
 4. `venv-math/` 在 `.gitignore` 里；
-5. 主 venv 的 llamafactory/omegaconf 仍可用 —— 这套方案的代价必须是零。
+5. 主 venv 的 llamafactory/omegaconf 仍可用 —— 这套方案的代价必须是零；
+6. **扫描式**锁定「用解释器执行数学代码」的每一行：解释器只能是 venv-math。白名单会漏网
+   （2026-10-25 就漏了 `v5/scripts/tdx_verification.py` 那条内层 harness）。
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +34,11 @@ ROOT = Path(__file__).resolve().parents[1]
 MATH_REQS = ROOT / "v5" / "requirements-math.txt"
 MATH_PY = ROOT / "venv-math" / "bin" / "python"
 UNIT = ROOT / "v5" / "systemd" / "math-sympy-http.service"
+
+# 主 venv 解释器路径的字面量。拼出来而不是直写，是为了让下面那条扫描守卫不会扫到自己。
+MAIN_PY = "venv" + "/bin" + "/python"
+# 出现这个标记的行所在命令，说明它正在**用某个解释器执行数学栈**（math_sympy 也覆盖 test_math_sympy）。
+MATH_MARKER = "math_sympy"
 
 
 def _read(path: Path) -> str:
@@ -154,3 +162,83 @@ def test_training_stack_stays_intact_in_the_main_venv():
     assert proc.stdout.strip().startswith("4.9"), (
         f"主 venv 的 antlr 被改成了 {proc.stdout.strip()}：训练栈不该为数学服务买单"
     )
+
+
+def _math_interpreter() -> str:
+    """数学栈实际用哪个解释器 = 单元 ExecStart 的第一个 token。
+
+    从单元文件现取，不写死 `venv-math`：以后再迁解释器时守卫跟着部署走，而不是反过来
+    要求部署迁回守卫记住的那个路径。
+    """
+    exec_lines = [
+        ln.strip() for ln in _read(UNIT).splitlines() if ln.strip().startswith("ExecStart=")
+    ]
+    assert exec_lines, "单元里没有 ExecStart，无法判定权威解释器"
+    return exec_lines[0].split("=", 1)[1].split()[0]
+
+
+def _tracked(prefix_globs: tuple[str, ...]) -> list[Path]:
+    """git 跟踪的源文件；venv/、venv-math/、data/ 都在 .gitignore 里，天然不在扫描面上。"""
+    out = subprocess.run(
+        ["git", "ls-files", *prefix_globs],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert out.returncode == 0, out.stderr
+    return [ROOT / p for p in out.stdout.splitlines() if "_archive/" not in p]
+
+
+def test_no_source_line_runs_math_code_with_the_main_venv():
+    """凡是「用解释器执行数学代码」的地方，解释器必须是权威那一个。
+
+    红过一次（2026-10-25）：`v5/scripts/tdx_verification.py` 把内层 harness 写死成主 venv，
+    17 条断言当场报 `requires the antlr4 … 4.11` 并静默掉进 AST 兜底，而线上 8002 明明是
+    venv-math。既有守卫只枚举「拉起 math_sympy_http.py 的脚本」，这个入口就在网外——所以这里
+    不写白名单，改成扫全部跟踪的 `.py`/`.sh`（`.json` 注册片段是 command/args 分离的形状，单列
+    一条）。窗口取 3 行，因为 `command=…` 与 `args=[…math_sympy.py]`
+    常常不在同一行（`v5/tests/test_math_sympy.py` 的 stdio 客户端就是这种形状）。
+    """
+    authority = _math_interpreter()
+    assert "venv-math" in authority, f"权威解释器已不是 venv-math：{authority}"
+
+    offenders: list[str] = []
+    for path in _tracked(("*.py", "*.sh")):
+        if path == Path(__file__):
+            continue  # 本文件里出现的 MAIN_PY 是拼出来的常量，不是启动命令
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for i, line in enumerate(lines):
+            if MAIN_PY not in line:
+                continue
+            window = "\n".join(lines[i : i + 3])
+            if MATH_MARKER in window:
+                offenders.append(f"{path.relative_to(ROOT)}:{i + 1}: {line.strip()[:100]}")
+
+    assert not offenders, (
+        "这些行用主 venv 执行数学代码：sympy 段会整片抛 ImportError 并静默降级"
+        "（主 venv 的 antlr 被 omegaconf 锁在 4.9.*）。应改为权威解释器 "
+        f"{authority}：\n" + "\n".join(offenders)
+    )
+
+
+@pytest.mark.xfail(
+    reason=(
+        "v5/scripts/s7-mcp-servers.json 的 math-sympy.command 仍写主 venv —— 该文件当前带"
+        "另一会话未提交的改动（s7 注册名），共享工作树下不便一起提交。等那轮入库后把 command "
+        "改成数学解释器并去掉本标记转正（strict=True：改对了会红，提醒转正）。"
+    ),
+    strict=True,
+)
+def test_mcp_registration_fragment_points_math_server_at_the_math_venv():
+    frag = json.loads(_read(ROOT / "v5" / "scripts" / "s7-mcp-servers.json"))
+    authority = _math_interpreter()
+    for name, cfg in frag["mcpServers"].items():
+        args = " ".join(cfg.get("args", []))
+        if MATH_MARKER in args:
+            assert cfg.get("command") == authority, (
+                f"{name} 用 {cfg.get('command')} 起数学 stdio server，权威解释器是 {authority}"
+            )

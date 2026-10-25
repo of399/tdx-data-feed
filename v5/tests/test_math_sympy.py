@@ -206,7 +206,9 @@ async def main():
         from mcp import ClientSession, StdioServerParameters
 
         server_params = StdioServerParameters(
-            command="/home/jiuben/tdx-data-feed/venv/bin/python",
+            # 与 math-sympy-http.service 同一解释器：主 venv 的 antlr 被 omegaconf 锁在 4.9.*，
+            # 用它起出来的 stdio server 里 sympy 段会整片抛 ImportError，注册的 Tool 名却照样对得上。
+            command="/home/jiuben/tdx-data-feed/venv-math/bin/python",
             args=["/home/jiuben/tdx-data-feed/v5/mcp_servers/math_sympy.py"],
         )
 
