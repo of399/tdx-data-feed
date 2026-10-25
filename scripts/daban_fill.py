@@ -192,19 +192,21 @@ def report(root: Path) -> int:
           + (f"（{', '.join(t['code'] for t in missing[:10])}）" if missing else ""))
     if missing:
         print("   ⚠️ 未回填的笔不算样本，也不进成交率——每天收盘后补记，统计才可信。")
+    miss_txt = f"{v.miss_ratio:.1%}" if v.miss_ratio is not None else "—"
     print(f"成交 {v.n_backfilled} 笔 / 未成交 {len(fills) - v.n_backfilled} 笔"
-          f"（未成交占比 {v.miss_ratio if v.miss_ratio is not None else '—'}）")
+          f"（未成交占比 {miss_txt}）")
     print(f"已平仓 pair：{v.n_closed} 笔；净均值 "
           f"{f'{v.mean_pct:.3f}%/笔' if v.mean_pct is not None else '样本不足'}；"
           f"累计已实现 {v.realized_yuan:.0f} 元")
     if open_sells:
         print(f"缺费用未计入均值：{len(open_sells)} 笔（{', '.join(str(r['code']) for r in open_sells)}）")
         print("   规则：券商回单费用没填全就不置 closed——不臆造费率。")
+    judgeable = v.n_closed >= trial.STOP_N_MIN and v.mean_pct is not None
     print("对照口径：纸盘规则 §8.2 的停止线是 +0.20%/笔；本试验仓有意放宽到 −0.20%/笔"
           "（设计 §7 第 3 条）。"
-          + ("按纸盘口径当前均值已低于那条线。" if v.mean_pct is not None and v.mean_pct < 0.20 else
-             "按纸盘口径当前均值不低于那条线。" if v.mean_pct is not None else
-             "样本不足，两个口径都还不便判断。"))
+          + ("按纸盘口径当前均值已低于那条线。" if judgeable and v.mean_pct < 0.20 else
+             "按纸盘口径当前均值不低于那条线。" if judgeable else
+             f"样本不足：已平仓 {v.n_closed} 笔，未满判停门槛 {trial.STOP_N_MIN} 笔，两个口径都不判。"))
     if v.triggered:
         print(f"🛑 停止线：{v.rule}｜{v.detail}")
         fp = trial.write_marker(root, v.marker_text)

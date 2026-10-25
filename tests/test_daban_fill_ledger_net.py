@@ -134,3 +134,64 @@ def test_report_prints_the_paper_line_contrast(tmp_path, capsys):
     run(mod, tmp_path, "--report")
     printed = capsys.readouterr().out
     assert "+0.20" in printed, printed
+
+
+def test_contrast_line_holds_its_verdict_until_the_judging_threshold(tmp_path, capsys):
+    """满判停门槛之前，纸盘口径那句对照也不许下判断——门槛对两个口径同时生效。
+
+    2026-10-25 活体彩排：1 笔平仓就打印出「按纸盘口径当前均值已低于那条线」，读起来是个结论，
+    而第 3 条停止线自己要到 `STOP_N_MIN` 笔才判。早期噪声既不能停这条线，也不能给它背书。
+    """
+    mod = _load_fill()
+    seed(tmp_path)
+    run(mod, tmp_path, "--code", "600001", "--fill", "--price", "9.00", "--shares", "1000", "--fee", "5.00")
+    run(mod, tmp_path, "--code", "600001", "--sell", "--price", "8.00", "--fee", "6.00", "--date", "20261027")
+
+    assert run(mod, tmp_path, "--report") == 0
+    printed = capsys.readouterr().out
+    assert "未满判停门槛" in printed, printed
+    assert "已低于那条线" not in printed, printed
+    assert "不低于那条线" not in printed, printed
+
+
+def test_contrast_line_compares_once_the_sample_is_judgeable(tmp_path, capsys):
+    """满了门槛就得真的对照——否则上一条把这句话永久禁掉也没人发现。"""
+    mod = _load_fill()
+    codes = tuple(f"6000{i:02d}" for i in range(trial.STOP_N_MIN))
+    seed(tmp_path, codes)
+    for c in codes:
+        run(mod, tmp_path, "--code", c, "--fill", "--price", "10.00", "--shares", "1000", "--fee", "5.00")
+        run(mod, tmp_path, "--code", c, "--sell", "--price", "11.00", "--fee", "6.00", "--date", "20261027")
+
+    assert run(mod, tmp_path, "--report") == 0
+    printed = capsys.readouterr().out
+    assert "按纸盘口径当前均值不低于那条线" in printed, printed
+
+
+def test_miss_ratio_prints_as_one_decimal_percent(tmp_path, capsys):
+    """占比用 `:.1%`，跟第 5 条停止线的判据字符串同一个格式，不吐裸浮点。"""
+    mod = _load_fill()
+    seed(tmp_path, ("600001", "600002", "600003"))
+    run(mod, tmp_path, "--code", "600001", "--fill", "--price", "9.00", "--shares", "1000", "--fee", "5.00")
+    run(mod, tmp_path, "--code", "600002", "--no-fill", "--reason", "封死没排到")
+    run(mod, tmp_path, "--code", "600003", "--no-fill", "--reason", "封死没排到")
+
+    assert run(mod, tmp_path, "--report") == 0
+    printed = capsys.readouterr().out
+    assert "66.7%" in printed, printed
+    assert "0.666666" not in printed, printed
+
+
+def test_marker_text_prints_both_numbers_at_the_report_precision(tmp_path):
+    """marker 是事后翻查的唯一凭据，同一个占比/均值不能一处 `66.7%` 一处裸浮点。"""
+    mod = _load_fill()
+    seed(tmp_path, ("600001", "600002", "600003"))
+    run(mod, tmp_path, "--code", "600001", "--fill", "--price", "9.00", "--shares", "1000", "--fee", "5.00")
+    run(mod, tmp_path, "--code", "600001", "--sell", "--price", "8.00", "--fee", "6.00", "--date", "20261027")
+    run(mod, tmp_path, "--code", "600002", "--no-fill", "--reason", "封死没排到")
+    run(mod, tmp_path, "--code", "600003", "--no-fill", "--reason", "封死没排到")
+
+    marker = trial.evaluate_stop(trial.load_fills(tmp_path)).marker_text
+    assert "66.7%" in marker, marker
+    assert "-11.233%/笔" in marker, marker
+    assert "0.666666" not in marker and "11.2333333" not in marker, marker
