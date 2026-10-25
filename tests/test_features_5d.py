@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tdxfeed.daban.limit_price import limit_ratio
 from tdxfeed.features_5d import (
     LIMIT_MAP,
     MAIN_ST_RULE_CHANGE_DATE,
@@ -84,6 +85,28 @@ def test_get_limit_threshold_equals_ratio_minus_buffer():
         ("bj920001", "ST北晶", "2026-07-03", 0.30),
     ):
         assert get_limit(code, name=name, on_date=on_date) == pytest.approx(ratio - 0.005)
+
+
+def test_get_limit_agrees_with_daban_limit_ratio_across_the_merger():
+    """判定侧阈值恒 = 挂单侧真实比例 − 0.5%：同一规则的两处实现不许各自漂。"""
+    cases = [
+        ("600000", "", "2021-06-01"),
+        ("600001", "ST康达", "2026-07-03"),
+        ("600001", "ST康达", "2026-07-05"),
+        ("600001", "ST康达", "2026-07-06"),
+        ("600001", "ST康达", "2026-10-01"),
+        ("600001", "ST康达", None),
+        ("sz000001", "*ST新城", "20200102"),
+        ("sz300750", "ST宁德", "2021-06-01"),
+        ("sh688000", "*ST科创", "2026-07-03"),
+        ("bj920001", "ST北晶", "2026-07-03"),
+    ]
+    for code, name, on_date in cases:
+        expected = float(limit_ratio(code, name, on_date)) - 0.005
+        assert get_limit(code, name=name, on_date=on_date) == pytest.approx(expected), (
+            f"{code}/{name}/{on_date}: 判定侧 {get_limit(code, name=name, on_date=on_date)} "
+            f"≠ 挂单侧 {limit_ratio(code, name, on_date)} − 0.005"
+        )
 
 
 def test_compute_returns_18_dims():
