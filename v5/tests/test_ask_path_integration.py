@@ -7,23 +7,32 @@ v5/mcp_servers/math_sympy_http.py · ask 路径 e2e 测试 (P2.2)
 依赖: 由 v5/tests/conftest.py 的 math_api 现起一个实例（口径取自
        v5/systemd/math-sympy-http.service，端口随机空闲），不需要也不应
        假设线上 8002 在跑 —— 否则结论取决于线上那台进程用哪套解释器。
-       Ollama 可选（不会真用到，因为 ask 失败后被 numeric 兜底）。
+       Ollama 会被链的 llm 兜底层真调用（ask 层本身是纯 sympy）；Ollama 不可用时
+       整链只剩 ok=False，而这里断言的只是 attempts 里出现过 ask，所以结论不
+       依赖 Ollama 可用，但耗时依赖。
 
 运行:
     venv/bin/pytest v5/tests/test_ask_path_integration.py -v -s
-    # 跑一次约 5s，跑 5 个 parametrize case ≈ 25s
+    # 单请求实测热态 5~9.5s，冷启动由 conftest 的 warm_up 吸收
     MATH_API_BASE=http://127.0.0.1:<线上端口> venv/bin/pytest ...  # 改成验线上部署本身
 
 参考: v5/audit/2026-09-20-alerting-pipeline-verification.md §5.1
 """
 
 import json
+import os
 import urllib.error
 import urllib.request
 
 import pytest
 
 ASK_STRATEGY = 'fallback_attempts_total{strategy="ask"}'
+
+# 单次请求的读超时预算。切换解释器后链真在执行：llm 兜底层的 Ollama 推理热态
+# 5~9.5s，冷启动首轮更长，所以给到 90s；用 MATH_API_TIMEOUT_S 覆盖（慢机器 /
+# 想快速失败的场合）。预算必须有上界 —— 无限超时等于没超时。守卫
+# tests/test_math_api_timeout_budget.py
+DEFAULT_TIMEOUT_S = 90
 
 # 已知能触发 ask 路径的测试输入（score ∈ [30, 55) → primary=ask → chain 必含 ask）
 # 详见 v5/mcp_math/strategy_selector.py:51 THRESHOLD_ASK=30 / THRESHOLD_NUMERIC=55
@@ -55,11 +64,13 @@ ASK_PATH_CASES = [
 ]
 
 
-def _post_tool(base: str, name: str, args: dict, timeout_s: int = 30, canary_ratio: float = 0.0):
+def _post_tool(base: str, name: str, args: dict, timeout_s: int | None = None, canary_ratio: float = 0.0):
     """调用 /tools/{name}。默认 canary_ratio=0 走直接 sympy（不受 canary_state.json 影响）.
 
     设置 canary_ratio=0.5 可主动触发 fallback chain 测试。
+    timeout_s 省略时取 MATH_API_TIMEOUT_S 或 DEFAULT_TIMEOUT_S。
     """
+    budget = float(os.environ.get("MATH_API_TIMEOUT_S", DEFAULT_TIMEOUT_S)) if timeout_s is None else float(timeout_s)
     body = json.dumps(args | {"canary_ratio": canary_ratio}).encode("utf-8")
     req = urllib.request.Request(
         f"{base}/tools/{name}",
@@ -68,12 +79,14 @@ def _post_tool(base: str, name: str, args: dict, timeout_s: int = 30, canary_rat
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+        with urllib.request.urlopen(req, timeout=budget) as r:
             return r.status, json.loads(r.read())
     except urllib.error.HTTPError as e:
         return e.code, {"_err": e.read().decode("utf-8", errors="replace")[:200]}
     except urllib.error.URLError as e:
         return 0, {"_err": str(e.reason)}
+    except TimeoutError as e:
+        return 0, {"_err": f"read timeout after {budget:g}s: {base}/tools/{name}: {e}"}
 
 
 def _get_metric(base: str, name: str) -> float:

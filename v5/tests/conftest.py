@@ -8,6 +8,7 @@
 想验线上部署本身：显式设 MATH_API_BASE=http://127.0.0.1:8002 跑同一批用例。
 """
 
+import json
 import os
 import shlex
 import socket
@@ -22,6 +23,32 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 UNIT = ROOT / "v5" / "systemd" / "math-sympy-http.service"
 READY_TIMEOUT_S = 60
+WARMUP_TIMEOUT_S = 180
+
+
+def warm_up(base: str, timeout_s: float = WARMUP_TIMEOUT_S) -> float:
+    """把冷启动开销花在 fixture 里，而不是花在第一个用例头上。
+
+    链的 llm 兜底层会真打 Ollama（strategy_selector 里的 ask 层是纯 sympy）：
+    热态单请求 5~9.5s，首轮模型装载能顶穿用例的读超时，把环境抖动伪装成功能
+    失败。best-effort —— 这一次请求成败都不改变任何断言，最坏是没省到时间。
+    """
+    body = json.dumps(
+        {"latex": "\\Gamma(x)", "action": "simplify", "var": "x", "canary_ratio": 0.0}
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"{base}/tools/math_strategy_route_and_execute",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            r.read()
+    except Exception:  # warm-up 的成败不决定测试结论，最坏是没省到时间
+        pass
+    return time.monotonic() - started
 
 
 def _parse_unit(unit_text: str) -> tuple[list[str], dict[str, str]]:
@@ -67,9 +94,11 @@ def math_api(tmp_path_factory):
     """返回 base URL（不含尾斜杠）；session 起一次，进程内复用。"""
     override = os.environ.get("MATH_API_BASE")
     if override:
+        override_base = override.rstrip("/")
+        warm_up(override_base)
         # 生成器型 fixture 不能早退：pytest 要求它 yield 出值，
         # `return` 会得到 "math_api did not yield a value"。
-        yield override.rstrip("/")
+        yield override_base
         return
 
     if not UNIT.exists():
@@ -114,6 +143,7 @@ def math_api(tmp_path_factory):
             proc.terminate()
             pytest.fail(f"{base}/health 在 {READY_TIMEOUT_S}s 内没就绪，最后错误 {last_error}")
 
+    warm_up(base)
     try:
         yield base
     finally:
