@@ -12,9 +12,9 @@ repowiki:
       author: jiuben
     - text: "方案 E 与 daban 已于 2026-10-24 退出实盘入口：mode_daily 不再据清单计算买入数量，清单仅作研究产出；恢复 plan-e-today 与 plan-e-journal 定时器恢复的是盘前清单的自动生成，不等于实盘下单。PLAN_E_PREMARKET_LIST_ACTIVE 为 False 是有意设计，写作时不要描述成缺陷。"
       author: jiuben
-    - text: "scripts/plan_e_sim_live.py 仍复制旧的乐观成交循环，引用其输出必须显式标注口径；docs/math_upgrade_plan_20261015.md 把置换检验描述为 alpha 检验，该描述已作废。"
+    - text: "方案 E 的两处成交循环已经同口径，不要写成一处乐观一处保守：scripts/plan_e_backtest.py 的 _settle_from_entry 是权威实现，scripts/plan_e_sim_live.py 的 simulate_trade 是手抄的第二份（双触发取 SL、跳空穿越按当日开盘），闸门 tests/test_plan_e_sim_live_exit.py。docs/math_upgrade_plan_20261015.md 里置换检验与胜率原假设两处措辞已在文件内就地更正。"
       author: jiuben
-    - text: "蒸馏教师模型必须由 TDX_DISTILL_MODEL 显式指定。tdx-lora:latest 在本仓库没有任何生产者且本机已不存在；仓库内点名的 qwen3-14b-tdx-v5/v6/v7 与裸名 qwen3-14b-tdx 均未安装，models/Qwen3-14B-tdx-v9-merged 在盘上但未注册。写部署文档时以 ollama list 为唯一权威。"
+    - text: "蒸馏教师模型没有仓库内的可信来源：源码里写死的 tag 一律不可信，本仓库历史上就写死过一个本机不存在、且没有任何生产者（无 Modelfile、无 create 步骤）的 tag。唯一权威是本地 Ollama 服务，读 GET http://127.0.0.1:11434/api/tags（受限沙箱里 ollama list 与 make deploy-list 会因 snap 权限失败）。2026-10-24 实测在服 7 个：qwen3-14b-tdx-v4fwd、qwen3-14b-tdx-v7r-q8、qwen3-14b-tdx-v7r1115、qwen3-14b-tdx-fast、deepseek-r1:14b、qwen3:14b、nomic-embed-text；仓库点名的 v5/v6/v7 精确 tag 与裸名 qwen3-14b-tdx 都不在其中，models/Qwen3-14B-tdx-v9-merged 在盘上但未注册。"
       author: jiuben
     - text: "_archive/、data/、logs/、models/、venv/、downloads/ 是历史产物与数据资产，不描述当前架构，不要据此推断模块职责。docs/ 下带日期的 CODE_AUDIT_*、COMPARE_*、*_RESEARCH_* 是一次性研究快照，写成历史结论而非现状规格。"
       author: jiuben
@@ -55,7 +55,7 @@ repowiki:
       hints: "v5/mcp_servers、v5/mcp_math、v5/llm、mcp/servers、v5/scripts、v5/systemd。"
 
     - title: "蒸馏与 QLoRA 训练管线"
-      goal: "描述蒸馏数据集构造、训练配置与评测脚本的关系，重点说明教师模型选择必须显式指定以及失败静默写入空输出的已知风险。"
+      goal: "描述蒸馏数据集构造、训练配置与评测脚本的关系，重点说明教师 tag 只能以本地 Ollama 服务为权威（源码里写死的 tag 一律不可信）、输出文件是追加续跑（按已写行数跳过，skeleton 变更后要换新文件），以及长跑前先用小批量 LIMIT 抽样确认 output 非空的出厂校验口径。"
       hints: "scripts/distill_outputs.py、training/config、training/eval、data/distill/skeleton.jsonl。"
 
     - title: "多 Agent 编排与运行时"
