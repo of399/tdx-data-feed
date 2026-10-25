@@ -5,26 +5,26 @@
 - 响应 GBK 编码
 - 单批建议 ≤ 80 个代码，超长易被截断
 
-**字段布局（2023 起新版，实测 33/34 段）**::
+**字段布局（实测 34 段，2026-10-23 用腾讯源 qt.gtimg.cn 逐档交叉验证）**::
 
     0 名称  1 今开  2 昨收  3 现价  4 最高  5 最低
-    6 买一价   7 卖一价   8 委买一量(封单股数)   9 委买一额(封单金额)
-    10 委买二量
-    11/12 买二价/量  13/14 买三  15/16 买四  17/18 买五
-    19/20 卖一价/量  21/22 卖二  23/24 卖三  25/26 卖四  27/28 卖五
-    30 日期  31 时间  32 状态
+    6 买一价  7 卖一价  8 成交量(股)  9 成交额(元)
+    10/11 买一量/价  12/13 买二  14/15 买三  16/17 买四  18/19 买五
+    20/21 卖一量/价  22/23 卖二  24/25 卖三  26/27 卖四  28/29 卖五
+    30 日期  31 时间  32 状态  33 保留（如 D|102700|1826006.000）
 
-旧版布局仍做防御性兼容（6/7 买一价量 … 26 日期 27 时间 30 成交量 31 成交额）。
+⚠ 档位顺序是**"量,价"**，不是"价,量"；且 **8/9 是成交量/成交额**（腾讯 481706 手
+= 新浪 48170642 股，逐只对上）。历史教训：早期版本把 8/9 当成"委买一量/委买一额"，
+于是"封单量"其实是当天成交量、"封单比"退化成量比、"撤单速率"是成交量下降速度——
+所有依赖这些字段的研究结论在修正前都要重新核一遍。
 
-⚠ 新版接口**不返回成交量/成交额**，因此：
-- 封单量/封单额 → 本接口直接给（比五档更准，等于买一档挂单量）
-- 当日成交量/换手率 → 需另接数据源或用本地 parquet 近 5 日均量近似
-  （scanner 用"封单量 / 近 5 日均量"作为封单强度的本地口径）
-
-L1 五档可提供的打板要素（对应计划书 §2.6）：
-- 委买一量/额 → 封单强度（真实封单队列与撤单动态仍需 L2，见附录 E）
+本接口能给的打板要素（对应计划书 §2.6）：
+- 买一量/买一量×买一价 → 封单股数与封单金额（真实排队队列仍需 L2，见附录 E）
 - 卖五档全 0 → 涨停封死（卖压已尽）
+- 成交量/成交额 → 当日换手、封单额/成交额比（排队强度）
 - 现价/最高/最低 → 炸板判定
+
+旧版布局仍做防御性兼容（6/7 起"价,量"五档 … 26 日期 27 时间 30 成交量 31 成交额）。
 """
 from __future__ import annotations
 
@@ -64,8 +64,8 @@ class Quote:
     asks: list[tuple[float, float]] = field(default_factory=list)  # [(价, 量/股)]
     seal_shares: float = 0.0  # 封单股数（委买一量）
     seal_amount: float = 0.0  # 封单金额（委买一额，元）
-    volume: float = 0.0  # 成交量（股）——新版接口不提供
-    amount: float = 0.0  # 成交额（元）——新版接口不提供
+    volume: float = 0.0  # 成交量（股，接口 8 段）
+    amount: float = 0.0  # 成交额（元，接口 9 段）
     date: str = ""
     time: str = ""
 
@@ -122,23 +122,23 @@ def _parse_line(code: str, payload: str) -> Quote | None:
             break
 
     if new_fmt:
-        bid1_price = _to_float(parts[6])
-        seal_shares = _to_float(parts[8]) if len(parts) > 8 else 0.0
-        seal_amount = _to_float(parts[9]) if len(parts) > 9 else 0.0
-        q.seal_shares = seal_shares
-        q.seal_amount = seal_amount
-        if bid1_price > 0:
-            q.bids.append((bid1_price, seal_shares))
-        for i in range(4):  # 买二~买五
+        # 34 段新版：档位是"量,价"顺序（腾讯源逐档交叉验证过，见
+        # tests/test_daban_realtime_layout.py）。量在偶数位、价在奇数位。
+        q.volume = _to_float(parts[8])
+        q.amount = _to_float(parts[9])
+        for i in range(5):  # 买一~买五：(10,11) (12,13) … (18,19)
+            v = _to_float(parts[10 + i * 2]) if len(parts) > 10 + i * 2 else 0.0
             p = _to_float(parts[11 + i * 2]) if len(parts) > 11 + i * 2 else 0.0
-            v = _to_float(parts[12 + i * 2]) if len(parts) > 12 + i * 2 else 0.0
             if p > 0:
                 q.bids.append((p, v))
-        for i in range(5):  # 卖一~卖五
-            p = _to_float(parts[19 + i * 2]) if len(parts) > 19 + i * 2 else 0.0
+        for i in range(5):  # 卖一~卖五：(20,21) (22,23) … (28,29)
             v = _to_float(parts[20 + i * 2]) if len(parts) > 20 + i * 2 else 0.0
+            p = _to_float(parts[21 + i * 2]) if len(parts) > 21 + i * 2 else 0.0
             if p > 0:
                 q.asks.append((p, v))
+        if q.bids:
+            q.seal_shares = q.bids[0][1]
+            q.seal_amount = q.bids[0][0] * q.bids[0][1]
     else:
         for i in range(5):  # 买一~买五
             p = _to_float(parts[6 + i * 2]) if len(parts) > 6 + i * 2 else 0.0
