@@ -84,6 +84,8 @@ venv/bin/python scripts/predict.py --model vpnl_huber --features legacy --top 30
 
 **验证**：`test -f data/predictions/predict_latest.md`（同时产出 `predict_YYYYMMDD_HHMMSS.{csv,md}` + `predict_top5_*.csv` + `predict_high_*.csv`）
 
+> 收盘后若只想看打板候选、不落盘完整预测，可调用 `daban` skill（MCP 工具 `tdx-backtest.daban_top_picks`）：全市场 29 维打分，输出 T+1 收盘涨停概率 Top-N，约 3-4 秒；剔除 T 日开盘即涨停（买不进）样本。
+
 ### 阶段 4：方案 E 回测（tdx-backtester）
 
 ```bash

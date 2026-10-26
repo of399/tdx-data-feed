@@ -1,0 +1,76 @@
+# daban skill — 全市场打板选股（daban 模型 Top-N）
+# ==========================================
+# 纯工具型 skill：收盘后运行，输出 T+1 收盘涨停概率 Top-N。
+# 模型：data/double_up/d_signal_5d_model_daban.txt（29 维二分类）
+
+name: daban
+version: "0.1.0"
+description: |
+  用 daban 模型扫描全市场，输出次日收盘涨停概率最高的 Top-N 打板候选，
+  附连板高度、T+1 涨停价、5 日涨幅与成交额。剔除 T 日开盘即涨停（实盘买不进）
+  样本，可选剔除 T 日已涨停 / ST / 低流动性股票。
+
+  ⚠️ 仅作排序研究参考，不是买入指令：该模型在诚实成交口径（T+1 开盘入场、
+  SL 优先、跳空按开盘成交）下为负期望（K=5 平均净收益 -0.78%/笔、累计 -94.5%，
+  执行闸门 overall_go=false）。证据：docs/DABAN_TOPK_PNL_20261022.md、
+  data/daban/execution_backtest_20261022.json。
+
+llm:
+  model_id: none
+  inference: null
+
+tools:
+  - mcp:tdx-backtest.daban_top_picks
+
+input_schema:
+  type: object
+  properties:
+    date:
+      type: string
+      description: 信号日 YYYYMMDD / YYYY-MM-DD；默认最新交易日（用最近收盘数据）
+    top:
+      type: integer
+      default: 5
+      description: 返回前 N 只（1-50）
+    exclude_limit_today:
+      type: boolean
+      default: false
+      description: 剔除 T 日已收盘涨停的股票（默认保留：模型 Top-N 主要由连板接力驱动）
+    min_amount:
+      type: number
+      default: 0
+      description: T 日最低成交额（元），0=不过滤
+    include_st:
+      type: boolean
+      default: false
+      description: 是否保留 ST 股（默认剔除）
+
+output_schema:
+  type: object
+  properties:
+    date:
+      type: string
+      description: 实际扫描的信号日
+    model:
+      type: object
+      description: 模型名、路径、目标与特征数
+    universe:
+      type: object
+      description: 股票池、扫描数、有效数与剔除原因计数
+    picks:
+      type: array
+      description: Top-N 候选（代码、名称、概率、连板数、T+1 涨停价、成交额）
+    warnings:
+      type: array
+      description: 数据质量与过滤提示
+
+prompt_template: null
+
+priority: 70
+timeout_sec: 90
+fallback_skill: null
+
+metrics:
+  - latency_ms
+  - n_picks
+  - top_score

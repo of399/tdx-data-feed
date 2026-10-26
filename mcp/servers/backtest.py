@@ -7,8 +7,10 @@ mcp/servers/backtest.py — MCP Server: 单标的技术策略回测
     1. list_strategies       列出内置策略与默认参数
     2. run_backtest          按内置策略回测（前复权、T+1 开盘成交）
     3. run_signal_backtest   按显式信号日期回测（可配止盈/止损/持有天数）
+    4. daban_top_picks       全市场打板选股：daban 模型打分，输出 T+1 涨停概率 Top-N
 
 数据源：data/parquet/daily/{symbol}.parquet + data/adj_factor/{six}.parquet
+        模型 data/double_up/d_signal_5d_model_daban.txt（29 维，次日收盘涨停二分类）
 协议：MCP 2024-11-05（JSON-RPC over stdio）
 
 口径：
@@ -21,10 +23,13 @@ mcp/servers/backtest.py — MCP Server: 单标的技术策略回测
 import json
 import logging
 import math
+import os
 import re
 import sys
 import time
 from bisect import bisect_left
+from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -40,6 +45,22 @@ logging.basicConfig(
 ROOT = Path("/home/jiuben/tdx-data-feed")
 DAILY_DIR = ROOT / "data/parquet/daily"
 ADJ_DIR = ROOT / "data/adj_factor"
+DABAN_MODEL = ROOT / "data/double_up/d_signal_5d_model_daban.txt"
+UNIVERSE_FILE = ROOT / "data/all_a_stocks.json"
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tdxfeed.daban.limit_price import (  # noqa: E402
+    is_st as _is_st_name,
+    limit_ratio,
+    limit_up_price,
+)
+from tdxfeed.features_5d import (  # noqa: E402
+    compute_window_features_extended,
+    get_limit,
+    is_open_limit_up,
+)
 
 DEFAULT_FEE_BPS = 2.5
 DEFAULT_STAMP_BPS = 5.0
@@ -632,6 +653,263 @@ def run_signal_backtest(code: str, signals: list, start: str | None = None,
     return result
 
 
+# === 打板选股（daban 模型全市场扫描）========================================
+DABAN_WORKERS = min(8, os.cpu_count() or 4)
+_DABAN_MODEL_CACHE = None
+
+
+def _load_daban_model():
+    global _DABAN_MODEL_CACHE
+    if _DABAN_MODEL_CACHE is None:
+        if not DABAN_MODEL.exists():
+            raise McpError(404, f"daban 模型不存在：{DABAN_MODEL}")
+        import lightgbm as lgb
+        _DABAN_MODEL_CACHE = lgb.Booster(model_file=str(DABAN_MODEL))
+    return _DABAN_MODEL_CACHE
+
+
+def _load_universe() -> dict[str, str]:
+    """沪深个股 {6位代码: 名称}，仅 60/68/00/30 前缀（不含指数/ETF/北交所）。"""
+    names: dict[str, str] = {}
+    if UNIVERSE_FILE.exists():
+        try:
+            raw = json.loads(UNIVERSE_FILE.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                names = {str(k).zfill(6): str(v) for k, v in raw.items() if str(k).isdigit()}
+        except Exception as e:
+            logging.warning("股票池读取失败，回退扫描 parquet：%s", e)
+    if not names:
+        for fp in DAILY_DIR.glob("*.parquet"):
+            if ".bak" in fp.stem:
+                continue
+            stem = fp.stem
+            six = stem[2:] if stem[:2] in ("sh", "sz", "bj") else stem
+            names[six] = ""
+    return {c: n for c, n in names.items() if c[:2] in ("60", "68", "00", "30")}
+
+
+def _to_ymd(series: pd.Series) -> pd.Series:
+    if pd.api.types.is_integer_dtype(series):
+        return pd.to_datetime(series.astype(str).str.zfill(8), format="%Y%m%d",
+                              errors="coerce")
+    return pd.to_datetime(series, errors="coerce")
+
+
+def _latest_market_date() -> str:
+    for ref in ("sh000001", "sh600000"):
+        fp = DAILY_DIR / f"{ref}.parquet"
+        if not fp.exists():
+            continue
+        s = _to_ymd(pd.read_parquet(fp, columns=["date"])["date"])
+        if s.notna().any():
+            return str(s.max().strftime("%Y-%m-%d"))
+    raise McpError(404, "无法从指数/样本股 K 线确定最新交易日")
+
+
+def _norm_ymd(value) -> str | None:
+    d = _norm_date(value)
+    return f"{d[:4]}-{d[4:6]}-{d[6:]}" if d else None
+
+
+def _daban_scan_one(task: tuple[str, str]) -> dict:
+    six, target = task
+    sym = ("sh" if six.startswith("6") else "sz") + six
+    fp = DAILY_DIR / f"{sym}.parquet"
+    if not fp.exists():
+        return {"code": six, "sym": sym, "status": "missing"}
+    try:
+        df = pd.read_parquet(fp)
+    except Exception as e:
+        return {"code": six, "sym": sym, "status": "read_error", "detail": str(e)[:120]}
+    if df.empty or not {"date", "open", "high", "low", "close"}.issubset(df.columns):
+        return {"code": six, "sym": sym, "status": "missing"}
+
+    dates = _to_ymd(df["date"]).dt.strftime("%Y-%m-%d")
+    hits = np.flatnonzero((dates == target).to_numpy())
+    if hits.size == 0:
+        return {"code": six, "sym": sym, "status": "no_bar"}
+    idx = int(hits[-1])
+    if idx < 20:
+        return {"code": six, "sym": sym, "status": "short_history"}
+
+    close = pd.to_numeric(df["close"], errors="coerce").to_numpy(dtype=float)
+    openp = pd.to_numeric(df["open"], errors="coerce").to_numpy(dtype=float)
+    if not (np.isfinite(close[idx]) and np.isfinite(close[idx - 1])) or close[idx] <= 0:
+        return {"code": six, "sym": sym, "status": "bad_price"}
+
+    limit_val = get_limit(sym)
+    if is_open_limit_up(float(openp[idx]), float(close[idx - 1]), limit_val):
+        return {"code": six, "sym": sym, "status": "open_limit"}
+
+    feat = compute_window_features_extended(df, sym, sig_idx=idx)
+    if feat is None:
+        return {"code": six, "sym": sym, "status": "short_history"}
+
+    volume = 0.0
+    if "volume" in df.columns:
+        v = pd.to_numeric(df["volume"], errors="coerce").iloc[idx]
+        volume = float(v) if pd.notna(v) else 0.0
+    amount = 0.0
+    if "amount" in df.columns:
+        a = pd.to_numeric(df["amount"], errors="coerce").iloc[idx]
+        amount = float(a) if pd.notna(a) else 0.0
+    amount_est = amount if amount > 0 else close[idx] * volume * 100.0
+
+    return {
+        "code": six,
+        "sym": sym,
+        "status": "ok",
+        "close": float(close[idx]),
+        "pct_today": float(close[idx] / close[idx - 1] - 1.0),
+        "amount_est": amount_est,
+        "amount_is_estimated": amount <= 0,
+        "feats": {k: (float(v) if isinstance(v, (int, float, np.floating, np.integer))
+                      else 0.0) for k, v in feat.items()},
+    }
+
+
+def _daban_rows_to_frame(ok: list[dict]) -> pd.DataFrame:
+    """展开 worker 结果。注意 `prev_close` 是模型特征名（历史命名，值为当日收盘），
+    不能被同义的行情字段覆盖，否则当日有涨跌的股票打分整体偏移。
+    """
+    rows = []
+    for r in ok:
+        rows.append({
+            **r["feats"],
+            "code": r["code"], "sym": r["sym"], "close": r["close"],
+            "pct_today": r["pct_today"],
+            "amount_est": r["amount_est"],
+            "amount_is_estimated": r["amount_is_estimated"],
+        })
+    return pd.DataFrame(rows)
+
+
+def daban_top_picks(date: str | None = None, top: int = 5,
+                    exclude_limit_today: bool = False,
+                    min_amount: float = 0.0,
+                    include_st: bool = False) -> dict:
+    """全市场 daban 打分：T+1 收盘涨停概率 Top-N（收盘后使用）。"""
+    try:
+        top = int(top)
+        min_amount = float(min_amount)
+    except (TypeError, ValueError):
+        raise McpError(-32602, "top 必须是整数，min_amount 必须是数字") from None
+    if not 1 <= top <= 50:
+        raise McpError(-32602, f"top 超出范围 [1, 50]：{top}")
+    if min_amount < 0:
+        raise McpError(-32602, "min_amount 不能为负")
+    if date is None:
+        target, date_source = _latest_market_date(), "latest"
+    else:
+        target = _norm_ymd(date)
+        if target is None:
+            raise McpError(-32602, f"日期无法解析：{date}")
+        date_source = "requested"
+
+    t0 = time.time()
+    universe = _load_universe()
+    codes = [c for c, n in universe.items()
+             if include_st or not _is_st_name(n)]
+    with ProcessPoolExecutor(max_workers=DABAN_WORKERS) as ex:
+        results = list(ex.map(_daban_scan_one, [(c, target) for c in codes],
+                              chunksize=64))
+
+    status = Counter(r["status"] for r in results)
+    ok = [r for r in results if r["status"] == "ok"]
+    warnings_out: list[str] = [
+        "⚠️ 本结果只作排序研究，不是买入指令：daban 在诚实成交口径下为负期望"
+        "（K=5 平均净收益 -0.78%/笔，累计 -94.5%，执行闸门 overall_go=false）；"
+        "详见 docs/DABAN_TOPK_PNL_20261022.md"
+    ]
+    if not ok:
+        return {
+            "ok": True, "date": target, "date_source": date_source,
+            "picks": [], "universe": {"listed": len(universe), "scanned": len(codes)},
+            "warnings": [f"{target} 无任何个股 K 线，可能不是交易日或数据未更新"],
+            "elapsed_sec": round(time.time() - t0, 1),
+        }
+
+    df = _daban_rows_to_frame(ok)
+
+    n_valid = len(df)
+    df = df[(df["is_new"] == 0) & (df["close"] >= 1.0)]
+    if exclude_limit_today:
+        df = df[df["is_limit_up_today"] == 0]
+    if min_amount > 0:
+        df = df[df["amount_est"] >= min_amount]
+    if df.empty:
+        warnings_out.append("过滤后无候选（min_amount 过高或新股/低价股被剔除）")
+
+    picks: list[dict] = []
+    if not df.empty:
+        model = _load_daban_model()
+        feature_cols = model.feature_name()
+        missing = [c for c in feature_cols if c not in df.columns]
+        if missing:
+            raise McpError(-32603, f"模型特征缺失：{missing}")
+        df = df.copy()
+        df["score"] = model.predict(df[feature_cols].fillna(0))
+        df = df.sort_values(["score", "amount_est"], ascending=[False, False])
+        for rank, (_, r) in enumerate(df.head(top).iterrows(), 1):
+            six = str(r["code"])
+            name = universe.get(six, "")
+            picks.append({
+                "rank": rank,
+                "code": r["sym"],
+                "name": name,
+                "score": round(float(r["score"]), 6),
+                "close": round(float(r["close"]), 2),
+                "pct_today": round(float(r["pct_today"]), 4),
+                "limit_up_price_t1": limit_up_price(float(r["close"]),
+                                                    limit_ratio(six, name)),
+                "consecutive_boards": int(r["consecutive_boards"]),
+                "limit_up_today": bool(int(r["is_limit_up_today"])),
+                "ret_5d": round(float(r["ret_5d"]), 4),
+                "amount_est_yuan": round(float(r["amount_est"]), 0),
+            })
+
+    est_share = float(np.mean([r["amount_is_estimated"] for r in ok]))
+    if est_share > 0.5:
+        warnings_out.append(
+            f"最新交易日成交额字段缺失率 {est_share:.0%}（amount=0），"
+            "流动性按 close×volume×100 估算；模型内成交额类特征在当前数据上退化为常数")
+    if n_valid < 1000:
+        warnings_out.append(f"有效样本仅 {n_valid} 只，数据可能未完整更新")
+
+    return {
+        "ok": True,
+        "date": target,
+        "date_source": date_source,
+        "model": {
+            "name": "daban",
+            "path": str(DABAN_MODEL),
+            "target": "T+1 收盘涨停概率",
+            "n_features": len(_load_daban_model().feature_name()),
+        },
+        "universe": {
+            "listed": len(universe),
+            "after_st_filter": len(codes),
+            "scanned": len(results),
+            "valid": n_valid,
+            "after_filters": len(df),
+            "skipped": {k: v for k, v in status.items() if k != "ok"},
+        },
+        "filters": {
+            "skip_open_limit_today": True,
+            "exclude_limit_today": exclude_limit_today,
+            "include_st": include_st,
+            "min_amount": min_amount,
+            "min_close": 1.0,
+            "skip_new": True,
+        },
+        "picks": picks,
+        "warnings": warnings_out,
+        "elapsed_sec": round(time.time() - t0, 1),
+        "note": ("daban 模型预测 T+1 收盘涨停概率；T 日开盘即涨停（实盘买不进）样本已剔除；"
+                 "Top-N 为候选而非买入建议，打板属高风险策略"),
+    }
+
+
 # === MCP dispatcher ========================================================
 TOOLS = {
     "list_strategies": {
@@ -682,6 +960,27 @@ TOOLS = {
             "required": ["code", "signals"],
         },
         "handler": lambda a: run_signal_backtest(**a),
+    },
+    "daban_top_picks": {
+        "description": "全市场打板选股：daban 模型打分，输出 T+1 收盘涨停概率 Top-N",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "date": {"type": "string",
+                         "description": "信号日 YYYYMMDD / YYYY-MM-DD，默认最新交易日"},
+                "top": {"type": "integer", "default": 5,
+                        "description": "返回前 N 只（1-50）"},
+                "exclude_limit_today": {
+                    "type": "boolean", "default": False,
+                    "description": "剔除 T 日已收盘涨停的股票（默认保留，连板接力是模型主要信号）",
+                },
+                "min_amount": {"type": "number", "default": 0,
+                               "description": "T 日最低成交额（元），0=不过滤"},
+                "include_st": {"type": "boolean", "default": False,
+                               "description": "是否保留 ST 股"},
+            },
+        },
+        "handler": lambda a: daban_top_picks(**a),
     },
 }
 

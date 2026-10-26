@@ -32,6 +32,7 @@ INTENT_PATTERNS = [
     (re.compile(r'财务|营收|净利润|ROE|毛利|EPS|pe|pb|市盈率|市净率|报表|资产负债|现金流'), "financial-summary"),
     (re.compile(r'复权|除权除息|前复权|后复权|送转|分红'), "adj-factor"),
     (re.compile(r'新闻|公告|政策|舆情|消息|利好|利空'), "news-summary"),
+    (re.compile(r'打板|连板|首板|次日涨停|涨停候选|涨停股|接力板'), "daban"),
     (re.compile(r'指标|形态|金叉|死叉|锤子|十字星|超买|超卖|均线|MACD|KDJ|RSI'), "indicator-match"),
     # 默认：含代码 → 主分析
     (re.compile(r'((sh|sz|bj)\d{6})'), "kline-analysis"),
@@ -161,6 +162,8 @@ class Orchestrator:
             if not code:
                 return self._err("新闻查询需要股票代码", intent, t0)
             result = self.runtime.execute_skill("news-summary", {"code": code})
+        elif intent == "daban":
+            result = self.runtime.execute_skill("daban", {"top": 5})
         elif intent == "indicator-match":
             if not code:
                 return self._err("指标分析需要股票代码", intent, t0)

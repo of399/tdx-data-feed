@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "tdx-data-feed MCP Server Pool Tools Schema",
-  "version": "0.5.0",
-  "updated": "2026-10-21",
+  "version": "0.6.0",
+  "updated": "2026-10-22",
   "servers": {
     "tdx-parquet-reader": {
       "description": "读 Parquet 数据（行情/财务/股本）",
@@ -362,10 +362,24 @@
             },
             "required": ["code", "signals"]
           }
+        },
+        {
+          "name": "daban_top_picks",
+          "description": "全市场打板选股：daban 模型打分，输出 T+1 收盘涨停概率 Top-N",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "date": {"type": "string", "description": "信号日 YYYYMMDD / YYYY-MM-DD，默认最新交易日"},
+              "top": {"type": "integer", "default": 5, "description": "返回前 N 只（1-50）"},
+              "exclude_limit_today": {"type": "boolean", "default": false, "description": "剔除 T 日已收盘涨停的股票（默认保留，连板接力是模型主要信号）"},
+              "min_amount": {"type": "number", "default": 0, "description": "T 日最低成交额（元），0=不过滤"},
+              "include_st": {"type": "boolean", "default": false, "description": "是否保留 ST 股"}
+            }
+          }
         }
       ]
     }
   },
-  "tool_count": 22,
-  "total_tools": 22
+  "tool_count": 23,
+  "total_tools": 23
 }

@@ -18,7 +18,7 @@
 │   ├── vault (RAG / StockVault / Obsidian)            │
 │   ├── news (个股新闻 / 公告 / 市场要闻)               │
 │   ├── finance-deep (三大报表 / 指标扩展)              │
-│   └── backtest (内置策略 / 显式信号回测)              │
+│   └── backtest (内置策略 / 显式信号回测 / 打板 Top-N)  │
 │       ↓                                              │
 │  L1 · 数据源 (Parquet / 计算引擎 / 向量库 / akshare)   │
 └─────────────────────────────────────────────────────┘
@@ -33,9 +33,9 @@
 | **vault** | 3 | data/vault_store.jsonl + 可选 Ollama embed | 文档检索（向量 / lexical 兜底，支持目录过滤）|
 | **news** | 3 | akshare（东财 / 巨潮 / 财新）| 实时新闻、公告、市场要闻 |
 | **finance-deep** | 3 | finance.parquet + akshare + data/parquet/finance_deep 缓存 | 三大报表与扩展指标 |
-| **backtest** | 3 | data/parquet/daily + data/adj_factor | 单股策略回测 / 信号验证 |
+| **backtest** | 4 | data/parquet/daily + data/adj_factor + daban 模型 | 单股策略回测 / 信号验证 / 打板 Top-N 选股 |
 
-合计 22 个工具，详细清单见 `schemas/tools.json`，协议遵循 MCP 2024-11-05 标准（JSON-RPC over stdio）。
+合计 23 个工具，详细清单见 `schemas/tools.json`，协议遵循 MCP 2024-11-05 标准（JSON-RPC over stdio）。
 
 > news 依赖外网与 akshare，接口不可用时返回错误而非编造数据；finance-deep 对非核心标的首次查询会联网拉取并落盘缓存 7 天；backtest 使用前复权价格，信号收盘触发、次日开盘成交，买卖均计佣金 2.5bps + 滑点 5bps，卖出另计印花税 5bps。
 
@@ -147,6 +147,7 @@ agent 加载 skill 时，会自动按依赖关系注入 MCP server 子进程。
 
 - `mcp-news` → `tdx-news`：东财个股新闻、巨潮公告、财新市场要闻；5 分钟内存缓存，失败直接报错。
 - `mcp-backtest` → `tdx-backtest`：5 个内置策略 + 显式信号回测；前复权、T+1、费用滑点可配。
+- `tdx-backtest.daban_top_picks`（2026-10-22）：全市场 29 维 daban 模型打分，输出 T+1 收盘涨停概率 Top-N；剔除 T 日开盘即涨停（买不进）样本，可选剔除 T 日已涨停 / ST / 低流动性。
 - `mcp-finance-deep` → `tdx-finance-deep`：三大报表全字段 + 指标查询；核心 300 走本地，其余按需拉取并缓存 7 天。
 
 后续候选：新闻情绪打分、组合级回测、财报 PDF 解析入库。

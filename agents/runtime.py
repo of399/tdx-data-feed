@@ -629,6 +629,19 @@ class SkillRuntime:
                 out["tools_used"] = [used]
                 return out
 
+            # daban（纯工具：全市场次日涨停概率 Top-N）
+            if name == "daban":
+                resp = self.call_mcp("tdx-backtest", "daban_top_picks", {
+                    "date": inputs.get("date"),
+                    "top": int(inputs.get("top", 5)),
+                    "exclude_limit_today": bool(inputs.get("exclude_limit_today", False)),
+                    "min_amount": float(inputs.get("min_amount", 0) or 0),
+                    "include_st": bool(inputs.get("include_st", False)),
+                })
+                out.update(resp or {})
+                out["tools_used"] = ["tdx-backtest.daban_top_picks"]
+                return out
+
             # news-summary（无 LLM 降级：直接返回新闻/公告条目，不做情感推断）
             if name == "news-summary":
                 if not code:
