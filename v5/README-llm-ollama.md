@@ -28,8 +28,8 @@ v5/
 ├── audit/
 │   └── llm-calls.jsonl         # 自动生成的审计日志
 ├── systemd/
-│   ├── ollama.service          # Ollama daemon 自启
-│   └── mcp-llm-ollama.service  # MCP server 自启（可选）
+│   ├── ollama.service          # 备用：仅适用于不由 snap 提供 Ollama 的机器
+│   └── mcp-llm-ollama.service  # MCP server 常驻（可选，stdio 路径用不到）
 └── README-llm-ollama.md        # 本文档
 ```
 
@@ -51,9 +51,10 @@ venv/bin/python v5/mcp_servers/llm_ollama.py
 # 方式 2：HTTP（用于调试 / 远程调用，需修改主程序使用 streamable_http_app）
 ```
 
-## 配置 MCP client（CodeBuddy / Claude Desktop）
+## 配置 MCP client
 
-`~/.config/CodeBuddy*/.../mcp.json` 或 Claude Desktop 配置：
+下面这段是 stdio 启动参数，任何 MCP client 都适用。配置文件的位置和外层键名因 client 而异
+（常见是顶层 `mcpServers`，也有 client 写成嵌套的 `mcp.servers`），以你所用 client 的文档为准：
 
 ```json
 {
@@ -62,7 +63,7 @@ venv/bin/python v5/mcp_servers/llm_ollama.py
       "command": "/home/jiuben/tdx-data-feed/venv/bin/python",
       "args": ["/home/jiuben/tdx-data-feed/v5/mcp_servers/llm_ollama.py"],
       "env": {
-        "OLLAMA_HOST": "http://127.0.0.1:11434"
+        "OLLAMA_URL": "http://127.0.0.1:11434"
       }
     }
   }
@@ -71,31 +72,43 @@ venv/bin/python v5/mcp_servers/llm_ollama.py
 
 ## 自启配置
 
-```bash
-# Ollama daemon 自启
-sudo cp v5/systemd/ollama.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now ollama.service
-sudo systemctl status ollama.service
+**本机（2026-10-25 实测）不要装 `v5/systemd/ollama.service`。** Ollama 由 snap 提供，
+snapd 起的 daemon 已经占有 `127.0.0.1:11434`；这个 unit 的 `ExecStart=/snap/bin/ollama serve`
+会跟它抢同一端口。装之前先确认端口归谁：
 
-# （可选）mcp-llm-ollama 自启
+```bash
+ss -ltnp | grep 11434
+curl -s http://127.0.0.1:11434/api/tags
+```
+
+（`ollama.service` 只适用于 Ollama 不是 snap 装的机器。）
+
+```bash
+# （可选）mcp-llm-ollama 常驻 —— 只在 journal 里看它的日志、或改造成 HTTP server 时才需要
 sudo cp v5/systemd/mcp-llm-ollama.service /etc/systemd/system/
 sudo systemctl daemon-reload
+sudo systemctl start mcp-llm-ollama
 # 注：stdio 模式下 mcp server 由 client 启动，无需 enable
 ```
 
 ## 调优参数（环境变量）
 
+名字必须与 `v5/mcp_servers/llm_ollama.py` 里 `os.environ.get(...)` 读的一致；
+守卫是 `tests/test_llm_ollama_unit_env_contract.py`。
+
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama daemon 地址 |
-| `LLM_DEFAULT_CHAT` | `qwen3:14b` | chat Tool 默认模型 |
-| `LLM_DEFAULT_REASON` | `deepseek-r1:14b` | reason Tool 默认模型 |
-| `LLM_DEFAULT_EMBED` | `nomic-embed-text:latest` | embed Tool 默认模型 |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama daemon 地址 |
+| `DEFAULT_CHAT_MODEL` | `qwen3:14b` | chat Tool 默认模型 |
+| `DEFAULT_REASON_MODEL` | `deepseek-r1:14b` | reason Tool 默认模型 |
+| `DEFAULT_EMBED_MODEL` | `nomic-embed-text:latest` | embed Tool 默认模型 |
+| `DEFAULT_JUDGE_MODEL` | `qwen3:14b` | judge Tool 默认模型 |
 | `LLM_CHAT_TIMEOUT_S` | `300` | chat 超时（14B 模型生成慢） |
 | `LLM_REASON_TIMEOUT_S` | `8` | reason 超时（必须短，触发降级） |
-| `LLM_EMBED_TIMEOUT_S` | `10` | embed 超时 |
-| `LLM_MAX_INPUT_CHARS` | `32000` | 防 DoS |
+| `LLM_EMBED_TIMEOUT_S` | `30` | embed 超时 |
+| `VLLM_ENABLED` | `true` | judge 走 vLLM 优先（需装有 vllm） |
+| `VLLM_JUDGE_URL` | `http://127.0.0.1:8001` | vLLM judge 地址 |
+| `VLLM_JUDGE_TIMEOUT_S` | `60` | vLLM judge 超时 |
 
 ## 性能说明（基于本机实测）
 

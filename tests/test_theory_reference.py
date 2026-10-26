@@ -74,7 +74,7 @@ NON_THEORY = [
     ("sh600000 最近有什么新闻？", "news-summary"),
     ("600000 浦发银行 新闻", "news-summary"),
     ("sh600000 什么是市盈率", "financial-summary"),   # 带代码就不走讲义
-    ("推荐今日打板股票", "indicator-match"),
+    ("推荐今日打板股票", "daban"),
     ("大盘为什么跌", "indicator-match"),              # 「为什么」不足以触发讲义
 ]
 

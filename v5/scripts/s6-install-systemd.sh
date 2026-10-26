@@ -20,8 +20,9 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   UNINSTALL=true
 fi
 
+# 2026-10-25：ollama.service 已从列表里摘掉。本机 Ollama 由 snap 提供（snapd 已把
+# :11434 占住），再 enable 一个 ExecStart=/snap/bin/ollama serve 的单元会跟它抢同一端口。
 SERVICES=(
-  "ollama.service"
   "mcp-llm-ollama.service"
   "vllm-qwen3-judge.service"
 )

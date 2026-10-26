@@ -2,12 +2,25 @@
 # 目标：修复缺失配置导致的提交阻断，并提供基础防护
 #   - 文件卫生：尾随空白 / 文件结尾换行 / 行尾统一 LF
 #   - 配置合法性：YAML / TOML / JSON
+#   - 0 字节文件：显式拦截（不再依赖 check-json 的偶然拦截）
 #   - 大文件防护：check-added-large-files（对齐 workspace 规则"大文件不提交 GGUF/parquet"）
 #   - 安全：detect-private-key（私钥泄露检测）
 # 说明：ruff 不在此处（避免既有代码 lint 债阻塞提交），沿用 make lint 入口。
 default_install_hook_types: [pre-commit]
 
 repos:
+  - repo: local
+    hooks:
+      - id: no-zero-byte-files
+        name: 0 字节文件拦截（空文件不得入库）
+        description: 显式拒绝 0 字节文件，给出明确错误而非 check-json 的偶然报错
+        entry: >-
+          bash -c 'rc=0; for f in "$@"; do if [ ! -s "$f" ]; then echo "0 字节文件: $f" >&2; rc=1; fi; done; if [ "$rc" -ne 0 ]; then echo "提交被拒绝：存在 0 字节文件，请删除或补充内容" >&2; fi; exit "$rc"' --
+        language: system
+        pass_filenames: true
+        # 已知合法 0 字节文件：v5/workbench SQLite 的 WAL（checkpoint 后即为 0 字节）
+        exclude: ^v5/workbench/workbench\.db-wal$
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:

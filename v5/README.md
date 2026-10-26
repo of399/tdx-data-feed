@@ -99,9 +99,10 @@ venv/bin/python v5/mcp_servers/math_sympy.py
 # stdio 模式，自动注册 9 个 Tool
 ```
 
-### 4. 配置到 Claude Desktop / CodeBuddy
+### 4. 配置到 MCP client
 
-`~/.config/CodeBuddy*/User/globalStorage/.../claude_desktop_config.json`：
+下面这段是 stdio 启动参数，任何 MCP client 都适用。配置文件的位置和外层键名因 client 而异
+（常见是顶层 `mcpServers`，也有 client 写成嵌套的 `mcp.servers`），以你所用 client 的文档为准：
 
 ```json
 {
@@ -240,12 +241,24 @@ stats = parallel_scan_notes("/path/to/notes", pattern="*.md", max_workers=16)
 
 ### systemd 自启（待 sudo 授权）
 
+**先确认 :11434 归谁管。** 本机 Ollama 由非 systemd 的 snap launcher 占有，
+`ollama.service` 和 `snap.ollama.ollama.service` 这两个单元名在本机都不存在：
+
 ```bash
-sudo cp v5/systemd/ollama.service /etc/systemd/system/
+ss -ltnp | grep 11434
+systemctl status ollama.service 2>&1 | head -3
+curl -s http://127.0.0.1:11434/api/tags
+```
+
+仓库里的 `v5/systemd/ollama.service`（`ExecStart=/snap/bin/ollama serve`）只适用于
+Ollama 不是这么装的机器；在本机启用它会跟现有 daemon 抢同一个端口，
+所以 `s6-install-systemd.sh` 的 `SERVICES` 里已经没有它了。
+
+```bash
 sudo cp v5/systemd/mcp-llm-ollama.service /etc/systemd/system/
 sudo cp v5/systemd/vllm-qwen3-judge.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now ollama mcp-llm-ollama vllm-qwen3-judge
+sudo systemctl enable --now mcp-llm-ollama vllm-qwen3-judge
 ```
 
 ---

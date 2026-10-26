@@ -43,20 +43,27 @@ def _compare(base_fn, poly_fn, code: str, df_pd: pd.DataFrame, df_pl: pl.DataFra
     r_pd = base_fn(df_pd, code)
     r_pl = poly_fn(df_pl, code)
     if r_pd is None or r_pl is None:
-        return {"skip": r_pd is None and r_pl is None, "keys_ok": None, "max_diff": None}
+        return {"skip": r_pd is None and r_pl is None, "keys_ok": None,
+                "max_diff": None, "max_rel": None}
     keys_ok = set(r_pd.keys()) == set(r_pl.keys())
     max_diff = 0.0
+    max_rel = 0.0
     if keys_ok:
         for k in r_pd:
             a, b = float(r_pd[k]), float(r_pl[k])
-            max_diff = max(max_diff, abs(a - b))
-    return {"skip": False, "keys_ok": keys_ok, "max_diff": max_diff}
+            d = abs(a - b)
+            max_diff = max(max_diff, d)
+            # 成交额类特征量级可达 1e9，float64 累加顺序差 ~1e-16 相对；
+            # 绝对容差 1e-9 在 1e9 量级上等价于要求位级一致，不可行
+            max_rel = max(max_rel, d / max(abs(a), abs(b), 1.0))
+    return {"skip": False, "keys_ok": keys_ok, "max_diff": max_diff, "max_rel": max_rel}
 
 
 def test_parity_18_and_26() -> None:
     files = _files()
     assert files, f"未找到日K parquet: {DAILY}"
     worst_18 = worst_26 = 0.0
+    rel_18 = rel_26 = 0.0
     n_ok = n_skip = 0
     bad = []
     for fp in files:
@@ -79,15 +86,18 @@ def test_parity_18_and_26() -> None:
             continue
         worst_18 = max(worst_18, c18["max_diff"])
         worst_26 = max(worst_26, c26["max_diff"])
+        rel_18 = max(rel_18, c18["max_rel"])
+        rel_26 = max(rel_26, c26["max_rel"])
         n_ok += 1
     print(f"\n parity: 通过 {n_ok} 只, 跳过(数据不足) {n_skip} 只")
-    print(f" 18维 最大差 = {worst_18:.3e}")
-    print(f" 26维 最大差 = {worst_26:.3e}")
+    print(f" 18维 最大差 = {worst_18:.3e}  最大相对差 = {rel_18:.3e}")
+    print(f" 26维 最大差 = {worst_26:.3e}  最大相对差 = {rel_26:.3e}")
     if bad:
         print(f" 键不一致: {bad[:5]}")
     assert not bad, f"存在键不一致样本: {bad[:5]}"
-    assert worst_18 <= 1e-9, f"18维 超出容差: {worst_18}"
-    assert worst_26 <= 1e-9, f"26维 超出容差: {worst_26}"
+    # 相对容差 1e-9：仍能拦住 float32 级误差（~1e-7 相对），放行 float64 累加顺序差
+    assert rel_18 <= 1e-9, f"18维 超出相对容差: {rel_18}"
+    assert rel_26 <= 1e-9, f"26维 超出相对容差: {rel_26}"
 
 
 if __name__ == "__main__":

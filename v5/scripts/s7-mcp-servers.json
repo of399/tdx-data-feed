@@ -17,7 +17,7 @@
       "command": "/home/jiuben/tdx-data-feed/venv/bin/python",
       "args": ["/home/jiuben/tdx-data-feed/v5/mcp_servers/llm_ollama.py"],
       "env": {
-        "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
+        "OLLAMA_URL": "http://127.0.0.1:11434"
       },
       "disabled": false
     },

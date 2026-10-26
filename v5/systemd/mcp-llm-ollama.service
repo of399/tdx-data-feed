@@ -1,21 +1,30 @@
-# /etc/systemd/system/mcp-llm-ollama.service  ——  让 mcp-llm-ollama 自启
+# /etc/systemd/system/mcp-llm-ollama.service  ——  把 llm-ollama MCP server 常驻
 #
-# 说明：本服务以 stdio 模式启动，被 CodeBuddy / Claude Desktop 等 MCP client
-# 子进程化调用。systemd 仅保证 ollama daemon 在前台运行；
-# 此 unit 一般不需要 enable（stdio MCP server 由 client 启动）。
+# 说明：本仓库当前没有任何自动拉起 llm_ollama.py 的路径 —— 没有 skill 引用它、
+# Makefile 没有对应目标、这个单元也从没装过。要用它，要么由某个 MCP client 自己
+# fork（stdio 模式，那条路径跟本 unit 无关、也不需要 enable），要么装本 unit 常驻。
+# 只有当你想让它常驻（在 journal 里看 SyslogIdentifier=mcp-llm-ollama 的输出、
+# 或改 llm_ollama.py 增加 streamable_http_app 当 HTTP server 长期跑）时，才装它。
 #
-# 但如果你想让本服务作为 HTTP MCP server 长期运行（需要先改 llm_ollama.py
-# 增加 streamable_http_app），可以 enable。
+# 变量名必须与 v5/mcp_servers/llm_ollama.py 里 os.environ.get(...) 读的名字逐字一致。
+# 2026-10-25 之前这里写的是 OLLAMA_HOST / LLM_DEFAULT_CHAT / LLM_DEFAULT_REASON /
+# LLM_DEFAULT_EMBED / LLM_MAX_INPUT_CHARS，脚本一个都不读 —— 覆盖从来没生效过，
+# 模型选对纯属脚本默认值恰好相等。守卫 tests/test_llm_ollama_unit_env_contract.py。
+#
+# 不要在这里 Depends/Requires ollama.service：本机 Ollama 由 snap 提供
+# （:11434 由 snapd 起的 daemon 占有），`ollama.service` 这个单元名在本机不存在，
+# 硬依赖会让本 unit 直接起不来。仓库里的 v5/systemd/ollama.service 会跟 snap daemon
+# 抢同一个端口，不要装它。启动前自己确认端口活着：
+#   curl -s http://127.0.0.1:11434/api/tags
 #
 # 安装：
 #   sudo cp /home/jiuben/tdx-data-feed/v5/systemd/mcp-llm-ollama.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
+#   sudo systemctl start mcp-llm-ollama
 
 [Unit]
 Description=mcp-llm-ollama MCP server (LLM bridge for v5-VE1-M2)
 Documentation=file:///home/jiuben/tdx-data-feed/v5/mcp_servers/llm_ollama.py
-After=ollama.service
-Requires=ollama.service
 
 [Service]
 Type=simple
@@ -25,13 +34,12 @@ Restart=on-failure
 RestartSec=5
 User=jiuben
 WorkingDirectory=/home/jiuben/tdx-data-feed
-Environment="OLLAMA_HOST=http://127.0.0.1:11434"
-Environment="LLM_DEFAULT_CHAT=qwen3:14b"
-Environment="LLM_DEFAULT_REASON=deepseek-r1:14b"
-Environment="LLM_DEFAULT_EMBED=nomic-embed-text:latest"
+Environment="OLLAMA_URL=http://127.0.0.1:11434"
+Environment="DEFAULT_CHAT_MODEL=qwen3:14b"
+Environment="DEFAULT_REASON_MODEL=deepseek-r1:14b"
+Environment="DEFAULT_EMBED_MODEL=nomic-embed-text:latest"
 Environment="LLM_CHAT_TIMEOUT_S=300"
 Environment="LLM_REASON_TIMEOUT_S=8"
-Environment="LLM_MAX_INPUT_CHARS=32000"
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=mcp-llm-ollama
