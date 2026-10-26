@@ -74,6 +74,24 @@ def group(code: str) -> str:
     return "other"
 
 
+def sym_of_a_share(code) -> str | None:
+    """6 位 A 股代码 → sh/sz symbol；ETF/转债/北交所/B 股一律 None。
+
+    与 sym_of_sina 的差别是「只要 A 股」：深取与审计的 universe 口径必须走这里。
+    按 `c[:2] in ('00','60')` 手筛会把创业板（30x）和科创板（68x）整段排掉——
+    实测档案里它们占着 1412 + 618 个文件，那是审计自己静默截断范围。
+    """
+    c = str(code).zfill(6)
+    g = group(c)
+    return g + c if g in ("sh", "sz") else None
+
+
+def a_share_symbols(universe) -> list[str]:
+    """universe（dict code→name 或 list/tuple of code）→ 排序后的沪深 A 股 symbol 清单。"""
+    codes = universe.keys() if isinstance(universe, dict) else universe
+    return sorted(s for s in (sym_of_a_share(c) for c in codes) if s)
+
+
 def sym_of_sina(code: str) -> str | None:
     """6 位代码 → Sina/腾讯合法 symbol（含 bj 前缀）。"""
     g = group(code)
