@@ -5,6 +5,7 @@ count=2100 起回 `msg='param error'` 且 `data` 退化成 []；而区间早于�
 `code=0 / msg='' / day=[]`。「请求被拒」和「这段确实没数据」在响应里是可分的，
 分页器必须按这个区分判停——把超限当成历史尽头，就是静默截断的成因本身。
 """
+import datetime as dt
 import json
 
 import pytest
@@ -93,6 +94,35 @@ def test_caps_page_size_below_source_limit():
     assert PAGE_CAP <= 2000, "实测 count=2000 可用、2100 起 param error"
 
 
+def test_adjusted_series_have_their_own_smaller_page_cap():
+    """2026-10-26 实测（proxy 域）：hfq/qfq 请求 count=1024 和 2000 都只回 640 行，
+    count=500 回 500 行；未复权能回满 1024。沿用 1024 当「满页」判据，第一页 640<1024
+    就被当成源尽头 ⇒ 复权序列静默截到最近 640 天（≈1.5 年），而任务 5 的因子正是要
+    覆盖 1990 起——这正是本方案要消灭的那类截断。"""
+    import tdxfeed.history_paging as hp
+
+    assert hp.PAGE_CAP_BY_ADJUST == {"": 1024, "qfq": 640, "hfq": 640}
+
+    def iso_back(n):
+        base = dt.date(2026, 10, 23)
+        return [(base - dt.timedelta(days=3 * i)).isoformat() for i in range(n)][::-1]
+
+    pages = [iso_back(640), iso_back(300)]
+    fetch_page, seen = page_factory(pages)
+    bars = fetch_history("sz000021", "1990-01-01", fetch_page=fetch_page, adjust="hfq")
+    assert len(seen) == 2, "640 行对 hfq 是满页，必须继续翻，不能判成源尽头"
+    assert len(bars) == 640 + 300 - len(set(pages[0]) & set(pages[1]))
+
+
+def test_stops_when_a_page_makes_no_progress_even_if_full():
+    """满页判据之外还要一条兜底：翻页不再左移就是源不给更多，别无限要同样的行。"""
+    p = ["2003-01-02", "2003-06-30"]
+    fetch_page, seen = page_factory([p, p, p, p])
+    bars = fetch_history("sz000021", "1990-01-01", fetch_page=fetch_page, page_cap=2)
+    assert len(seen) == 2, "第二页首行没有更早 → 停"
+    assert [b[0] for b in bars] == [20030102, 20030630]
+
+
 def test_adjust_selects_the_matching_response_key(monkeypatch):
     """§0 第 8 条：'' → day，qfq → qfqday，hfq → hfqday；混键会「请求复权却拿到未复权」。"""
     import tdxfeed.history_paging as hp
@@ -133,16 +163,16 @@ def test_empty_range_is_not_a_request_error(monkeypatch):
 
 
 def test_blocked_host_falls_back_to_the_next_mirror(monkeypatch):
-    """2026-10-26 实测：4 并发打满后 web.ifzq 被腾讯 WAF 按 IP 拦成 HTTP 501
-    （`server: stgw`，body 是跳 waf.tencent.com/501page.html 的 JS），
-    而镜像域 ifzq.gtimg.cn 同路径同载荷仍然可用——换域，不是放弃深取。"""
+    """2026-10-26 实测：4 并发把两台 gtimg 域都打进 WAF 501（`server: stgw`，body 跳
+    waf.tencent.com/501page.html），而 akshare 在用的 proxy.finance.qq.com/newfqkline
+    同 param 返回同一条 1999-11-10 起的全深度行 ⇒ 三台轮试，换域不是放弃深取。"""
     import tdxfeed.history_paging as hp
 
     tried = []
 
     def fake_urlopen(req, timeout=None):
         tried.append(req.full_url)
-        if len(tried) == 1:
+        if len(tried) <= 2:
             raise _http_error(501, req.full_url)
         return _Resp({"code": 0, "msg": "", "data": {
             "sh600000": {"day": [["1999-11-10", "29.5", "27.75", "29.8", "27.0", "1740850.5"]]}}})
@@ -151,9 +181,23 @@ def test_blocked_host_falls_back_to_the_next_mirror(monkeypatch):
     monkeypatch.setattr(hp.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(hp.time, "sleep", lambda s: slept.append(s))
     rows = hp.http_page("sh600000", "2000-12-31", 1024, "")
-    assert len(rows) == 1, "第二台域取到了就该正常返回"
-    assert len(tried) == 2 and hp.HOSTS[0] in tried[0] and hp.HOSTS[1] in tried[1]
+    assert len(rows) == 1, "第三台取到了就该正常返回"
+    assert len(tried) == 3, "前两台都被拒时应继续换第三台，而不是放弃"
+    assert all(hp.ENDPOINTS[i].split("?")[0] in tried[i] for i in range(3)), \
+        "必须按 ENDPOINTS 顺序轮试（比对 ? 之前的 origin+path，模板里有占位符不能整串比）"
     assert max(slept) >= hp.WAF_COOLDOWN, "撞风控那一下必须退避，不能秒级重试继续砸"
+
+
+def test_newfqkline_extra_columns_do_not_shift_the_bar():
+    """proxy 域每行比 gtimg 多几列（…,{},'换手','成交额(万元)'…）。
+    列 0-5 与 gtimg 完全一致，bar 只取 0-5 ⇒ 多出来的列不能把 OHLCV 顶歪；
+    amount 仍写 0，第 8 列那个成交额不采信：它是万元口径，与档案里 close×vol 估算值的
+    关系只单点对过一天（2026-10-21，差 0.45%），没整段核对过就不顺手混进同一轮回填。"""
+    from tdxfeed.history_paging import _to_bar
+
+    row = ["1999-11-10", "29.50", "27.75", "29.80", "27.00", "1740850.55", {},
+           "54.40", "485910.24", "0.00", "0.00"]
+    assert _to_bar(row) == [19991110, 29.50, 29.80, 27.00, 27.75, 1740850.55, 0.0]
 
 
 def test_waf_rejection_backs_off_instead_of_hammering(monkeypatch):

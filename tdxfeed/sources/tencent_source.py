@@ -1,9 +1,11 @@
-"""腾讯行情数据源（凌晨稳定，回补用）：ifzq.gtimg.cn 日K接口。
+"""腾讯行情数据源（凌晨稳定，回补用）：proxy.finance.qq.com 的 newfqkline 日K接口。
 
-域名用镜像 `ifzq` 而非 `web.ifzq`：2026-10-26 4 并发深取到 ~3400 请求时 web.ifzq
-被腾讯 WAF 按 IP 拦成 HTTP 501（server: stgw），同路径的 ifzq 仍正常返回全深度行。
+域名/路径选这台而不是 gtimg：2026-10-26 审计并发把 ifzq 与 web.ifzq 两台 gtimg 都打进
+腾讯 WAF 的 HTTP 501（server: stgw），而 proxy.finance.qq.com/ifzqgtimg 同 param 回 200、
+首行末行与 count 语义完全一致（akshare 的腾讯封装也走这台）。
 
 注意：腾讯接口不含成交额(amount)字段，amount 列填 0 并在写盘时标记 source=tencent。
+这台每行末尾还多几列（{},'换手','成交额(万元)'…），列 0-5 与 gtimg 相同，本适配器只取 0-5。
 源列序 [date, open, close, high, low, volume(手)]，volume 单位=手，直取不 ÷100
 （÷100 只对 Sina 成立，Sina 吐的是股：sina_source.py:45 两源单位不同，抄混过一次）。
 【v2 修复】OHLC 解析改为按列索引取值（原版本误用 float(row) 整行）。
@@ -17,8 +19,8 @@ from tdxfeed.sources.base import DataSource
 
 class TencentSource(DataSource):
     def fetch_bars(self, symbol, start_date=None, end_date=None):
-        url = ('https://ifzq.gtimg.cn/appstock/app/fqkline/get?param='
-               '{},day,{},{},320,qfq').format(
+        url = ('https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get'
+               '?param={},day,{},{},320,qfq').format(
                    symbol, start_date or '', end_date or '')
         req = urllib.request.Request(
             url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -48,7 +50,7 @@ class TencentSource(DataSource):
                         float(row[4]),   # low
                         float(row[2]),   # close
                         float(row[5]),   # 手
-                        0.0,             # 腾讯无成交额，由 amount_fix 口径补
+                        0.0,             # 腾讯无成交额，本适配器一律填 0，不猜
                     ])
                 return bars
             except Exception as e:
