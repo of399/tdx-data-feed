@@ -33,6 +33,8 @@
 | `scripts/audit_daily_history_depth.py` | **日线深度只读审计**（2026-10-26 新增）：输出"谁需要回填"的**可判分类** | parquet/daily | 审计报告（实测免探测 747 只）| 手动 |
 | `scripts/backfill_daily_history.py` + `tdxfeed/backfill_history.py` | **幂等回填 runner**（2026-10-26 新增）：续跑单权威 = done 集；连续失败熔断 | 审计结论 | 补齐后的 parquet | 手动 / 续跑 |
 | `tdxfeed/adj_factor_history.py` | **后复权因子反推**（2026-10-26 新增）：从 hfq / 未复权两条序列反推，**只写 `data/adj_factor_ext/`** | hfq + raw | `data/adj_factor_ext/*.parquet`（**当前 0 文件，未回填**）| 手动 |
+| `tdxfeed/amount_fix.py` | **成交额缺口估算**（2026-10-26 新增并接入写入路径）：Sina 日K 无 amount 时用 `close × volume(手) × 100` 估算，**只补缺口不覆盖真值**；`writers.merge_write` / `incremental_update` 写入时自动调用 | 日线 df | 同 df（补 amount 列）| 写入路径自动 |
+| `scripts/backfill_daily_amount.py` | 成交额历史批量回填（**默认 dry-run**，落盘须显式 `--apply`；写前备份到 `data/parquet/daily_amount_bak/`）| daily parquet | 补齐后的 parquet + `.day` | 手动 |
 | `scripts/download_universe.py` | 沪深 A 股代码清单/补全 | pytdx 枚举 + Sina 日 K | `data/all_a_stocks.json` | 手动 |
 | `scripts/analyze_one.py` | 单只股多因子分析（技术面）| parquet/daily + adj_factor | dict（落库） | 单股触发 |
 | `tdxfeed/full_sync.py` | **实际生产全量同步**（systemd 调用）：Sina 源日K + akshare 清单 + 财务/复权增量（**2026-10-26 起接入腾讯源分页深取**）| Sina/akshare/baostock/腾讯 | `data/parquet/daily/*.parquet`（5,236）+ `sh\|sz/lday/*.day`（增量双写）| `tdxfeed-sync.timer` 每晚 18:00 |
@@ -75,6 +77,7 @@
 | `scripts/train_pnl_huber_*.py` | PnL Huber 回归（33/35 维，Test R² 0.166→0.278）| 行业/市场聚合特征 | PnL 模型（合并 v9 后继）| 手动 |
 | **`scripts/daban_entry.py`** | **daban 试验仓盘中委托单**（2026-10-25 新增，10-26 已启用）：每 5 分钟产一份**人工委托单文本**（横幅 + 五条自动停止线；同日同概念限注 2 笔）| 实时行情 + 生产模型信号 | `data/daban/tickets/ticket_YYYYMMDD.{md,json}`（`daban-ticket.timer`）|
 | `scripts/daban_paper.py` / `scripts/daban_orderbook_logger.py` | 试验仓账本 / 委托与盘口记录 | 委托单 + 盘口 | `data/daban/` 各类 json/csv |
+| **执行研究线（研究/诊断，不下单）**：`tdxfeed/daban/{paper,orderbook_log,seal_classifier,risk_gateway,fill_model,execution_backtest,topk_pnl}.py` + `scripts/daban_{min60_features,event_table,seal_research,exec_research,paper,orderbook_logger,intraday_ic,relay3_robustness,filter_oos,min60_exec,formula1_screen,formula1_validate,band_check,limit_topk_eval}.py` | 把「模型概率」拆成**能不能成交 → 成交后能不能封 → 封了赚不赚**三层逐层证伪 | 日线+分钟线+生产模型(只读) | `data/daban/`（event_table / seal_classifier / execution_backtest / paper / orderbook）+ `docs/DABAN_*.md` | 手动 |
 
 ### 1.5 评估层（2 个）
 
@@ -115,7 +118,7 @@
 - `scripts/distill_outputs.py`、`scripts/batch_distill.py`、`scripts/build_distill_skeleton.py`、`scripts/convert_distill.py` — 蒸馏数据预处理
 - `scripts/finalize_eval.py`、`scripts/redo_finalize.py` — 评估结果定稿
 - `scripts/test_bjs_akshare.py` — 北交所 akshare 接口冒烟测试（数据已下线，脚本仅存档）
-- `scripts/audit_log_rotate.py`、`scripts/canary_*` — 日志轮转 / 金丝雀
+- `scripts/canary_health_check.py` — 金丝雀健康检查（7 维）；日志轮转由 `tdx-clean-logs.timer` + systemd 负责
 
 ---
 
@@ -185,7 +188,21 @@
 | **WorkBuddy资产迁移** | user | 国内/海外版切换 | 否 |
 | **skill-vetter** | user | skill 安全审查 | 否 |
 
-> **本项目实际触发 Skill 极少**（0 次直接触发）。Agent 主要靠 execute_command / file ops / Task(code-explorer)。
+**运行时技能（`skills/*.yaml`，9 个，由 `agents/orchestrator.py` 路由）**：
+
+| Skill | LLM 后端 | 说明 |
+|---|---|---|
+| `kline-analysis` | `qwen3-14b-tdx`（transformers + peft）| K 线分析；LLM 不可用时自动降级 indicator-match |
+| `financial-summary` | `qwen3-7b`（档位标注）| 本地财务 + finance-deep 按需扩展 |
+| `news-summary` | `qwen3-7b`（档位标注）| tdx-news + vault |
+| `adj-factor` | `none` | 纯工具，生产 CPU 计算依赖 |
+| `indicator-match` | `none` | 纯规则 + 计算（与 LightGBM 预测无关，仅 GPU 降级）|
+| `backtest` | — | tdx-backtest 纯工具回测 |
+| `financial-statement` | — | 三大报表纯工具查询 |
+| `theory-reference` | `none` | 财经七书讲义纯检索，限定 vault `09-理论讲义` 目录，不消耗 GPU |
+| **`daban`** | `none` | **纯工具**：全市场 29 维打分 → T+1 收盘涨停概率 Top-N（唯一工具 `mcp:tdx-backtest.daban_top_picks`，约 3-4 秒）；⚠️ **只作排序研究、不是买入指令**（诚实成交口径 -0.78%/笔，`overall_go=false`）|
+
+> Agent 主要靠 execute_command / file ops / Task(code-explorer)；运行时技能由 `agents/orchestrator.py` 意图路由分发（新增 `daban` 意图：打板/连板/首板/次日涨停/涨停候选/接力板）。
 
 ---
 
@@ -207,7 +224,7 @@
 | **tdx-vault** | `mcp/servers/vault.py` | `search` / `add_doc` / `list_cats` | Obsidian/StockVault 检索（lexical + 可选向量）；`search` 支持 `category` / `path_prefix` / `exclude_category` 目录过滤 |
 | **tdx-news** | `mcp/servers/news.py` | `search_stock_news` / `search_announcements` / `market_news` | 实时新闻/公告/市场要闻（akshare，5 分钟缓存） |
 | **tdx-finance-deep** | `mcp/servers/finance_deep.py` | `get_metrics` / `get_statement` / `list_statement_fields` | 三大报表与扩展指标（本地 + akshare 7 天缓存） |
-| **tdx-backtest** | `mcp/servers/backtest.py` | `list_strategies` / `run_backtest` / `run_signal_backtest` | 单股回测（前复权、T+1、费用滑点） |
+| **tdx-backtest** | `mcp/servers/backtest.py` | `list_strategies` / `run_backtest` / `run_signal_backtest` / **`daban_top_picks`** | 单股回测（前复权、T+1、费用滑点）+ **全市场 daban Top-N 打分**（与 `predict.py` 同源算 29 维） |
 
 > 这 6 个 server 不注册到 IDE `.mcp.json`，只由 `skills/*.yaml` 的 `mcp:` 步骤按需拉起；vault 索引由 `scripts/build_vault_index.py` 构建（当前 6,923 chunks / 5,668 notes）。`--embed` 的向量不进 JSONL，而是落成 sidecar `data/vault_store.vectors.npy` + `.vectors.json`（含 `rows_hash`）；加载时行数或 `rows_hash` 对不上就退回词法，不会在错位的行上算相似度。索引同时收 vault 下的 PDF（PyMuPDF，`--no-pdf` 跳过）。
 >
@@ -431,6 +448,15 @@ tdx-data-feed/
    plan_e_journal.py (18:10) ──→ data/plan_e/live/journal.csv（只归档, 不建仓）
    daban_entry.py (盘中每 5 min) ──→ data/daban/tickets/ticket_*.{md,json}（只产单, 人工下单）
 
+   [研究支线 · 执行研究线（不参与生产决策）]
+   min60_features → event_table → seal_research → exec_research
+     ──→ data/daban/event_table_min60_*.parquet
+     ──→ data/daban/seal_classifier_*.json   （Stage1 gate.passed = false）
+     ──→ data/daban/execution_backtest_*.json（overall_go = false ⇒ 不进纸盘/资金）
+   得到结论：成交率 46.6%，baseline 平均净收益 -1.30%/笔（毛 -1.15%）
+             ⇒ 负期望来自入场时点，不是交易成本；Stage1 test AUC 0.52（接近随机）
+   详见 docs/DABAN_EXECUTION_RESEARCH_LINE.md
+
    [并行链：模型训练]
    Qwen3-14B ─→ v5_train_single.py ─→ v5 ckpt-1188
                               │
@@ -468,6 +494,8 @@ tdx-data-feed/
 | 后复权回填 | - | ✅ | `tdxfeed/adj_factor_history.py` → `data/adj_factor_ext/` |
 | 方案 E 回测对比 | - | ✅ | `make plan-e-compare` / `scripts/plan_e_backtest.py --compare` |
 | 生产模型训练 | - | ✅ | `scripts/train_daban_model.py`（⚠️ 不带 `--tag` 会覆盖生产模型）|
+| **执行研究线**（Stage 0/1/2）| - | ✅ | `scripts/daban_min60_features.py` → `daban_event_table.py` → `daban_seal_research.py` → `daban_exec_research.py`（详见 `docs/DABAN_EXECUTION_RESEARCH_LINE.md`）|
+| 盘口采集 / 纸盘 | - | ✅ | `scripts/daban_orderbook_logger.py` / `scripts/daban_paper.py`（**研究用，不下单**）|
 | v5/v6/v7 训练、deploy | - | ⛔ | **已冻结**（LLM 路线两代坍缩，止损不重启）|
 | v6_eval / v5_v6_compare | - | ⛔ | 已归档（`v5/scripts/`，仅存档）|
 | Dashboard 重新生成 | - | ✅ | `make analyze-dashboard` |
@@ -574,6 +602,10 @@ tdx-data-feed/
 | 翻倍样本免探测数 | 747 只（10-26 日线深度审计）|
 | canary 维度 | 7（ollama / tdxfeed_sync / data_files / disk / timers / gpu / obsidian_sync）|
 | 运行中定时器 | 10（含 3 个 5min 级：canary / trainsh / **daban-ticket**）|
+| 执行研究 Stage 0 事件表 | **21,963** 触板事件 / 256 交易日 / 3,742 只（2025-09-05~2026-09-24）|
+| 执行研究 Stage 1 封板分类 | 验证 AUC 0.543 → **测试 AUC 0.522**（接近随机）；`gate.passed=false` |
+| 执行研究 Stage 2 成交回测 | 基础成交率 **46.6%**；baseline 平均净收益 **-1.30%/笔**、胜率 32.4%（毛 -1.15%）|
+| 执行研究 分化 | 封住收盘 **+1.24%** vs 未封住 **-2.89%**；`overall_go=false` |
 | 旧 LLM 参考值 | v7 eval_loss 0.1914；v6_eval 一致率 21/30 (70%)（**已归档，仅存档**）|
 
 ### 7.4 当前未完成项
@@ -586,6 +618,8 @@ tdx-data-feed/
 - [x] **v7 部署到 Ollama**：已完成，v7r 续训作为研究端点（**非生产预测器**）
 - [ ] **`adj_factor_ext/` 回填**（10-26 代码已落地，**0 文件**）：后复权序列未生成，任何依赖后复权的下游结论目前**未验证**
 - [ ] **试验仓持仓回流**：`daban_paper.py` 尚未与委托单成交闭环，"下单建议 → 实际成交 → 归因"不可审计
+- [ ] **执行研究线代码治理**：重复实现抽取（`net_return`/`_auc`/`load_universe`/markdown 助手）、硬编码 `20261022` 参数化、`tdxfeed/daban/` 缺 logging、研究脚本 84 处 `except Exception` 吞错、超大函数拆分（`build_report` 265 行等）—— 清单见 `docs/DABAN_EXECUTION_RESEARCH_LINE.md` §6
+- [ ] **执行研究线门禁复评**：Stage 1 `gate.passed=false` → Stage 2 仅诊断；**若要复评必须先满足 precision≥0.80 且 test AUC 明显高于 0.5**，否则维持 `overall_go=false`
 - [ ] **`daban-ticket` 运行边界确认**：午休 11:30-13:00 是否产单、尾盘 14:00 后是否覆盖
 - [ ] **v8 LoRA fusion**：rank 不兼容（v5=8, v6=16）—— **LLM 线已冻结，不建议再做**
 - [ ] **PnL Huber 后继模型**：替换 v8 生产环境（LLM 线冻结后优先级下降）
@@ -624,6 +658,10 @@ tdx-data-feed/
 | 10-26 | **日线深度只读审计**（`audit_daily_history_depth.py` + `tdxfeed/symbols.py`）："谁需要回填"变可判分类（免探测 747 只）| 回填从"猜"变"有清单" |
 | 10-26 | **幂等回填 runner**（`backfill_daily_history.py` + `tdxfeed/backfill_history.py`）：done 集为续跑单权威 + 连续失败熔断 | 回填可中断可续跑 |
 | 10-26 | **后复权因子反推**（`tdxfeed/adj_factor_history.py`）→ `data/adj_factor_ext/`（**代码已落地，0 文件未回填**）| 派生价格在读侧现算，raw 仍是落盘权威 |
+| 10-26 | **执行研究线入库**（7 次提交：`e5d60f0`/`c0b37dd`/`c9e2e01`/`3baee07`/`b3f1274`/`1b19086`/`7c341f6`）：核心模块 7 个 + 研究脚本 19 个 + 证据报告 7 份 + 专章 `docs/DABAN_EXECUTION_RESEARCH_LINE.md` | 研究线**只读生产数据、不下单**；结论 Stage1 gate false、Stage2 `overall_go=false` |
+| 10-26 | **成交额回填接入生产写路径**（`writers.merge_write` / `incremental_update` → `fill_missing_amount`）；批量回填改**默认 dry-run + 写前备份** | 新写入自动带估算成交额；历史回填需显式 `--apply` |
+| 10-26 | **daban 纯工具技能**入库（`skills/daban.yaml` + `mcp:tdx-backtest.daban_top_picks` + 意图路由）| ⚠️ 技能描述与工具 warnings 均标注「只作排序研究、不是买入指令」 |
+| 10-26 | pre-commit 新增 `no-zero-byte-files` 钩子；14 处 `zip()` 补 `strict=True`；lint 归零 | 0 字节文件不得入库；`ruff` 在新代码上 0 违规 |
 
 > 详细逐日流水见 `docs/` 各专项报告；当日实况见 `docs/WORKFLOW_SNAPSHOT_2026-10-26.md`。
 

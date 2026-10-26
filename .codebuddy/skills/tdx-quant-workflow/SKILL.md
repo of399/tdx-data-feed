@@ -51,7 +51,14 @@ venv/bin/python scripts/download_universe.py  # 沪深股票池补齐（可选�
 >
 > **已下线（2026-10-21）**：ETF 与北交所数据已从项目移除；`download_etf_bond.py`、`download_bj_daily.py`、`download_adj_factor_bj.py`、`backfill_adj_etf.py` 仅保留弃用提示，`make data-bj` 已删除。
 
-**验证**：`find data/parquet/daily -maxdepth 1 -name '*.parquet' ! -name '*.v1.bak.parquet' | wc -l`（当前 5,235：5,221 沪深个股 + 14 指数；另有 5,232 个 `.v1.bak` 备份不计入）；`find data/adj_factor -maxdepth 1 -name '*.parquet' | wc -l`（当前 5,221）
+**验证**：`find data/parquet/daily -maxdepth 1 -name '*.parquet' ! -name '*.v1.bak.parquet' | wc -l`（当前 **5,236**：个股 5,228 + 指数 8；另有 5,232 个 `.v1.bak` 备份不计入）；`find data/adj_factor -maxdepth 1 -name '*.parquet' | wc -l`（当前 5,221）
+
+> **成交额口径**（2026-10-26 起）：Sina 日K 无 amount，写入时由 `tdxfeed/amount_fix.py` 用 `close × volume(手) × 100` 估算补缺（只补缺口、不覆盖真值），`writers.merge_write` / `incremental_update` 自动生效。
+> 历史批量回填**默认 dry-run**，落盘须显式 `--apply`（写前备份到 `data/parquet/daily_amount_bak/`）：
+> ```bash
+> venv/bin/python scripts/backfill_daily_amount.py            # dry-run（默认）
+> venv/bin/python scripts/backfill_daily_amount.py --apply    # 落盘（先备份后写）
+> ```
 
 ### 阶段 2：模型训练（tdx-model-trainer，可选）
 
@@ -85,6 +92,26 @@ venv/bin/python scripts/predict.py --model vpnl_huber --features legacy --top 30
 **验证**：`test -f data/predictions/predict_latest.md`（同时产出 `predict_YYYYMMDD_HHMMSS.{csv,md}` + `predict_top5_*.csv` + `predict_high_*.csv`）
 
 > 收盘后若只想看打板候选、不落盘完整预测，可调用 `daban` skill（MCP 工具 `tdx-backtest.daban_top_picks`）：全市场 29 维打分，输出 T+1 收盘涨停概率 Top-N，约 3-4 秒；剔除 T 日开盘即涨停（买不进）样本。
+> ⚠️ **该输出只作排序研究、不是买入指令**：诚实成交口径（T+1 开盘入场、SL 优先、跳空按开盘成交）下平均净收益 -0.78%/笔、累计 -94.5%，执行闸门 `overall_go=false`。证据：`docs/DABAN_TOPK_PNL_20261022.md`、`docs/DABAN_EXECUTION_RESEARCH_LINE.md`。
+
+### 阶段 3.5：执行研究线（诊断，可选；**不参与生产决策**）
+
+> 把「模型给出高概率」拆成**能不能成交 → 成交后能不能封 → 封了赚不赚**三层逐层证伪。**纯研究：不下单、不连券商、不写实盘账本、不改生产数据。**
+> 结论（20261022 口径）：成交率 46.6%；baseline 平均净收益 **-1.30%/笔**（毛 -1.15%）⇒ 负期望来自**入场时点**不是成本；Stage1 封板分类器 test AUC 0.52（接近随机）⇒ `gate.passed=false`、`overall_go=false`，**不支持前向纸盘与任何资金投放**。
+
+```bash
+# Stage 0 分钟级触板事件表 → Stage 1 封板分类 → Stage 2 成交感知回测
+venv/bin/python scripts/daban_min60_features.py      # → data/daban/min60_features_*.parquet
+venv/bin/python scripts/daban_event_table.py          # → data/daban/event_table_min60_*.parquet
+venv/bin/python scripts/daban_seal_research.py        # → data/daban/seal_classifier_*.json + joblib
+venv/bin/python scripts/daban_exec_research.py        # → data/daban/execution_backtest_*.json（含 overall_go）
+# 盘口采集 / 纸盘（研究用，不下单）
+venv/bin/python scripts/daban_orderbook_logger.py --interval 3
+venv/bin/python scripts/daban_paper.py --help
+```
+
+**验证**：`test -f data/daban/execution_backtest_20261022.json`；**判据**：`overall_go=false` ⇒ 仅作回归基线，不得据此建仓。
+完整说明见 `docs/DABAN_EXECUTION_RESEARCH_LINE.md`。
 
 ### 阶段 4：方案 E 回测（tdx-backtester）
 
@@ -114,13 +141,14 @@ venv/bin/python scripts/plan_e_journal.py --mode simulate --start 2026-08-27 --e
 
 | # | 阶段 | 命令 | 通过条件 |
 |---|---|---|---|
-| 1 | 数据 | `find data/parquet/daily -maxdepth 1 -name '*.parquet' \| wc -l` | ≥ 12,000 |
+| 1 | 数据 | `find data/parquet/daily -maxdepth 1 -name '*.parquet' ! -name '*.v1.bak.parquet' \| wc -l` | ≥ 5,000（当前 5,236）|
 | 2 | 翻倍样本 | `test -f data/double_up/double_up_2020_2026_detail.csv` | 存在 |
 | 3 | 生产模型 | `test -f data/double_up/d_signal_5d_model_daban.txt` | 存在（大仓位：`d_signal_5d_model_vpnl_huber_stage1.txt`；LLM 可选：`test -d train/output/qwen3-14b-tdx-v7`） |
 | 4 | 预测 | `test -f data/predictions/predict_latest.md` | 存在 |
 | 5 | 回测 | `ls -1t data/plan_e/plan_e_compare_*.md \| head -1` | 有输出（`--compare` 最新时间戳文件） |
 | 6 | 实盘 | `test -f data/plan_e/live/journal.csv` | 存在 |
 | 7 | 健康 | `make canary` | 全部检查项 OK |
+| 8 | 研究线（可选）| `test -f data/daban/execution_backtest_20261022.json` | 存在且 `overall_go=false`（研究口径）|
 
 ## 触发前确认
 
@@ -146,6 +174,9 @@ venv/bin/python scripts/plan_e_journal.py --mode simulate --start 2026-08-27 --e
 - ❌ 覆盖历史预测 / 回测报告
 - ❌ 修改模型参数后未评估直接部署
 - ❌ 把 LLM（≈随机准确率）当作生产预测器
+- ❌ 把执行研究线的候选/结论当作买入信号（`overall_go=false`）
+- ❌ 不加 `--apply` 就跑成交额回填落盘（会原地改写生产日线）
+- ❌ 写 `data/parquet/daily/`、`data/double_up/` 下的模型文件（研究产物一律落 `data/daban/`）
 
 ## 失败回滚
 
@@ -162,6 +193,7 @@ venv/bin/python scripts/plan_e_journal.py --mode simulate --start 2026-08-27 --e
 - `.codebuddy/rules/` — 4 个项目规范（`tdx-conventions` / `tdx-data-schema` / `tdx-data-schema-v2` / `tdx-output-format`）
 - `skills/` — 8 个配套技能 yaml：`kline-analysis`（K线分析，调用 LLM）、`financial-summary`（本地财务 + finance-deep 按需扩展）、`news-summary`（tdx-news + vault）、`adj-factor`（生产 CPU 计算依赖）、`indicator-match`（与 LightGBM 预测无关，仅 GPU 降级）、`backtest`（tdx-backtest 纯工具回测）、`financial-statement`（三大报表纯工具查询）、`theory-reference`（财经七书讲义纯检索，限定 vault `09-理论讲义` 目录，`llm.model_id: none` 不消耗 GPU；查询中无股票代码且命中概念性提问词时由 `agents/orchestrator.py` 自动路由）
 - `docs/WORKFLOW.md` — 完整工作流文档
+- `docs/DABAN_EXECUTION_RESEARCH_LINE.md` — **执行研究线总览**（Stage 0/1/2、模块与脚本、产物路径、关键结论、安全约定、已知缺陷与待办）
 - `docs/PLAN_E.md` — 方案 E 策略说明
 - `docs/PLAN_E_LIVE.md` — 方案 E 实盘跟踪说明
 - `docs/stage1_feature_migration_plan.md` — 阶段 1 因子迁移（vpnl_huber_stage1 + polars）设计 / 回滚文档

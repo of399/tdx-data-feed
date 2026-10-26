@@ -42,6 +42,14 @@
 
 ---
 
+## 0.1 当日补充：执行研究线已入库（18:20）
+
+用户要求「先整理提交这条工作线，再补文档」→ 完成：
+- **7 次提交**：`1b19086`(ops) → `3baee07`(成交额回填加固) → `e5d60f0`(核心模块) → `c0b37dd`(研究脚本+证据报告) → `c9e2e01`(盘口/纸盘入口) → `b3f1274`(daban skill+MCP+路由) → `7c341f6`(回填计划文档)；工作树由 71 项未提交变 **0**。
+- **提交前加固 4 项**：① 成交额回填改默认 dry-run + 写前备份（原默认直接改写全市场日线）② 研究产物从 `data/double_up/` 移到 `data/daban/`（原会写 188 MB 快照进生产目录）③ `skills/daban.yaml` + MCP warnings 加「只作排序研究、不是买入指令」④ 14 处 `zip()` 补 `strict=True`（逐处确认等长）+ ruff 归零。
+- **新增专章**：`docs/DABAN_EXECUTION_RESEARCH_LINE.md`（182 行）；`docs/WORKFLOW.md` 补 §1.1/§1.4/§3/§4.2/§5.1/§6.2/§7.3/§7.4/§8 共 9 处；`.codebuddy/skills/tdx-quant-workflow/SKILL.md` 补阶段 3.5 与禁忌。
+- **关键结论**：Stage 1 `gate.passed=false`（test AUC 0.52）→ Stage 2 `overall_go=false` ⇒ 执行研究线**不支持前向纸盘与任何资金投放**，仅作研究与回归基线。
+
 ## 1. 系统分层全景
 
 ```
