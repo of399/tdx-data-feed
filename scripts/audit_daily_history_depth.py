@@ -84,8 +84,8 @@ def audit_one(sym: str, target: int, probe=None) -> dict:
     probe = probe if probe is not None else probe_first_window
     lo, hi = local_span(sym)
     if lo is not None and lo <= target:
-        # 本地已经在 target 之前，不用问源。实测全档案 5236 只里只有 444 只属于这一类
-        # （最早 19901219＝深发展），所以这条跳过省下的是 8% 请求，不是大半。
+        # 本地已经在 target 之前，不用问源。实测 universe 5221 只里 747 只属于这一类
+        # （最早 19901219＝深发展），占 14.3%——这条跳过省下的是 14% 请求，不是大半。
         return {"state": "ok", "missing_days_est": 0, "symbol": sym,
                 "local_min": lo, "local_max": hi, "source_first": None,
                 "error": None, "probed": False}

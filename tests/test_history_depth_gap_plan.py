@@ -74,7 +74,8 @@ def test_symbol_prefix_covers_chinext_and_star():
 
 
 def test_local_already_deep_skips_the_probe(monkeypatch):
-    """本地首行已在 target 之前 = 不用问源；白问 1700 次会拖慢审计也可能引入假 unknown。"""
+    """本地首行已在 target 之前 = 不用问源；实测 5221 只里 747 只走这一条，
+    白问这 747 次会拖慢审计约 11 分钟，也可能引入假 unknown。"""
     monkeypatch.setattr(AUD, "local_span", lambda s: (19940202, 20261023))
 
     def never_probed(sym):
