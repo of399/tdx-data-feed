@@ -1,7 +1,8 @@
 """腾讯行情数据源（凌晨稳定，回补用）：web.ifzq.gtimg.cn 日K接口。
 
 注意：腾讯接口不含成交额(amount)字段，amount 列填 0 并在写盘时标记 source=tencent。
-返回行格式: [date, open, close, high, low, volume(股)]，volume 需 ÷100 转手。
+源列序 [date, open, close, high, low, volume(手)]，volume 单位=手，直取不 ÷100
+（÷100 只对 Sina 成立，Sina 吐的是股：sina_source.py:45 两源单位不同，抄混过一次）。
 【v2 修复】OHLC 解析改为按列索引取值（原版本误用 float(row) 整行）。
 """
 import json
@@ -35,15 +36,16 @@ class TencentSource(DataSource):
                     raise RuntimeError('腾讯返回空数据')
                 bars = []
                 for row in rows:
-                    # 腾讯列序: [date, open, close, high, low, volume(股)]
+                    # 腾讯日K 列序: [date, open, close, high, low, volume(手)]
+                    # 单位=手，与库里 daily parquet 同口径，不能再 ÷100
                     bars.append([
                         self.normalize_date(str(row[0]).replace('-', '')),
                         float(row[1]),   # open
                         float(row[3]),   # high
                         float(row[4]),   # low
                         float(row[2]),   # close
-                        float(row[5]) / 100.0,  # 股→手
-                        0.0,             # 腾讯无成交额
+                        float(row[5]),   # 手
+                        0.0,             # 腾讯无成交额，由 amount_fix 口径补
                     ])
                 return bars
             except Exception as e:
