@@ -14,14 +14,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from tdxfeed.daban.limit_price import limit_up_price, limit_ratio  # noqa: E402
+from tdxfeed.daban.limit_price import limit_ratio, limit_up_price  # noqa: E402
 from tdxfeed.date_utils import parse_date_series  # noqa: E402
 
 DAILY_DIR = _ROOT / "data" / "parquet" / "daily"
@@ -121,7 +120,7 @@ def main() -> int:
     print(pd.DataFrame(rows).to_string(index=False))
 
     print("\n=== 4. 流动性检验：低换手子集的 T 日成交额分布 ===")
-    amt = pd.read_parquet(ALPHA, columns=["code", "signal_date", "ret_net"])
+    _amt = pd.read_parquet(ALPHA, columns=["code", "signal_date", "ret_net"])
     print("（成交额需重算，此处用 entry 价位与相对换手近似）")
     for lo, hi, lab in ((0, 5, "<5元"), (5, 15, "5-15元"), (15, 40, "15-40元"), (40, 200, "≥40元")):
         g = df[(df["entry"] >= lo) & (df["entry"] < hi)]
