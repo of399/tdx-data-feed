@@ -23,8 +23,16 @@ PAGE_CAP = 1024
 # 「请求复权却拿到未复权」而无人报错，所以这里未知类型走 KeyError，不做静默回落。
 TENCENT_KEYS = {"": "day", "qfq": "qfqday", "hfq": "hfqday"}
 FIRST_DAY = "1990-01-01"  # 深取固定左端：翻页只动 end
-BASE = ("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+# 同路径同载荷的两个域。首选镜像：2026-10-26 4 并发跑到 ~3400 请求时
+# web.ifzq 被腾讯 WAF 按 IP 拦成 HTTP 501（server: stgw，body 跳 waf.tencent.com），
+# 当时 ifzq 同参数仍返回 1999-11-10 起的全深度行。
+HOSTS = ("ifzq.gtimg.cn", "web.ifzq.gtimg.cn")
+BASE = ("https://{host}/appstock/app/fqkline/get"
         "?param={sym},day,{start},{end},{count},{adjust}")
+# 501/403/429 是 IP 级风控信号，不是抖动：秒级重试等于继续砸，会把临时拦截拖成
+# 长时间封禁。退避到分钟级，让整轮审计的失败面收敛在少数代码上。
+WAF_CODES = (401, 403, 429, 501, 503)
+WAF_COOLDOWN = 30.0
 
 
 class EmptyPageError(RuntimeError):
@@ -35,31 +43,38 @@ class PageRequestError(RuntimeError):
     """请求被服务端拒（count 超限 / 代码形状非法）：`msg='param error'`、`data` 不是 dict。"""
 
 
-def _http_page(sym: str, end: str, count: int, adjust: str = "") -> list:
-    """取一页原始行；只有网络/解析异常重试，param error 立刻抛出。"""
+def http_page(sym: str, end: str, count: int, adjust: str = "") -> list:
+    """取一页原始行；只有网络/解析异常重试，param error 立刻抛出。
+
+    每台域各试一次：撞风控（WAF_CODES）退避 WAF_COOLDOWN 后换下一台，
+    普通网络抖动仍按秒级重试。
+    """
     key = TENCENT_KEYS[adjust]
-    url = BASE.format(sym=sym, start=FIRST_DAY, end=end, count=count, adjust=adjust)
     last = None
     for attempt in range(3):
-        try:
-            with urllib.request.urlopen(
-                    urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}),
-                    timeout=20) as r:
-                payload = json.loads(r.read().decode("utf-8"))
-        except Exception as e:
-            last = e
-            time.sleep(2 * (attempt + 1))
-            continue
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            raise PageRequestError(
-                f"{sym} 请求被拒 end={end} count={count} msg={payload.get('msg')!r}"
-                "（count 超限是 param error，不是历史尽头）")
-        node = data.get(sym) or {}
-        if not isinstance(node, dict):
-            raise PageRequestError(
-                f"{sym} 响应节点形状异常 end={end}: {type(node).__name__}")
-        return node.get(key) or []
+        for host in HOSTS:
+            url = BASE.format(host=host, sym=sym, start=FIRST_DAY,
+                              end=end, count=count, adjust=adjust)
+            try:
+                with urllib.request.urlopen(
+                        urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}),
+                        timeout=20) as r:
+                    payload = json.loads(r.read().decode("utf-8"))
+            except Exception as e:
+                last = e
+                time.sleep(WAF_COOLDOWN if getattr(e, "code", None) in WAF_CODES
+                           else 2 * (attempt + 1))
+                continue
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                raise PageRequestError(
+                    f"{sym} 请求被拒 end={end} count={count} msg={payload.get('msg')!r}"
+                    "（count 超限是 param error，不是历史尽头）")
+            node = data.get(sym) or {}
+            if not isinstance(node, dict):
+                raise PageRequestError(
+                    f"{sym} 响应节点形状异常 end={end}: {type(node).__name__}")
+            return node.get(key) or []
     raise RuntimeError(f"腾讯页请求失败 {sym} end={end}: {last!s}")
 
 
@@ -71,7 +86,7 @@ def _to_bar(row: list) -> list:
 
 
 def _default_page(sym: str, end: str, count: int, adjust: str = ""):
-    raw = _http_page(sym, end, count, adjust)
+    raw = http_page(sym, end, count, adjust)
     return [_to_bar(r) for r in raw], raw
 
 

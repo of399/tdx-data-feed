@@ -1,4 +1,7 @@
-"""腾讯行情数据源（凌晨稳定，回补用）：web.ifzq.gtimg.cn 日K接口。
+"""腾讯行情数据源（凌晨稳定，回补用）：ifzq.gtimg.cn 日K接口。
+
+域名用镜像 `ifzq` 而非 `web.ifzq`：2026-10-26 4 并发深取到 ~3400 请求时 web.ifzq
+被腾讯 WAF 按 IP 拦成 HTTP 501（server: stgw），同路径的 ifzq 仍正常返回全深度行。
 
 注意：腾讯接口不含成交额(amount)字段，amount 列填 0 并在写盘时标记 source=tencent。
 源列序 [date, open, close, high, low, volume(手)]，volume 单位=手，直取不 ÷100
@@ -14,7 +17,7 @@ from tdxfeed.sources.base import DataSource
 
 class TencentSource(DataSource):
     def fetch_bars(self, symbol, start_date=None, end_date=None):
-        url = ('https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param='
+        url = ('https://ifzq.gtimg.cn/appstock/app/fqkline/get?param='
                '{},day,{},{},320,qfq').format(
                    symbol, start_date or '', end_date or '')
         req = urllib.request.Request(

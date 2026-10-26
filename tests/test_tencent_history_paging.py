@@ -104,11 +104,11 @@ def test_adjust_selects_the_matching_response_key(monkeypatch):
     }}}
     monkeypatch.setattr(hp.urllib.request, "urlopen",
                         lambda req, timeout=None: _Resp(payload))
-    assert hp._http_page("sz000021", "2005-12-31", 100, "hfq")[0][1] == "9"
-    assert hp._http_page("sz000021", "2005-12-31", 100, "qfq")[0][1] == "2"
-    assert hp._http_page("sz000021", "2005-12-31", 100, "")[0][1] == "1"
+    assert hp.http_page("sz000021", "2005-12-31", 100, "hfq")[0][1] == "9"
+    assert hp.http_page("sz000021", "2005-12-31", 100, "qfq")[0][1] == "2"
+    assert hp.http_page("sz000021", "2005-12-31", 100, "")[0][1] == "1"
     with pytest.raises(KeyError):
-        hp._http_page("sz000021", "2005-12-31", 100, "nonsense")
+        hp.http_page("sz000021", "2005-12-31", 100, "nonsense")
 
 
 def test_param_error_response_raises_request_error(monkeypatch):
@@ -119,7 +119,7 @@ def test_param_error_response_raises_request_error(monkeypatch):
                         lambda req, timeout=None: _Resp(
                             {"code": 0, "msg": "param error", "data": []}))
     with pytest.raises(PageRequestError):
-        hp._http_page("sz000021", "2005-12-31", 2100, "")
+        hp.http_page("sz000021", "2005-12-31", 2100, "")
 
 
 def test_empty_range_is_not_a_request_error(monkeypatch):
@@ -129,4 +129,47 @@ def test_empty_range_is_not_a_request_error(monkeypatch):
     monkeypatch.setattr(hp.urllib.request, "urlopen",
                         lambda req, timeout=None: _Resp(
                             {"code": 0, "msg": "", "data": {"sz000021": {"day": []}}}))
-    assert hp._http_page("sz000021", "1990-12-31", 300, "") == []
+    assert hp.http_page("sz000021", "1990-12-31", 300, "") == []
+
+
+def test_blocked_host_falls_back_to_the_next_mirror(monkeypatch):
+    """2026-10-26 实测：4 并发打满后 web.ifzq 被腾讯 WAF 按 IP 拦成 HTTP 501
+    （`server: stgw`，body 是跳 waf.tencent.com/501page.html 的 JS），
+    而镜像域 ifzq.gtimg.cn 同路径同载荷仍然可用——换域，不是放弃深取。"""
+    import tdxfeed.history_paging as hp
+
+    tried = []
+
+    def fake_urlopen(req, timeout=None):
+        tried.append(req.full_url)
+        if len(tried) == 1:
+            raise _http_error(501, req.full_url)
+        return _Resp({"code": 0, "msg": "", "data": {
+            "sh600000": {"day": [["1999-11-10", "29.5", "27.75", "29.8", "27.0", "1740850.5"]]}}})
+
+    slept = []
+    monkeypatch.setattr(hp.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(hp.time, "sleep", lambda s: slept.append(s))
+    rows = hp.http_page("sh600000", "2000-12-31", 1024, "")
+    assert len(rows) == 1, "第二台域取到了就该正常返回"
+    assert len(tried) == 2 and hp.HOSTS[0] in tried[0] and hp.HOSTS[1] in tried[1]
+    assert max(slept) >= hp.WAF_COOLDOWN, "撞风控那一下必须退避，不能秒级重试继续砸"
+
+
+def test_waf_rejection_backs_off_instead_of_hammering(monkeypatch):
+    """全部域都被拒时，重试间隔必须整体上移到分钟级：秒级砸 IP 只会延长封禁。"""
+    import tdxfeed.history_paging as hp
+
+    monkeypatch.setattr(hp.urllib.request, "urlopen",
+                        lambda req, timeout=None: (_ for _ in ()).throw(
+                            _http_error(501, req.full_url)))
+    slept = []
+    monkeypatch.setattr(hp.time, "sleep", lambda s: slept.append(s))
+    with pytest.raises(RuntimeError):
+        hp.http_page("sh600000", "2000-12-31", 1024, "")
+    assert slept and min(slept) >= hp.WAF_COOLDOWN
+
+
+def _http_error(code, url):
+    import urllib.error
+    return urllib.error.HTTPError(url, code, "Not Implemented", {}, None)
