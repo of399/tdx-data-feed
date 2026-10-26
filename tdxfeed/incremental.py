@@ -28,6 +28,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
+
+from tdxfeed.amount_fix import fill_missing_amount
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -145,6 +147,7 @@ def incremental_update(symbol: str) -> dict:
     merged = merged.drop_duplicates(subset=["date"], keep="last").sort_values("date").reset_index(drop=True)
     # amount 同日 max（防 Sina amount=0 覆盖）
     merged["amount"] = merged.groupby("date")["amount"].transform("max")
+    merged, _ = fill_missing_amount(merged)
 
     _write_v2(fp, merged)
     return {

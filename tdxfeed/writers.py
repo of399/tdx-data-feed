@@ -11,6 +11,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from tdxfeed.amount_fix import fill_missing_amount
+
 
 class Writers:
     def __init__(self, out_root):
@@ -154,10 +156,12 @@ class Writers:
             # amount 保护：同日取 max（旧 akshare 全历史有 amount，
             # 新 Sina 日K amount=0，避免 0 覆盖真值）
             merged['amount'] = merged.groupby('date')['amount'].transform('max')
+            merged, _ = fill_missing_amount(merged)
             merged = merged.drop_duplicates(subset=['date'], keep='last')
             merged = merged.sort_values('date', kind='mergesort').reset_index(drop=True)
         else:
             merged = new.sort_values('date', kind='mergesort').reset_index(drop=True)
+            merged, _ = fill_missing_amount(merged)
         self._write_parquet_date32(p, merged)
 
         rows = merged.values.tolist()
