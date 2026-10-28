@@ -76,3 +76,16 @@ def test_daban_helpers_follow_kernel(monkeypatch):
     assert limit_price.limit_up_price(10.0) == 12.34
     monkeypatch.setattr(limits, "limit_down_price", lambda *a, **k: 8.88)
     assert limit_price.limit_down_price(10.0) == 8.88
+
+
+def test_daban_is_sealed_follows_kernel(monkeypatch):
+    """内核实现下 1.0 < 2.0-0.005 应判 False；哨兵 True 能抓住本地实现回退。"""
+    monkeypatch.setattr(limits, "is_sealed", lambda *a, **k: True)
+    assert limit_price.is_sealed(1.0, 2.0) is True
+
+
+def test_daban_as_date_follows_kernel(monkeypatch):
+    """正常解析得 2026-01-01，哨兵 2030-01-01 与本地实现结果不同。"""
+    from datetime import date
+    monkeypatch.setattr(limits, "as_date", lambda *a, **k: date(2030, 1, 1))
+    assert limit_price.as_date("20260101") == date(2030, 1, 1)
