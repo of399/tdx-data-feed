@@ -17,15 +17,15 @@
   v5/audit/baseline_importance.csv
 """
 import argparse
-import glob
 import json
 import time
-from pathlib import Path
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report, roc_auc_score
+
+from _paths import daily_files, daily_path  # noqa: E402
 
 START_DATE = "2001-01-01"
 TRIGGER_CSV = "v5/audit/double_triggers_enriched.csv"
@@ -78,7 +78,7 @@ def calc_features(df):
 
 
 def load_daily(symbol):
-    df = pd.read_parquet(f'data/parquet/daily/{symbol}.parquet')
+    df = pd.read_parquet(str(daily_path(symbol)))
     if df['date'].dtype != 'datetime64[ns]':
         s = df['date'].astype(str)
         mask = s.str.match(r'^\d{8}$')
@@ -114,7 +114,7 @@ def main():
     pos_features = []
     neg_features = []
 
-    sym_to_path = {Path(f).stem: f for f in glob.glob('data/parquet/daily/*.parquet')}
+    sym_to_path = {p.stem for p in daily_files()}
 
     for i, sym in enumerate(symbols):
         if sym not in sym_to_path:

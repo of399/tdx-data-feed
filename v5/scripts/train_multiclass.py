@@ -21,6 +21,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report, f1_score, roc_auc_score
 
+from _paths import daily_path  # noqa: E402
+
 ap = argparse.ArgumentParser()
 ap.add_argument('--features', default='v5/audit/baseline_features.parquet')
 ap.add_argument('--triggers', default='v5/audit/double_triggers_enriched.csv')
@@ -38,7 +40,7 @@ print(f"features: {df.shape}")
 print("\n[2] 计算未来 20 日 max(high)/min(low) ...")
 def calc_forward_look(df_daily, sym):
     """对每只股票计算每日的 forward_max_gain_20"""
-    f = f'data/parquet/daily/{sym}.parquet'
+    f = str(daily_path(sym))
     try:
         d = pd.read_parquet(f)
     except Exception:

@@ -13,8 +13,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from _paths import daily_dir  # noqa: E402
+
 VAULT_DIR = Path("/home/jiuben/StockVault/01-标的")
-PARQUET_DIR = Path("/home/jiuben/tdx-data-feed/data/parquet/daily")
+PARQUET_DIR = daily_dir()
 V5_TRAIN = Path("/home/jiuben/tdx-data-feed/data/v5_train/v5_train.json")
 OUT_DIR = Path("/home/jiuben/tdx-data-feed/data/v6_train")
 WINDOW = 20

@@ -14,7 +14,9 @@ import pandas as pd  # noqa: E402
 import torch  # noqa: E402
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig  # noqa: E402
 
-PARQUET_DIR = Path("/home/jiuben/tdx-data-feed/data/parquet/daily")
+from _paths import daily_dir  # noqa: E402
+
+PARQUET_DIR = daily_dir()
 V4_MERGED = "/home/jiuben/models/Qwen3-14B-tdx-fast-merged-safetensors"
 OUT_JSONL = Path("/tmp/v4_results.jsonl")
 

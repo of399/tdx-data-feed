@@ -14,8 +14,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from _paths import daily_dir  # noqa: E402
+
 VAULT_DIR = Path("/home/jiuben/StockVault/01-标的")
-PARQUET_DIR = Path("/home/jiuben/tdx-data-feed/data/parquet/daily")
+PARQUET_DIR = daily_dir()
 REPORT_DIR = Path("/home/jiuben/tdx-data-feed/v5/reports")
 
 # 关键时点（用于验证 v4 判断准确度）

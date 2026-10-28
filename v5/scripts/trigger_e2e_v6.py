@@ -23,6 +23,8 @@ from pathlib import Path
 
 from llama_cpp import Llama
 
+from _paths import daily_path  # noqa: E402
+
 GGUF_PATH = "/home/jiuben/models/Qwen3-14B-tdx-v6-final-Q4_K_M.gguf"
 TRIGGERS_CSV = "/tmp/sh_sz_samples.csv"  # scan_double.py 默认输出
 N_SAMPLES = 5
@@ -46,8 +48,8 @@ def build_prompt(date, name, code, ohlcv_json):
 def fetch_ohlcv(symbol, date_start, date_end):
     """从本地 parquet 读 20 日 OHLCV"""
     import pandas as pd
-    path = f"data/parquet/daily/{symbol}.parquet"
-    if not Path(path).exists():
+    path = daily_path(symbol)
+    if not path.exists():
         return None
     df = pd.read_parquet(path, columns=["date", "open", "close", "high", "low", "volume"])
     df["date"] = df["date"].astype(str).str[:10]

@@ -28,13 +28,14 @@ Scan A-share stocks for 20-day rolling window with ≥100% price range.
   <out_prefix>_candidate.csv   候选 (每只股票 1 个最早 trigger)
 """
 import argparse
-import glob
 import json
 import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from _paths import daily_files  # noqa: E402
 
 START_DATE = "2001-01-01"
 WINDOW = 20
@@ -194,7 +195,7 @@ def main():
     out_enr = f'{args.out_prefix}_enriched.csv'
     out_cand = f'{args.out_prefix}_candidate.csv'
 
-    files = sorted(glob.glob('data/parquet/daily/*.parquet'))
+    files = sorted(daily_files())
     if args.limit:
         files = files[:args.limit]
 

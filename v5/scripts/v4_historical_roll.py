@@ -14,9 +14,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from _paths import daily_dir  # noqa: E402
+
 # ===== 路径 =====
 VAULT_DIR = Path("/home/jiuben/StockVault/01-标的")
-PARQUET_DIR = Path("/home/jiuben/tdx-data-feed/data/parquet/daily")
+PARQUET_DIR = daily_dir()
 REPORT_DIR = Path("/home/jiuben/tdx-data-feed/v5/reports")
 OLLAMA_URL = "http://127.0.0.1:11434"
 V4_MODEL = "qwen3-14b-tdx-fast:14b"
