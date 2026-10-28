@@ -106,7 +106,7 @@ def test_math_specs_shape(math_specs):
 
 
 def test_math_http_is_stdio_plus_three(math_specs):
-    # HTTP 现序里 3 个独有工具排在第 9–11 位，不是拼在末尾，所以只断集合相等。
+    # HTTP 现序里 3 个独有工具在下标 9..11（不是拼在末尾），所以这里只断集合相等。
     assert set(math_specs.HTTP_TOOL_NAMES) == (
         set(math_specs.STDIO_TOOL_NAMES) | set(math_specs.HTTP_ONLY_TOOL_NAMES)
     )
@@ -118,7 +118,7 @@ def test_math_http_is_stdio_plus_three(math_specs):
 
 
 def test_http_tool_order_is_pinned(math_specs):
-    """HTTP /tools 的列举顺序是对外契约：23 名逐位钉死，独有 3 个必须仍在第 9–11 位（下标 9..11）。"""
+    """HTTP /tools 的列举顺序是对外契约：23 名逐位钉死，3 个独有工具必须仍在下标 9..11。"""
     assert math_specs.HTTP_TOOL_NAMES == [
         "are_equiv",
         "sympy_compute",

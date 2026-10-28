@@ -3,6 +3,8 @@
 本文件就是工具表的权威来源，改工具签名请直接改这里——
 `STDIO_TOOL_SPECS` 改参数 / 增删条目，
 `HTTP_TOOL_NAMES` 改对外列举顺序（客户端可见的顺序，见 tests/test_mcp_contracts.py 的保序守卫）。
+增删条目还要同步 math_sympy.py 的 call_tool 与 math_sympy_http.py 的 _run_tool 派发分支，
+漏改由 tests/test_mcp_contracts.py 的派发断言当场报红。
 """
 from __future__ import annotations
 
