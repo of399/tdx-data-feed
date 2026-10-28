@@ -13,8 +13,8 @@ from tdxfeed import paths
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 
-pytestmark = pytest.mark.skipif(
-    not paths.daily_dir().exists(), reason="需要 data/parquet/daily（CI 精简集没有 data/）"
+needs_data = pytest.mark.skipif(
+    not paths.daily_dir().exists(), reason="需要本地行情目录（CI 精简集没有）"
 )
 
 # 入库文件：干净 checkout 里也必须过。
@@ -52,6 +52,7 @@ def resolvers():
     }
 
 
+@needs_data
 @pytest.mark.parametrize("name", ["factor_engine", "quant_factors", "sim_daily_compare"])
 @pytest.mark.parametrize("code", ["sh600000", "sz000001", "600519"])
 def test_resolve_agrees_with_authority(resolvers, name, code):
@@ -66,11 +67,13 @@ def test_resolve_raises_on_unknown(resolvers, name):
         resolvers[name].resolve_parquet("sh999999")
 
 
+@needs_data
 def test_sim_daily_compare_bare_code_picks_stock_not_index(resolvers):
     """裸 000001 是平安银行（sz）；上证指数是同号的 sh000001，旧实现返回后者。"""
     assert resolvers["sim_daily_compare"].resolve_parquet("000001").name == "sz000001.parquet"
 
 
+@needs_data
 def test_v4_batch_analysis_lists_canonical_only():
     mod = _load("v5/scripts/v4_batch_analysis.py", "probe_v4_batch_analysis")
     stems = mod.get_all_stocks()
@@ -78,6 +81,7 @@ def test_v4_batch_analysis_lists_canonical_only():
     assert not [s for s in stems if s.endswith(".v1.bak")]
 
 
+@needs_data
 def test_precompute_all_iterates_canonical_codes(monkeypatch):
     from tdxfeed.precompute import indicators
 
