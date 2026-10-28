@@ -29,10 +29,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .execution.limits import (
-    MAIN_ST_RULE_CHANGE_DATE,
-    limit_threshold as _limit_threshold,
-)
+from .execution import limits as _limits
+from .names import is_st_name as _is_st_name
 
 __all__ = [
     "LIMIT_MAP",
@@ -51,6 +49,8 @@ LIMIT_MAP: dict[str, float] = {"main": 0.095, "gem": 0.195, "bse": 0.295}
 # 主板 ST/*ST 在 2026-07-06 与主板普通票并轨（±10%）之前是 ±5%，阈值同样留 0.5% 缓冲。
 LIMIT_ST_MAIN_OLD = 0.045
 
+MAIN_ST_RULE_CHANGE_DATE = _limits.MAIN_ST_RULE_CHANGE_DATE
+
 
 def get_limit(code: str, name: str = "", on_date=None) -> float:
     """涨停判定阈值。委托 `tdxfeed.execution.limits.limit_threshold`（唯一实现）。
@@ -59,8 +59,7 @@ def get_limit(code: str, name: str = "", on_date=None) -> float:
     普通票并轨。北交所按代码前缀（920 / 8 / 4）与 `bj` 前缀判定，不再要求显式前缀。
     做 2020-2026 的历史区间一定要把交易日传进来，否则并轨前的主板 ST 会被误判成 10% 档。
     """
-    return _limit_threshold(code, is_st="ST" in str(name).replace(" ", "").upper(),
-                            on_date=on_date)
+    return _limits.limit_threshold(code, is_st=_is_st_name(name), on_date=on_date)
 
 
 def is_limit_up_ret(ret: float, limit: float) -> bool:

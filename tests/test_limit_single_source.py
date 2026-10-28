@@ -42,6 +42,37 @@ def test_features_get_limit_bse_without_prefix():
         assert features_5d.get_limit(code) == pytest.approx(0.295)
 
 
+def test_features_get_limit_689_is_gem():
+    """689 是科创板 CDR（689009 九号公司）；旧实现只认 688，落到主板 0.095。"""
+    assert features_5d.get_limit("689009") == pytest.approx(0.195)
+    assert features_5d.get_limit("sh689009") == pytest.approx(0.195)
+
+
+def test_quant_get_limit_689_is_gem():
+    from quant.multifactor import factors
+    assert factors.get_limit("689009") == pytest.approx(0.195)
+
+
 def test_market_of_and_prefix_agree():
     for code in ("600519", "000001", "300750", "688981", "920001"):
         assert limit_price.market_of(code) == limits.market_of(code)
+    assert limit_price.exchange_prefix("830799") == "bj"
+    assert limit_price.exchange_prefix("sh688981") == "sh"
+    assert limit_price.exchange_prefix("300750") == "sz"
+
+
+def test_features_and_quant_follow_kernel_threshold(monkeypatch):
+    """替换内核后入口必须跟着变——否则只是「值碰巧相等」的假委托。"""
+    monkeypatch.setattr(limits, "limit_threshold", lambda *a, **k: 0.4242)
+    assert features_5d.get_limit("600519") == 0.4242
+    from quant.multifactor import factors
+    assert factors.get_limit("600519") == 0.4242
+
+
+def test_daban_helpers_follow_kernel(monkeypatch):
+    monkeypatch.setattr(limits, "limit_ratio", lambda *a, **k: Decimal("0.66"))
+    assert limit_price.limit_ratio("600519") == Decimal("0.66")
+    monkeypatch.setattr(limits, "limit_up_price", lambda *a, **k: 12.34)
+    assert limit_price.limit_up_price(10.0) == 12.34
+    monkeypatch.setattr(limits, "limit_down_price", lambda *a, **k: 8.88)
+    assert limit_price.limit_down_price(10.0) == 8.88

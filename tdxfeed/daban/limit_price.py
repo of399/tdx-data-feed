@@ -28,6 +28,7 @@ ST / *ST 的比例是**随日期变化**的（这是 2026 年最重要的口径�
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from tdxfeed.execution import limits as _limits
@@ -57,7 +58,7 @@ MARKET_MAIN = "main"
 MARKET_GEM = "gem"
 MARKET_BSE = "bse"
 
-LIMIT_RATIO = _limits.LIMIT_RATIO
+LIMIT_RATIO = dict(_limits.LIMIT_RATIO)
 LIMIT_RATIO_ST_MAIN_OLD = _limits.LIMIT_RATIO_ST_MAIN_OLD
 LIMIT_RATIO_ST_MAIN = _limits.LIMIT_RATIO_ST_MAIN
 MAIN_ST_RULE_CHANGE_DATE = _limits.MAIN_ST_RULE_CHANGE_DATE
@@ -86,7 +87,7 @@ def is_st(name: str) -> bool:
     return _is_st_name(name)
 
 
-def as_date(value):
+def as_date(value) -> date | None:
     """把 'YYYYMMDD' / 'YYYY-MM-DD' / datetime / date 统一成 date；无法识别返回 None。"""
     return _limits.as_date(value)
 
