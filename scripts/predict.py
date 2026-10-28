@@ -814,7 +814,7 @@ def run_prediction(args, model, feature_cols):
         n_extra = 0
         if names:
             st_mask = feat_df['code'].map(
-                lambda c: 'ST' in names.get(str(c).zfill(6), '').upper())
+                lambda c: is_st_name(names.get(str(c).zfill(6), '')))
             n_extra = int(st_mask.sum())
             if n_extra:
                 feat_df = feat_df[~st_mask]

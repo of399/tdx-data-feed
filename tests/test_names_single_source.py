@@ -28,3 +28,10 @@ def test_predict_is_st_keeps_int_contract():
 def test_predict_agrees_with_authority():
     for name in ("平安银行", "ST 康佳", "*ST美丽", "", None):
         assert predict.is_st(name) == int(is_st_name(name)), name
+
+
+def test_run_prediction_has_no_inline_st_check():
+    """run_prediction 的实时名称兜底也必须走 names 单一来源。"""
+    src = inspect.getsource(predict.run_prediction)
+    assert "is_st_name(" in src
+    assert "'ST' in" not in src
