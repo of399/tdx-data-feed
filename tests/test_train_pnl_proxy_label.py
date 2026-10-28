@@ -43,9 +43,30 @@ def test_label_double_touch_is_loss_side():
 
 
 def test_label_ignores_entry_bar_high_low():
-    """入场根自己的 high/low 不算触发（旧实现从入场根就开始判）。"""
+    """入场根自己的 high/low 不算触发（旧实现从入场根就开始判）。
+
+    新语义：入场根 (14.0/6.0) 不判，唯一可判定根 (10.2/9.9) 不碰 13.0/9.0，
+    所以一路走到末根收盘 10.0 结算 → END，净收益只剩成本。
+    旧实现在入场根即命中 SL 9.0 → +0.2974（远大于 -0.01），本断言对它为红。
+    """
     mod = _load()
     _seed(mod, [(10.0, 10.0, 10.0, 10.0), (10.0, 14.0, 6.0, 10.0),
                 (10.0, 10.2, 9.9, 10.0)])
     pnl = mod.compute_hypothetical_pnl("600000", pd.Timestamp("2026-01-01"))
-    assert pnl is not None and pnl > -0.01
+    from tdxfeed.execution.costs import CostModel
+    expected = CostModel(commission=0.0003, slippage=0.0010).round_trip(10.0, 10.0)
+    assert pnl == pytest.approx(expected, abs=1e-12)
+    assert pnl < 0
+
+
+def test_label_gap_through_stop_fills_at_open():
+    """跳空穿过止损价按当日开盘成交：8.0 而不是阈值 9.0。"""
+    mod = _load()
+    _seed(mod, [(10.0, 10.0, 10.0, 10.0),   # 信号根
+                (10.0, 10.0, 10.0, 10.0),   # 入场根（T+1 开盘 10.0）
+                (8.0, 8.4, 7.8, 8.0)])      # 跳空低开，穿过 9.0
+    from tdxfeed.execution.costs import CostModel
+    pnl = mod.compute_hypothetical_pnl("600000", pd.Timestamp("2026-01-01"))
+    expected = CostModel(commission=0.0003, slippage=0.0010).round_trip(10.0, 8.0)
+    assert pnl == pytest.approx(expected, abs=1e-12)
+    assert pnl < -0.20   # 阈值成交只会有 -0.1026
