@@ -54,6 +54,14 @@
 - `_archive/`、`data/`、`logs/`、`models/`、`downloads/` 不用于推断架构；`docs/` 下带日期的 `CODE_AUDIT_*`、`COMPARE_*`、`*_RESEARCH_*` 是一次性研究快照，写作历史结论而非现状规格。
 - 根 `skills/*.yaml` 是给 LLM 工具调用用的技能声明，与 Qoder 客户端加载的 Skill 目录 `.qoder/skills/` 无关；后者是**入库**的（回测口径自检 `tdx-backtest-significance` 在那里），改口径措辞要改那份 `SKILL.md`；`.qoder/repowiki/wiki_plan.yaml` 只影响知识生成，不是运行配置。
 
+## 数据路径与表口径
+
+- 定位只从 `tdxfeed/paths.py` 取：脚本侧 `from _common import ...` 是它的再导出桥，`v5/scripts/_paths.py` 是零耦合孪生（v5 不 import tdxfeed）。业务代码不写 `data/parquet/...` 字面量，守卫 `tests/test_no_hardcoded_data_paths.py`。
+- 表名**不统一**，按既存事实：日线/分钟表文件带市场前缀（`sh600000.parquet`），`adj_factor` / `hfq_factor` 是裸 6 位（`600000.parquet`），`derived` 是前缀 + `_indicators`（`sh600000_indicators.parquet`）。要枚举标的池用 `paths.daily_files()`——它排除 `.v1.bak.parquet` 迁移备份；自己 `glob("*.parquet")` 会把备份当股票。
+- 写盘只走 `tdxfeed.parquet_io.write_table`（`date` 列归一成 `date32[day]`，tmp→`os.replace` 换 inode）。派生表备份依赖这个换 inode 语义，`cp -al` 出来的快照才不会被原地改写。分钟表的时间列**不叫** `date`、是 `string`（`YYYY-MM-DD HH:MM:SS`），原样写。
+- 判涨停用 `limit_threshold`（精确比例减 0.5% 缓冲），算挂单价用 `limit_ratio` + `limit_up_price`（精确比例、Decimal 取整到分）。两者是两套合同，不可互换；两者都在 `tdxfeed/execution/limits.py`。
+- `data/`、`logs/` 不进 git。`derived` 全量重建的证据是 `data/parquet/derived_pre_<日期>/MANIFEST.txt` + 重建日志，不是「文件数看起来对」。
+
 ## 风险边界（动手前读）
 
 - 这个 checkout 与并发的其他代理会话共享同一工作树与 git 索引：`git add`、`git commit` 都**必须带显式路径**，不要用 `-A` 或 `.`。看到陌生脏文件或红色测试，先判断是不是别的会话的改动，不要顺手修或提交。

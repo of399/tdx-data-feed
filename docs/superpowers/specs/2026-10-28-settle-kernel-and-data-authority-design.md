@@ -359,3 +359,40 @@ def read_derived(code) -> pd.DataFrame
 2. **验收闸门：跨宇宙不可比，改用同宇宙消融。** 规格阶段 3 的闸门「逐折 Spearman / Top-20 不低于 v1 基线」在本轮**跨宇宙**条件下不可比：数字算得出来（0.2483 < 0.3475 按字面会被读成「回滚」），但两侧测试集构成不同——v1 基线是 13023 有效样本（含 bj/ETF）、测试窗口 4067 行，本轮是 9981 行沪深、测试窗口 2695 行。实测旧标签在新宇宙上的同协议 Spearman 是 0.2594（132 棵树）/ 0.2606（117 棵树），同样低于 0.315 闸门——该闸门对**任何标签版本**都不成立。本轮判据改为「同宇宙、只换标签」的消融：固定 9981 行、21 维特征、超参与树数，只换标签列，标签效应 Spearman ≈ −0.012 / Top-20 ≈ ±0.01（结果与复跑代码见 `docs/research/2026-10-28-stage1-retrain-after-settle-kernel.md` §4）。
 3. **v1/v2 同日输出对照：用匹配对照代替，且只作 sanity。** 规格阶段 3 第 5 项要求「v1/v2 同日输出对照，选股差异逐条解释」；实际以**匹配对照**（旧模型 vs 新模型同 holdout）代替。该对照的泄漏**不对称**：新模型在全量 9981 行（含 ≥2025）上重训，见过被评分的新标签；旧模型只见过旧标签。因此它只能排除「大幅退化」，不能证明新标签更好，**不是主判据**。
 4. **§7 DoD 4「v1 基线 + v2 逐折对比表」改判据。** 本轮 `scripts/stage1_retrain.py` 用单次时间切分（`< 2025` 训练、`≥ 2025` 打分），没有多折，逐折对比表无从产生；v2 文件名也已作废（第 1 条）。该条 DoD 由三项替代证据承担：**同协议 v1 基线逐位复现**（0.3475 / 0.2045，见研究文档 §4）、**同宇宙消融分解**（主判据，第 2 条）、**匹配对照**（sanity，第 3 条）；「模型切换有明确结论」落地为研究文档 §5 的保留决策与其量化代价。
+
+---
+
+## 12. 实施期更正（阶段 3+4，2026-10-28）
+
+本节记录「数据与路径权威层」（阶段 3+4）实施期的偏差，编号与三份计划文档开头的更正表一致：`docs/superpowers/plans/2026-10-28-settle-kernel-phase1.md` §3.5 与 `docs/superpowers/plans/2026-10-28-label-retrain-phase2.md` §6 的阶段 3 两项（编号 C14 / C15）已记在 §11，本节不重复；本阶段自身为 C4′–C13。规格正文保持批准时的原文，冲突时以本节为准。
+
+| 编号 | 原文 | 实测 |
+|---|---|---|
+| C4′ | §4.2 的 47 文件统计 | 守卫口径（与 §10 的「50 个」不冲突）：`tests/test_no_hardcoded_data_paths.py` 的 AST 口径实测 **91 文件 / 120 行**（`scripts` 59/81、`tdxfeed` 6/7、`quant` 2/2、`mcp` 3/7、`train` 2/3、`v5` 19/20）；§10 记的 50 个是「含五张表名的文件数」口径。91/120 中 tracked 部分是 89 文件 / 117 行（`train/` 未入库，CI 扫不到），计划表的 90/119 是派发前预跑数，比实测少一个文件（`scripts/recompute_pnl_labels.py:30`）。另有 5 处字符串拼接型（`PK + sym`）守卫抓不到，靠 Task 3/6 的人工清单兜。 |
+| C5 | §5.2 math 双传输工具集一致 | stdio 20 个，HTTP 23 个，HTTP 多 `math_concept_link` / `math_bilingual_translate` / `math_ontology_stats`（三个独有项在 HTTP 现序下标 9..11，不是拼在末尾，顺序按现状钉死）。parity 写成集合相等 `HTTP == stdio ∪ HTTP_ONLY`，外加长度 20/23。 |
+| C6 | §4.3 derived 是 int64 | derived 的 `date` 实为 `timestamp[ns]`（重建前快照可验）；重建目标统一到 `date32[day]`。 |
+| C7 | §4.1 第 4 个写入端是 `amount_fix.py` | `amount_fix.py` 不写盘；真正的第 4 端是 `scripts/download_universe.py`，写的是 int64 日期（收编后已改走 `write_table`）。 |
+| C8 | §4.3 重建 5200 个 | `derived` 重建产出 **5,211** 个（canonical `daily` 5,236 中，25 只行数不足 60 个交易日，按 `compute_one` 的设计不产表）；全部 `date32[day]` / 29 列；与 daily 的行数逐只相等；无 `.v1.bak` 衍生物。重建前快照 `data/parquet/derived_pre_settle_20261028/`（`cp -al` 硬链接，5,200 文件，`MANIFEST.txt` 记 `created_at` / `git_head` / 文件数 / 体积）。 |
+| C9 | §4.1 `finance_path()` | 实际命名 `finance_parquet()`。 |
+| C10 | §4.1 分钟表写 `YYYY-MM-DD HH:MM:SS` | 时间列名是 `datetime`（`string`），`write_table` 只归一 `date` 列。 |
+| C11 | §5.1-3 第三份副本改为调用 `factors_polars` | 改调 `features_5d.compute_window_features_extended` 并取 26 键；`factors_polars` 是迁移期复刻且只接受 polars DataFrame。 |
+| C12 | §5.1-2 委托后 ST 票会变值 | 委托不带 `is_st`（无按日 ST 历史），主板阈值不变、ST 偏差仍在；实际变值的是 `689` 段，全库只有 `sh689009` 受影响（`paths.daily_files()` 里 `sh689*` 恰好 1 只）。 |
+| C13 | §5.2-1 tools.json 与注册表一致 | 名称与顺序 6/6 一致；另有 `inputSchema` 漂移 **5 个**工具、description 漂移 **9 个**工具（并集 10 个：`read_finance` / `read_xdxr` / `list_codes` / `calc_macd` / `calc_kdj` / `calc_rsi` / `calc_boll` / `calc_adj_factor` / `search` / `add_doc`，json 侧更详细），本轮只锁名称/数量/必填自洽。 |
+
+C8 的口径：验收判据是「`num_rows >= 60` 的 code 全部有 derived」，不是「文件数 == daily 文件数」。
+
+C12 的遗留：`quant/multifactor/factors.get_limit` 没有 ST 分支，`zt_density_20d` 在 2026-07-06 并轨前的 ST 票上仍会少数涨停。补齐它需要**按交易日的 ST 历史**，仓库里只有 `data/all_a_stocks.json` 的当前名称快照（`tdxfeed.names.load_universe()`），拿当前名称回填全历史会把并轨后的日期也按 5% 判。因此本轮不做，列入「明确不做」，等有 ST 变更流水再开。
+
+### 遗留与观察项
+
+1. `tdxfeed/writers.py` 的 `write_day` 已是死代码（零调用），且它按整根 bar 覆写存在 1023 根截断陷阱——不要在后续任务里重新接回。
+2. `tdxfeed/full_sync.py:232` 写 manifest 时 `last_date` 落的是 bar 对象的 `repr`（实测为 `[datetime.datetime(2026, 10, 28, ...)]` 一类），5,235 条里 **5,227 条**格式坏；这是**已知债务**，读取方不得依赖该字段做新鲜度判断。
+3. `derived` **没有调度在刷新**：2026-10-29 重建时发现它已陈旧约 17 个交易日，`sh600000 1023→6415`、`sz000001 1030→7171` 属历史截断修复。本轮只重建一次，刷新调度与新鲜度守卫未做。
+4. 下游 `train/scripts/build_v8_dataset.py`（**不入库**，`.gitignore` 的 `train/` 规则）吃 derived，derived 更新后其 dataset 需重跑；阶段 2 的对照结论内部自洽（新旧标签同源特征），不受影响。
+5. 契约措辞统一为「derived 与 daily **同集**（不足 60 个交易日除外）」。
+6. ST 判定为什么保留两份自写实现：`tdxfeed/daban/scanner.py:378` 与 `scripts/daban_min60_features.py:134` 仍各写一遍，且**多带「退」（退市整理）分支，与 `is_st_name`（只认 `ST`）不等价**。机械替换成 `is_st_name` 会把「退」票从 daban 的过滤/阈值判定里放出来，改变选股结果，所以保留为 daban 专属语义；收编只做了核心链路（predict / 因子）那一份。不是漏了。
+7. `quant/multifactor/factors.get_limit` 无 ST 分支（C12 已述），补它需要按交易日的 ST 历史，本轮不做——`zt_density_20d` 在并轨前的 ST 票上仍会少数涨停，属已知偏差，不是收编遗漏。
+8. `scripts/download_bj_daily.py` 是退役脚本，仍写 timestamp 日期（不走 `write_table`），不要当它是活路径。
+9. `mcp/servers/finance_deep.py:52` 在**导入期** `mkdir`，CI 会建 `data/parquet/finance_deep/`；无害，但属副作用，记录在案。
+10. `v5/README.md` 的 math 工具数滞后（已把四处计数改为 stdio 20 / HTTP 23 并指向 `math_tool_specs.py`）；M1/M2 表格是设计期记录，未列全。
+11. 两份带日期的评审快照（`docs/WORKFLOW_REVIEW_2026-10-16.md`、`docs/WORKFLOW_REVIEW_2026-10-16-v2.md`）里「`Writers.write_day` + `write_parquet` 增量双写」的描述已在 2026-10-28 的写入口收编中失效（`Writers.write_parquet` 已删、`write_day` 成死代码）。AGENTS.md 已声明带日期 review 是一次性快照，正文不重写，只在文首各加一行提示；现状见 `AGENTS.md`「数据路径与表口径」与 `tdxfeed/parquet_io.py`。

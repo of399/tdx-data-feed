@@ -32,4 +32,4 @@ jobs:
           passed=$(grep -Eo '[0-9]+ passed' /tmp/pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
           skipped=$(grep -Eo '[0-9]+ skipped' /tmp/pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
           echo "passed=${passed:-0} skipped=${skipped:-0}"
-          test "${passed:-0}" -ge 400
+          test "${passed:-0}" -ge 724

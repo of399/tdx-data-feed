@@ -1,5 +1,7 @@
 # 工作流整体审查报告 v2 (2026-10-16 16:00)
 
+> **时效提示**：本文写于 2026-10-16；其中 `Writers.write_parquet` / `write_day` 的描述已在 2026-10-28 的写入口收编中失效，现状见 `AGENTS.md` 与 `tdxfeed/parquet_io.py`。
+
 > 范围：`tdx-data-feed` 全栈（数据采集 → 量化策略 → 模型训练/部署 → 监控编排）
 > 方法：基于 `Makefile` / `config.yaml` / `requirements.txt` / `systemd/*` / `tdxfeed/*` / `deploy/*` / `scripts/*` / `.codebuddy/` 实际内容的**第二轮**重新审查。
 > 相对 v1 (`docs/WORKFLOW_REVIEW_2026-10-16.md`) 的增量：3 个新 timer + 1 个新 service、1 个新后端脚本 (`tdx_concept_loader`)、Makefile `full-sync` 目标、WORKFLOW.md 已回填、监控栈资源复核完成。
