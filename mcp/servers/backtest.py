@@ -56,6 +56,7 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
     limit_ratio,
     limit_up_price,
 )
+from tdxfeed.execution import single as _single  # noqa: E402
 from tdxfeed.features_5d import (  # noqa: E402
     compute_window_features_extended,
     get_limit,
@@ -372,21 +373,23 @@ def _simulate(df: pd.DataFrame, entry_signal: np.ndarray, exit_signal: np.ndarra
             if open_p > 0:
                 sell(i, open_p, "signal")
 
-        # 2) 日内止盈止损（T+1：入场当日不检查）
+        # 2) 日内止盈止损（T+1：入场当日不检查）——阶梯委托内核，max_hold/cooldown 留在本函数
         if in_pos and i > entry_idx:
-            stop = entry_gross * (1 - stop_loss) if stop_loss else None
-            take = entry_gross * (1 + take_profit) if take_profit else None
-            if stop is not None and open_p <= stop:
-                sell(i, open_p, "stop_gap")
-            elif take is not None and open_p >= take:
-                sell(i, open_p, "take_profit_gap")
-            elif in_pos:
-                low_p = float(df.at[i, "low_adj"])
-                high_p = float(df.at[i, "high_adj"])
-                if stop is not None and low_p <= stop:
-                    sell(i, stop, "stop_loss")
-                elif take is not None and high_p >= take:
-                    sell(i, take, "take_profit")
+            # 符号约定不同：本模块 stop_loss 为正数（0.10），内核 sl 为带符号收益（-0.10）
+            # check_exit 不读 hold_days（时间窗归调用方），故不传；传了会让人误以为 max_hold 也搬进内核
+            plan = _single.SingleTradePlan(
+                judge="intrabar", tp=take_profit,
+                sl=-stop_loss if stop_loss is not None else None, sl_first=True)
+            hit = _single.check_exit(entry_gross, open_=open_p,
+                                     high=float(df.at[i, "high_adj"]),
+                                     low=float(df.at[i, "low_adj"]),
+                                     close=close_p, plan=plan)
+            if hit is not None:
+                if hit.reason == "SL":
+                    reason = "stop_gap" if open_p <= entry_gross * (1 - stop_loss) else "stop_loss"
+                else:
+                    reason = "take_profit_gap" if open_p >= entry_gross * (1 + take_profit) else "take_profit"
+                sell(i, hit.price, reason)
 
         # 3) 最长持有到期：收盘卖出
         if in_pos and max_hold and i - entry_idx >= max_hold:
