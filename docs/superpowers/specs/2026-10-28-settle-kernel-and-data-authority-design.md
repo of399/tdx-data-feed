@@ -348,3 +348,13 @@ def read_derived(code) -> pd.DataFrame
 | #9 `daban/execution_backtest.py` | 收编到 B | 它吃的是**行式事件表**（`next_open`/`next_close`/`next_lim_dn` 列），手里没有 bar 序列，无法构造 `settle_hold_trade` 的入参。实际收编范围＝`net_return` 的**卖出侧**算术（`CostModel.sell`）；`_exit_price` 的跌停判断读事件表预计算的 `next_lim_dn`（数据列，不是规则计算），不动；买入侧也不套 `round_trip`（限价单无买入滑点，双边滑点每笔差 5bp）。结算仍行式。`#11 daban_event_table.py` 是这张表的生产者，本轮 0 改动。 |
 | #10 `daban/topk_pnl.py` | 收编到 B，数值不变 | 数值**微变**：成本改委托 `round_trip`，逐笔 `|Δ| ≤ 1e-7`（旧式买入佣金写成 `(1-fee)` 乘子，`round_trip` 写成 `1/(1+commission)`，差 `commission²`）。成交价/时点/复权/跳过原因不变；两处标签级变化：入场根停牌且出场根缺失时内核先报 `suspended`（旧实现先报 `no_exit`），日期字段改走 `date_str` 归一。另需给 `HoldPlan` 加 `sell_offset`（CLI `--exit-offset` 允许 >2）。 |
 | §4.2 硬编码路径数 | 47 个文件 | 五张表（daily/min*/derived/adj_factor/hfq_factor）口径实测 **50** 个（`scripts` 41 / `tdxfeed` 9 / `mcp` 2），另 `v5` 19 个走独立 `_paths.py`。阶段 3+4 的守卫以实测清单为准。 |
+
+---
+
+## 11. 实施期更正（阶段 2，2026-10-28）
+
+阶段 2（重建标签与模型）的三条实施差异，规格原文不改，以此节为准：
+
+1. **文件名：就地重写，不写 `_v2`。** 规格阶段 3 写「标签写新文件 `d_signal_5d_features_vpnl_v2.csv`、模型 `..._stage1_v2.txt`（旧文件不动）」；实际是**就地重写**同名 CSV / 宽表 / 模型。理由：下游（`stage1_wide_table`、`predict.py`、报告）都按单一路径读，v2 文件名要求把新路径参数穿到每一处；回滚安全性由前置快照保证——`data/double_up/_pre_settle_kernel_20261028/` 五件套 + `MANIFEST.md` 的 md5 清单 + 一键 `cp -p` 回滚路径（`docs/research/2026-10-28-stage1-retrain-after-settle-kernel.md` §5）。
+2. **验收闸门：跨宇宙不可计算，改用同宇宙消融。** 规格阶段 3 的闸门「逐折 Spearman / Top-20 不低于 v1 基线」在本轮**跨宇宙**条件下不成立：v1 基线是 13023 有效样本（含 bj/ETF），本轮训练宇宙 9981 行只有沪深。实测旧标签在新宇宙上同样只有 0.2594（132 棵树）/ 0.2774（117 棵树，Top-20），闸门 0.315 对**任何标签版本**都不成立。本轮判据改为「同宇宙、只换标签」的消融：固定 9981 行、21 维特征、超参与树数，只换标签列，标签效应 Spearman ≈ −0.012 / Top-20 ≈ ±0.01（结果与复跑代码见 `docs/research/2026-10-28-stage1-retrain-after-settle-kernel.md` §4）。
+3. **v1/v2 同日输出对照：用匹配对照代替，且只作 sanity。** 规格阶段 3 第 5 项要求「v1/v2 同日输出对照，选股差异逐条解释」；实际以**匹配对照**（旧模型 vs 新模型同 holdout）代替。该对照的泄漏**不对称**：新模型在全量 9981 行（含 ≥2025）上重训，见过被评分的新标签；旧模型只见过旧标签。因此它只能排除「大幅退化」，不能证明新标签更好，**不是主判据**。

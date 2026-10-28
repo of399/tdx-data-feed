@@ -34,7 +34,9 @@
 
 ## 训练标签口径
 
-- `hypothetical_pnl` 由 `scripts/train_pnl_proxy.compute_hypothetical_pnl` 产出，已委托 `tdxfeed/execution/` 的内核 A。2026-10-28 起标签口径为：入场次根起判定、同根双触发结算亏损侧、跳空按开盘。**此前训练的模型与报告都是旧口径**，横比前先看标签版本（`data/double_up/_pre_settle_kernel_20261028/` 是旧版快照）。本轮重训的对照与取舍见 `docs/research/2026-10-28-stage1-retrain-after-settle-kernel.md`。
+- `hypothetical_pnl` 由 `scripts/train_pnl_proxy.compute_hypothetical_pnl` 产出，已委托 `tdxfeed/execution/` 的内核 A。2026-10-28 起标签口径为：入场次根起判定、同根双触发结算亏损侧、跳空按开盘；成本也从加法 `gross − 2×(fee+slip)` 改为内核 `CostModel.round_trip` 的乘法。**此前训练的模型与报告都是旧口径**，横比前先看标签版本（`data/double_up/_pre_settle_kernel_20261028/` 是旧版快照）。本轮重训的对照与取舍见 `docs/research/2026-10-28-stage1-retrain-after-settle-kernel.md`。
+- 标签 CSV 仍是 13064 行，其中 **3083 行（bj 1539 + ETF 1544）按设计为 null**（没有日线）。统计任何比率都必须用**非空分母**（9981），不能用 13064——本轮踩过两次：51.9% 正收益率、12957 行合并叉积。
+- 重算入口是 `scripts/recompute_pnl_labels.py`（只换标签列 + 写前闸门）；**不要**指望 `scripts/train_pnl_proxy.py` 的 `main()` 重算——它非空率 >90% 时会复用旧列。
 
 ## 实盘边界
 
