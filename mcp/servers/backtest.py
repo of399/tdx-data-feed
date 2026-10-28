@@ -43,13 +43,16 @@ logging.basicConfig(
 )
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
-DAILY_DIR = ROOT / "data/parquet/daily"
-ADJ_DIR = ROOT / "data/adj_factor"
 DABAN_MODEL = ROOT / "data/double_up/d_signal_5d_model_daban.txt"
 UNIVERSE_FILE = ROOT / "data/all_a_stocks.json"
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from tdxfeed.paths import adj_factor_dir, daily_dir  # noqa: E402
+
+DAILY_DIR = daily_dir()
+ADJ_DIR = adj_factor_dir()
 
 from tdxfeed.daban.limit_price import (  # noqa: E402
     is_st as _is_st_name,

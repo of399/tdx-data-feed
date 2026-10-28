@@ -32,9 +32,14 @@ class McpError(Exception):
 
 # === 路径 ================================================================
 ROOT = Path("/home/jiuben/tdx-data-feed")
-DAILY_DIR = ROOT / "data/parquet/daily"
-FINANCE_PARQUET = ROOT / "data/parquet/finance.parquet"
-XDXR_PARQUET = ROOT / "data/parquet/xdxr.parquet"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tdxfeed.paths import daily_dir, finance_parquet, xdxr_path  # noqa: E402
+
+DAILY_DIR = daily_dir()
+FINANCE_PARQUET = finance_parquet()
+XDXR_PARQUET = xdxr_path()
 LOG_FILE = ROOT / "logs/mcp.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
