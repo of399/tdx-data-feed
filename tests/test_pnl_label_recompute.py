@@ -47,3 +47,15 @@ def test_labels_actually_changed():
     assert len(m) > 9000
     diff = (m["hypothetical_pnl_new"] - m["hypothetical_pnl_old"]).abs()
     assert (diff > 1e-9).mean() > 0.95, "标签与旧口径几乎一致，检查是否复用了旧列"
+
+
+def test_non_label_columns_are_untouched():
+    """只换标签列：其余 29 列必须与快照逐位相同。
+
+    round_trip 读取是必须的——默认解析器会把 ~100 个浮点读偏 1 ULP，重写后
+    特征就悄悄变了（这条守卫就是为抓那次漂移而加）。
+    """
+    new = pd.read_csv(NEW, float_precision="round_trip")
+    old = pd.read_csv(OLD, float_precision="round_trip")
+    others = [c for c in old.columns if c != "hypothetical_pnl"]
+    pd.testing.assert_frame_equal(new[others], old[others], check_exact=True)

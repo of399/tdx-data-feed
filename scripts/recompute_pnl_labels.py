@@ -19,7 +19,9 @@ from train_pnl_proxy import OUT_DATA, attach_pnl
 
 
 def main() -> int:
-    df = pd.read_csv(OUT_DATA)
+    # round_trip 解析：默认解析器会让 ~100 个浮点单元格读偏 1 ULP，重写后特征列文本
+    # 就不再与快照逐位相同，违反「只换标签列」的契约（守卫 test_non_label_columns_are_untouched）
+    df = pd.read_csv(OUT_DATA, float_precision="round_trip")
     if "hypothetical_pnl" not in df.columns:
         print(f"❌ 缺 hypothetical_pnl 列: {OUT_DATA}", file=sys.stderr)
         return 1
