@@ -14,6 +14,8 @@ v3 提前版 1 个月模拟交易
 - data/plan_e/v3_simulate_equity.csv（每日权益曲线）
 """
 import argparse
+import sys
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -23,6 +25,20 @@ ROOT = Path('/home/jiuben/tdx-data-feed')
 PARQUET = ROOT / 'data/parquet/daily'
 OUT_DIR = ROOT / 'data/plan_e'
 CANDIDATE_FP = OUT_DIR / 'v3_early_test_candidates_20260927_2107.csv'
+
+if str(ROOT) not in sys.path:      # scripts/ 直接运行时 sys.path[0] 是 scripts/
+    sys.path.insert(0, str(ROOT))
+
+from tdxfeed.execution.single import SingleTradePlan, check_exit  # noqa: E402
+
+# v3 的历史口径：只看收盘价，止盈先于止损。这里只把口径声明出来，数值不变；
+# 运行期参数（--take-profit / --stop-loss / --hold-days）经 exit_plan() 覆盖。
+EXIT_PLAN = SingleTradePlan(judge="close_only", tp=0.30, sl=-0.10,
+                            hold_days=30, sl_first=False)
+
+
+def exit_plan(take_profit: float, stop_loss: float, hold_days: int) -> SingleTradePlan:
+    return replace(EXIT_PLAN, tp=take_profit, sl=stop_loss, hold_days=hold_days)
 
 
 def load_ohlcv(code: str, start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.DataFrame:
@@ -138,11 +154,14 @@ def simulate(args):
             ret = (close / h['entry_price'] - 1)
             ret_max = (h['max_price'] / h['entry_price'] - 1)
 
-            # 止盈/止损/时间止损
-            if ret >= args.take_profit:
-                to_close.append((code, close, 'tp', ret))
-            elif ret <= args.stop_loss:
-                to_close.append((code, close, 'sl', ret))
+            # 止盈/止损/时间止损：TP/SL 委托内核判定（收盘口径），持有期到期留在本处
+            hit = check_exit(h['entry_price'], open_=float(day_data.iloc[0]['open']),
+                             high=high, low=float(day_data.iloc[0]['low']),
+                             close=close,
+                             plan=exit_plan(args.take_profit, args.stop_loss,
+                                            args.hold_days))
+            if hit is not None:
+                to_close.append((code, close, hit.reason.lower(), ret))
             elif h['days_held'] >= args.hold_days:
                 to_close.append((code, close, 'time', ret))
 
