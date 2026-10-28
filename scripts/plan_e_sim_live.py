@@ -38,6 +38,11 @@ ROOT = Path(__file__).parent.parent
 # 显式把项目根加入 sys.path，确保 `import tdxfeed`（如 freshness）在直接运行时可用。
 sys.path.insert(0, str(ROOT))
 
+# 结算内核（唯一实现）：出场阶梯与时间窗跟 plan_e_backtest 同源。
+from tdxfeed.execution.bars import as_bars  # noqa: E402
+from tdxfeed.execution.costs import CostModel  # noqa: E402
+from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
+
 MODEL_FILE = ROOT / "data" / "double_up" / "d_signal_5d_model.txt"
 UNIVERSE_FILE = ROOT / "data" / "all_a_stocks.json"
 
@@ -128,54 +133,32 @@ def features_at(code: str, cutoff: pd.Timestamp, use_extended: bool = False) -> 
 
 
 def simulate_trade(df_full: pd.DataFrame, signal_date: pd.Timestamp, code: str) -> dict | None:
-    """在 signal_date 后模拟：T+1 open 入场，10d 内 TP/SL/TIME 优先判定。"""
+    """信号日次日开盘入场，委托结算内核；与 plan_e_backtest 同一出场阶梯与同一时间窗。"""
     future = df_full[df_full["date"] > signal_date].reset_index(drop=True)
     if len(future) < 2:
         return None
-    entry_price = float(future.iloc[0]["open"])  # T+1 open
-    if entry_price <= 0 or np.isnan(entry_price):
+    bars = as_bars(future)
+    # 内核只判 `<= 0`，NaN 会漏过去——这条守卫由调用侧兜住。
+    if float(bars["open"].iloc[0]) <= 0 or np.isnan(float(bars["open"].iloc[0])):
         return None
-
-    exit_price = None
-    exit_reason = None
-    n = min(HOLD_DAYS + 1, len(future))
-    tp_lvl = entry_price * (1 + TP_PCT)
-    sl_lvl = entry_price * (1 + SL_PCT)
-    for i in range(1, n):
-        row = future.iloc[i]
-        hit_sl = float(row["low"]) <= sl_lvl
-        hit_tp = float(row["high"]) >= tp_lvl
-        if not (hit_sl or hit_tp):
-            continue
-        # 与 plan_e_backtest 同一口径：日内高低点无法证明先后，双触发取亏损一侧；
-        # 跳空穿越阈值按当日开盘成交，不要抹回阈值价
-        open_i = float(row["open"]) if row["open"] > 0 else None
-        if hit_sl:
-            exit_price = min(sl_lvl, open_i) if open_i is not None else sl_lvl
-            exit_reason = "SL"
-        else:
-            exit_price = max(tp_lvl, open_i) if open_i is not None else tp_lvl
-            exit_reason = "TP"
-        break
-    if exit_price is None:
-        if len(future) > HOLD_DAYS:
-            exit_price = float(future.iloc[HOLD_DAYS]["close"])
-            exit_reason = "TIME"
-        else:
-            exit_price = float(future.iloc[-1]["close"])
-            exit_reason = "END"
-
-    pnl_pct = exit_price / entry_price - 1
-    # 含成本（与回测 v2 一致：佣金 0.03% + 滑点 0.10% = 0.13% 双边）
-    pnl_pct -= (TRADE_FEE_BPS + TRADE_SLIPPAGE_BPS) * 2 / 100
+    plan = SingleTradePlan(judge="intrabar", tp=TP_PCT, sl=SL_PCT,
+                           hold_days=HOLD_DAYS, sl_first=True)
+    # 常量名叫 _BPS，值其实是**百分数**（0.03 = 0.03%、0.10 = 0.10%），与旧式
+    # `(fee+slip)*2/100` 一致；除以 1e4 会把它缩小 100 倍。
+    # stamp_sell 显式钉 0：方案 E 全链路无印花税，不能靠 CostModel 默认值隐性维持。
+    costs = CostModel(commission=TRADE_FEE_BPS / 100,
+                      slippage=TRADE_SLIPPAGE_BPS / 100, stamp_sell=0.0)
+    r = settle_single_trade(bars, 0, plan, costs, insufficient="last_close")
+    if r is None:
+        return None
     return {
         "code": code,
         "signal_date": signal_date.strftime("%Y-%m-%d"),
-        "entry_date": future.iloc[0]["date"].strftime("%Y-%m-%d"),
-        "entry_price": entry_price,
-        "exit_price": exit_price,
-        "pnl_pct": pnl_pct,
-        "reason": exit_reason,
+        "entry_date": r.entry_date,
+        "entry_price": r.entry_price,
+        "exit_price": r.exit_price,
+        "pnl_pct": r.net_ret,
+        "reason": r.reason,
     }
 
 

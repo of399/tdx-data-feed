@@ -81,3 +81,19 @@ def test_no_touch_runs_to_the_clock():
     r = _exit((10.0, 10.5, 9.5, 10.2))
     assert r["reason"] in ("TIME", "END"), r
     assert r["exit_price"] == 10.2, f"没触阈值就该按收盘结算: {r}"
+
+
+def test_time_exit_after_nine_bars_matches_backtest_window():
+    """入场后第 9 根收盘超时（与 plan_e 的 hold_days=10 含入场根一致）。"""
+    rows = [(10.0, 10.1, 9.9, 10.0)] * 9           # 入场 bar 之后的 9 根，都不触发
+    df = _bars(*rows, (10.0, 10.1, 9.9, 10.0), (99.0, 99.0, 99.0, 99.0))
+    res = sim.simulate_trade(df, SIGNAL_DATE, "600000")
+    assert res["reason"] == "TIME"
+    assert res["exit_price"] == 10.0
+
+
+def test_end_reason_when_window_truncated():
+    rows = [(10.0, 10.1, 9.9, 10.0)] * 2
+    df = _bars(*rows)
+    res = sim.simulate_trade(df, SIGNAL_DATE, "600000")
+    assert res["reason"] == "END"
