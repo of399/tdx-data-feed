@@ -368,7 +368,7 @@ def read_derived(code) -> pd.DataFrame
 
 | 编号 | 原文 | 实测 |
 |---|---|---|
-| C4′ | §4.2 的 47 文件统计 | 守卫口径（与 §10 的「50 个」不冲突）：`tests/test_no_hardcoded_data_paths.py` 的 AST 口径实测 **91 文件 / 120 行**（`scripts` 59/81、`tdxfeed` 6/7、`quant` 2/2、`mcp` 3/7、`train` 2/3、`v5` 19/20）；§10 记的 50 个是「含五张表名的文件数」口径。91/120 中 tracked 部分是 89 文件 / 117 行（`train/` 未入库，CI 扫不到），计划表的 90/119 是派发前预跑数，比实测少一个文件（`scripts/recompute_pnl_labels.py:30`）。另有 5 处字符串拼接型（`PK + sym`）守卫抓不到，靠 Task 3/6 的人工清单兜。 |
+| C4′ | §4.2 的 47 文件统计 | 守卫口径（与 §10 的「50 个」不冲突）：**收编前**（Task 2 基线）`tests/test_no_hardcoded_data_paths.py` 的 AST 口径命中 **91 文件 / 120 行**（`scripts` 59/81、`tdxfeed` 6/7、`quant` 2/2、`mcp` 3/7、`train` 2/3、`v5` 19/20），**收编后全仓为 0**；§10 记的 50 个是「含五张表名的文件数」口径。91/120 里 tracked 部分是 89 文件 / 117 行（`train/` 在 `.gitignore:44`，CI 扫不到，那 2 个文件只在工作树改过、不入库），计划表的 90/119 是派发前预跑数，比实测少一个文件（`scripts/recompute_pnl_labels.py:30`）。另有 5 处字符串拼接型（`PK + sym`）守卫抓不到，靠 Task 3/6 的人工清单兜。 |
 | C5 | §5.2 math 双传输工具集一致 | stdio 20 个，HTTP 23 个，HTTP 多 `math_concept_link` / `math_bilingual_translate` / `math_ontology_stats`（三个独有项在 HTTP 现序下标 9..11，不是拼在末尾，顺序按现状钉死）。parity 写成集合相等 `HTTP == stdio ∪ HTTP_ONLY`，外加长度 20/23。 |
 | C6 | §4.3 derived 是 int64 | derived 的 `date` 实为 `timestamp[ns]`（重建前快照可验）；重建目标统一到 `date32[day]`。 |
 | C7 | §4.1 第 4 个写入端是 `amount_fix.py` | `amount_fix.py` 不写盘；真正的第 4 端是 `scripts/download_universe.py`，写的是 int64 日期（收编后已改走 `write_table`）。 |
