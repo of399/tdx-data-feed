@@ -2,7 +2,7 @@
 math_sympy_http.py · v5-VE1-M2 D6.6 持久化 SymPy server
 
 FastAPI 替代 stdio MCP 通信：
-  - HTTP/JSON 端点暴露 9 个 Tool
+  - HTTP/JSON 端点暴露 23 个 Tool（完整清单见 math_tool_specs.HTTP_TOOL_NAMES）
   - 进程常驻，避免 stdio 每次启动 ~500ms 开销
   - 单次调用 < 50ms（消除 sympy 进程启动成本）
 
@@ -42,6 +42,7 @@ for p in (str(_PKG_DIR), str(_V5_DIR)):
         sys.path.insert(0, p)
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from math_tool_specs import HTTP_TOOL_NAMES  # noqa: E402
 
 # 复用 stdio MCP server 的所有 Tool 实现（不重复写）
 from mcp_servers.math_sympy import (  # noqa: E402
@@ -95,36 +96,8 @@ START_TIME = time.time()
 # ============================================================================
 
 # 注册所有端点（先定义，便于 root 引用）
-TOOL_NAMES = [
-    "are_equiv",
-    "sympy_compute",
-    "math_error_report",
-    "math_fix_typo",
-    "math_validate_symbols",
-    "math_cache_stats",
-    "math_numeric_solve",
-    "math_ast_dump",
-    "math_batch_equiv",
-    "math_concept_link",
-    "math_bilingual_translate",
-    "math_ontology_stats",
-    # M2 W9 D2.1：条件等价证明
-    "prove_equiv_with_precondition",
-    # M2 W11 D3.1：推导链 DAG
-    "math_derivation_chain",
-    "math_derivation_replay",
-    # M2 W10 D2.4 / W11 D2.5：策略路由 + fallback 链执行（含 LLM 兜底）
-    "math_strategy_route",
-    "math_strategy_route_and_execute",
-    # M2 W9 D2.2/D2.3：不等式求解 + 分段函数
-    "solve_inequality",
-    "simplify_piecewise",
-    # M2 W11 D3.2/D3.3/D3.5：步骤抽取 + sidecar 缓存 + 反向推导
-    "math_step_extract",
-    "math_derivation_cache_stats",
-    "math_derivation_build_cached",
-    "math_derivation_reverse",
-]
+# 工具清单的唯一来源：math_tool_specs（stdio 20 + HTTP 独有 3）
+TOOL_NAMES = list(HTTP_TOOL_NAMES)
 
 
 # ============================================================================
@@ -621,7 +594,7 @@ async def _run_tool(name: str, arguments: dict) -> dict:
     return res
 
 
-# 注册所有 12 个端点
+# 注册所有 23 个端点（清单见 TOOL_NAMES）
 @app.post("/tools/{tool_name}")
 async def call_tool(tool_name: str, request: Request):
     arguments = await request.json()
@@ -670,7 +643,7 @@ def main():
     import uvicorn
 
     log.info(f"math-sympy-http starting on http://{args.host}:{args.port}")
-    log.info("  9 个 Tool 端点: POST /tools/{name}")
+    log.info(f"  {len(TOOL_NAMES)} 个 Tool 端点: POST /tools/{{name}}")
     log.info("  健康检查: GET /health")
     uvicorn.run(app, host=args.host, port=args.port, workers=args.workers, log_level="info")
 

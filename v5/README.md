@@ -10,7 +10,7 @@
 2. [核心能力](#核心能力)
 3. [架构总览](#架构总览)
 4. [快速开始](#快速开始)
-5. [MCP Tool 清单（9 个）](#mcp-tool-清单9个)
+5. [MCP Tool 清单（stdio 20 个 / HTTP 23 个）](#mcp-tool-清单stdio-20-个--http-23-个)
 7. [M2 改进点（对比 M1）](#m2-改进点对比-m1)
 8. [性能与限制](#性能与限制)
 9. [运维指南](#运维指南)
@@ -46,7 +46,7 @@
 ```
 v5/
 ├── mcp_servers/
-│   ├── math_sympy.py       ← MCP server 主入口（9 个 Tool）
+│   ├── math_sympy.py       ← MCP server 主入口（20 个 Tool，HTTP 侧另有 3 个传输专用工具，见 math_tool_specs.py）
 │   ├── llm_ollama.py       ← LLM 双栈 MCP server（chat/embed/judge/...）
 │   └── vllm_health.py      ← vLLM 健康检查
 ├── mcp_math/               ← 数学核心库（无 MCP 依赖）
@@ -96,7 +96,7 @@ venv/bin/python v5/tests/test_math_sympy.py
 
 ```bash
 venv/bin/python v5/mcp_servers/math_sympy.py
-# stdio 模式，自动注册 9 个 Tool
+# stdio 模式，自动注册 20 个 Tool（HTTP 侧 23 个）
 ```
 
 ### 4. 配置到 MCP client
@@ -121,7 +121,9 @@ venv/bin/python v5/mcp_servers/math_sympy.py
 
 ---
 
-## MCP Tool 清单（9 个）
+## MCP Tool 清单（stdio 20 个 / HTTP 23 个）
+
+完整清单以 `math_tool_specs.py` 的 `STDIO_TOOL_SPECS` / `HTTP_TOOL_NAMES` 为准；下表是 M1/M2 设计期记录，未列全。
 
 ### M1 继承（契约不变）
 

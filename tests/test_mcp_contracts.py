@@ -1,0 +1,138 @@
+"""MCP 契约：schema 与实现同名同序；math 的 stdio/HTTP 工具表同源。"""
+from __future__ import annotations
+
+import ast
+import importlib
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import pytest
+from jsonschema.validators import validator_for
+
+ROOT = Path(__file__).resolve().parents[1]
+
+SERVER_MODULES = {
+    "tdx-parquet-reader": "parquet_reader.py",
+    "tdx-calc": "calc.py",
+    "tdx-vault": "vault.py",
+    "tdx-news": "news.py",
+    "tdx-finance-deep": "finance_deep.py",
+    "tdx-backtest": "backtest.py",
+}
+
+
+def _load(rel: str, name: str):
+    """按文件路径加载独立模块（mcp/servers 不是包，避免 sys.path 互相打架）。"""
+    spec = importlib.util.spec_from_file_location(name, ROOT / rel)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _dispatch_names(mod, func_name: str) -> list[str]:
+    """抽取函数里所有 `name == "..."` 分支（if/elif 链，按源码顺序）。"""
+    tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == func_name)
+    out = []
+    for node in ast.walk(fn):
+        if (isinstance(node, ast.Compare)
+                and isinstance(node.left, ast.Name) and node.left.id == "name"
+                and len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq)
+                and isinstance(node.comparators[0], ast.Constant)):
+            out.append(node.comparators[0].value)
+    return out
+
+
+@pytest.fixture(scope="module")
+def schema() -> dict:
+    return json.loads((ROOT / "mcp" / "schemas" / "tools.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def servers() -> dict:
+    return {key: _load(f"mcp/servers/{fn}", f"mcp_srv_{fn[:-3]}")
+            for key, fn in SERVER_MODULES.items()}
+
+
+@pytest.fixture(scope="module")
+def math_specs():
+    sys.path.insert(0, str(ROOT / "v5"))
+    return importlib.import_module("mcp_servers.math_tool_specs")
+
+
+def test_schema_totals(schema):
+    assert len(schema["servers"]) == 6
+    assert schema["tool_count"] == schema["total_tools"] == 23
+    assert sum(len(s["tools"]) for s in schema["servers"].values()) == 23
+
+
+def test_server_tools_match_schema(schema, servers):
+    for key, mod in servers.items():
+        declared = [t["name"] for t in schema["servers"][key]["tools"]]
+        assert declared == list(mod.TOOLS), key
+
+
+def test_each_tool_has_valid_schema(servers):
+    for key, mod in servers.items():
+        for name, spec in mod.TOOLS.items():
+            assert spec["description"].strip(), (key, name)
+            assert callable(spec["handler"]), (key, name)
+            input_schema = spec["inputSchema"]
+            validator_for(input_schema).check_schema(input_schema)
+            assert set(input_schema.get("required", [])) <= set(input_schema.get("properties", {})), (key, name)
+
+
+def test_calc_ma_over_jsonrpc(servers):
+    resp = servers["tdx-calc"].handle_request({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "calc_ma", "arguments": {"prices": [1, 2, 3, 4, 5], "window": 2}},
+    })
+    assert "error" not in resp, resp.get("error")
+    assert json.loads(resp["result"]["content"][0]["text"]) == [None, 1.5, 2.5, 3.5, 4.5]
+
+
+def test_tools_list_endpoint_matches_registry(servers):
+    resp = servers["tdx-calc"].handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    assert [t["name"] for t in resp["result"]["tools"]] == list(servers["tdx-calc"].TOOLS)
+
+
+def test_math_specs_shape(math_specs):
+    specs = math_specs.STDIO_TOOL_SPECS
+    assert len(specs) == 20
+    assert {tuple(s) for s in specs} == {("name", "description", "inputSchema")}
+
+
+def test_math_http_is_stdio_plus_three(math_specs):
+    # HTTP 现序里 3 个独有工具排在第 9–11 位，不是拼在末尾，所以只断集合相等。
+    assert set(math_specs.HTTP_TOOL_NAMES) == (
+        set(math_specs.STDIO_TOOL_NAMES) | set(math_specs.HTTP_ONLY_TOOL_NAMES)
+    )
+    assert len(math_specs.STDIO_TOOL_NAMES) == 20
+    assert len(math_specs.HTTP_TOOL_NAMES) == 23
+    assert math_specs.HTTP_ONLY_TOOL_NAMES == [
+        "math_concept_link", "math_bilingual_translate", "math_ontology_stats",
+    ]
+
+
+def test_math_dispatch_matches_names(math_specs):
+    sys.path.insert(0, str(ROOT / "v5"))
+    stdio = importlib.import_module("mcp_servers.math_sympy")
+    http = importlib.import_module("mcp_servers.math_sympy_http")
+    stdio_names = _dispatch_names(stdio, "call_tool")
+    http_names = _dispatch_names(http, "_run_tool")
+    assert set(stdio_names) == set(math_specs.STDIO_TOOL_NAMES) and len(stdio_names) == 20
+    assert set(http_names) == set(math_specs.HTTP_TOOL_NAMES) and len(http_names) == 23
+    assert http.TOOL_NAMES == math_specs.HTTP_TOOL_NAMES
+
+
+def test_stdio_list_tools_is_generated():
+    tree = ast.parse((ROOT / "v5" / "mcp_servers" / "math_sympy.py").read_text(encoding="utf-8"))
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.AsyncFunctionDef) and n.name == "list_tools")
+    calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
+             and getattr(n.func, "id", None) == "Tool"]
+    assert len(calls) == 1
+    assert calls[0].keywords and calls[0].keywords[0].arg is None, "list_tools 应由 **spec 生成"

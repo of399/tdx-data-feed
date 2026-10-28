@@ -4,7 +4,7 @@ v5/mcp_servers/math_sympy_http.py 验收测试（D6.6）
 测试 HTTP 端点：
   - GET  /health
   - GET  /
-  - POST /tools/{tool_name}（9 个 Tool）
+  - POST /tools/{tool_name}（23 个 Tool）
   - POST /batch（批量）
 
 需要 math-sympy-http 服务在 127.0.0.1:8002 运行。
@@ -14,6 +14,10 @@ import asyncio
 import json
 import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp_servers"))
+from math_tool_specs import HTTP_TOOL_NAMES
 
 try:
     import httpx
@@ -46,7 +50,7 @@ async def main():
         check("200 OK", r.status_code == 200, str(r.status_code))
         data = r.json()
         check("status=ok", data.get("status") == "ok")
-        check("tool_count=12", data.get("tool_count") == 12)
+        check(f"tool_count={len(HTTP_TOOL_NAMES)}", data.get("tool_count") == len(HTTP_TOOL_NAMES))
         print(f"   {data}")
 
         # 2. /
@@ -54,10 +58,13 @@ async def main():
         r = await c.get("/")
         data = r.json()
         check("service=math-sympy-http", "math-sympy-http" in data.get("service", ""))
-        check("有 12 个 tools", len(data.get("tools", [])) == 12)
+        check(
+            f"有 {len(HTTP_TOOL_NAMES)} 个 tools",
+            len(data.get("tools", [])) == len(HTTP_TOOL_NAMES),
+        )
         print(f"   uptime: {data.get('uptime_s')}s")
 
-        # 3. 9 个 Tool 端点
+        # 3. Tool 端点（抽查 8 个）
         print("\n[3] POST /tools/{tool_name}")
         # 用 cache-friendly 输入（确保命中）
         cases = [
