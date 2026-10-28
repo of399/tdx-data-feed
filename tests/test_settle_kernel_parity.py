@@ -1,4 +1,8 @@
-"""随机行情上，内核 A 必须同时满足：亏损侧优先、跳空按开盘、逐日同源。"""
+"""随机行情上，内核 A 必须同时满足：跳空穿越触发价按当日开盘成交、逐日收益与单笔收益同源。
+
+双触发结算亏损侧是离散规则，由 `tests/test_execution_single.py` 的 double_touch 用例守；
+本文件的随机路径实测 200 种子 155 笔中双触发 0 笔，不宣称覆盖它。
+"""
 from __future__ import annotations
 
 import numpy as np
@@ -19,8 +23,11 @@ def _random_bars(seed: int, n: int = 40) -> pd.DataFrame:
                          "close": close, "volume": np.full(n, 1e6)})
 
 
-def test_parity_ladder_is_sl_first_and_gap_at_open():
-    """出场阶梯：双触发结算亏损侧，跳空穿越触发价按当日开盘成交（逐位相等）。"""
+def test_parity_gap_through_trigger_fills_at_open():
+    """跳空穿越触发价时按当日开盘成交（`==` 逐位相等，不放宽成 approx）。
+
+    200 种子下 155 笔 SL/TP 中跳空 98 笔；双触发 0 笔，故本用例不钉 SL-first。
+    """
     costs = CostModel()
     plan = SingleTradePlan(tp=0.05, sl=-0.05, hold_days=5)
     for seed in range(200):
