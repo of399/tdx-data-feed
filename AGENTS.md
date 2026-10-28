@@ -20,8 +20,9 @@
 ## 回测成交口径（不可协商）
 
 - 同一根 K 线双触发时结算**亏损**侧（日内高低点证明不了先后）；跳空穿越触发价时按当日**开盘**成交，不要抹回阈值价；出场价回灌逐日收益，使资金曲线与 return_pct 同源。
-- 唯一实现是 `scripts/plan_e_backtest.py` 的 `_settle_from_entry`，回测与随机择时基线共用它。新脚本复用它，不要另写判定顺序——出场阶梯一分叉，基线比较就失去意义（守卫 `tests/test_plan_e_random_timing.py`）。
+- `scripts/plan_e_backtest.py` 的 `_settle_from_entry` 是内核 A 的薄封装，回测与随机择时基线共用它。新脚本复用它，不要另写判定顺序——出场阶梯一分叉，基线比较就失去意义（守卫 `tests/test_plan_e_random_timing.py`）。
 - `scripts/plan_e_sim_live.py` 已对齐同一口径。引用 2026-10-24 之前的报告或 README 里的 3.16% / 35.3% / 2.71 之前，先确认它是保守修正前口径；当前口径文件只有 `data/plan_e/plan_e_backtest_v2_latest.md`。
+- 唯一实现已收进 `tdxfeed/execution/`：内核 A（`single.py`，单笔 TP/SL 两层：`check_exit` 判阶梯、`settle_single_trade` 跑窗口）与内核 B（`hold.py`，打板持有期），共用 `limits.py` / `costs.py` / `bars.py` / `result.py`。新脚本从内核取口径，不要另写判定顺序。`scripts/plan_e_backtest.py::_settle_from_entry` 是内核 A 的薄封装（委托守卫 `tests/test_plan_e_backtest_exit_fills.py::test_settle_from_entry_delegates_to_kernel`），随机化口径回归在 `tests/test_settle_kernel_parity.py`。
 
 ## 显著性推断四条约定（已定，勿重开讨论）
 

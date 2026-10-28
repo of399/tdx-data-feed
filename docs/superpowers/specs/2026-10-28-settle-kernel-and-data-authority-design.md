@@ -336,3 +336,15 @@ def read_derived(code) -> pd.DataFrame
 - 合并 `mcp/servers` 与 `v5/mcp_servers`；
 - 重写 23k 个分钟文件与 backup/研究产物目录；
 - 调整 `plan_e`/`daban` 的策略逻辑或恢复实盘入口。
+
+## 10. 实施期更正（2026-10-28）
+
+实施精读代码后发现规格 §3.5 有 5 行判断需要更正，其余按规格执行：
+
+| 规格行 | 规格原写 | 实测更正 |
+|---|---|---|
+| #2 `plan_e_sim_live` | 数值不变 | **数值微变**：① `TIME` 窗口差一根——`simulate_trade` 判 `future[1..10]` 后在 `future[10].close` 出场，`plan_e_backtest` 判 `entry+1..entry+9` 后在 `entry+9.close` 出场，统一到 plan_e 后持有期短一根；② 成本口径从「减 `2*(fee+slip)` 的加法式」统一到 plan_e 的乘法式，差约 5e-6。逐笔 diff 入报告。 |
+| #5 `mcp/servers/backtest.py` | 收编到 A，数值不变 | 只收编**阶梯**（`check_exit`）。`max_hold` 到期、`cooldown`、挂单/撤单状态机是策略差异，留在调用方。数值除一种 K 线形状外不变：**开盘已在止盈线之上、日内又跌破止损线**时，旧实现先判「开盘越线」记 `take_profit_gap@开盘`，内核按 `sl_first` 记 `stop_loss@止损价`。方向保守（盈利笔记成亏损笔），2% 日波动下 20000 次随机走行 0 例，已接受并钉死用例（`test_gap_up_beyond_take_profit_plus_intraday_stop_settles_loss_side`）。 |
+| #9 `daban/execution_backtest.py` | 收编到 B | 它吃的是**行式事件表**（`next_open`/`next_close`/`next_lim_dn` 列），手里没有 bar 序列，无法构造 `settle_hold_trade` 的入参。实际收编范围＝`net_return` 的**卖出侧**算术（`CostModel.sell`）；`_exit_price` 的跌停判断读事件表预计算的 `next_lim_dn`（数据列，不是规则计算），不动；买入侧也不套 `round_trip`（限价单无买入滑点，双边滑点每笔差 5bp）。结算仍行式。`#11 daban_event_table.py` 是这张表的生产者，本轮 0 改动。 |
+| #10 `daban/topk_pnl.py` | 收编到 B，数值不变 | 数值**微变**：成本改委托 `round_trip`，逐笔 `|Δ| ≤ 1e-7`（旧式买入佣金写成 `(1-fee)` 乘子，`round_trip` 写成 `1/(1+commission)`，差 `commission²`）。成交价/时点/复权/跳过原因不变；两处标签级变化：入场根停牌且出场根缺失时内核先报 `suspended`（旧实现先报 `no_exit`），日期字段改走 `date_str` 归一。另需给 `HoldPlan` 加 `sell_offset`（CLI `--exit-offset` 允许 >2）。 |
+| §4.2 硬编码路径数 | 47 个文件 | 五张表（daily/min*/derived/adj_factor/hfq_factor）口径实测 **50** 个（`scripts` 41 / `tdxfeed` 9 / `mcp` 2），另 `v5` 19 个走独立 `_paths.py`。阶段 3+4 的守卫以实测清单为准。 |
