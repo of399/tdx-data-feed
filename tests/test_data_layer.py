@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -266,6 +267,86 @@ def test_read_daily_unparseable_integer_dates_raise(tmp_path, monkeypatch):
     pd.DataFrame({"date": [1736467200000000000, 1736553600000000000],
                   "close": [1.0, 2.0]}).to_parquet(paths.daily_path("600000"), index=False)
     with pytest.raises(ValueError, match="YYYYMMDD"):
+        parquet_io.read_daily("600000")
+
+
+def _write_raw_daily(tmp_path, monkeypatch, frame) -> Path:
+    monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
+    paths.daily_dir().mkdir(parents=True)
+    fp = paths.daily_path("600000")
+    frame.to_parquet(fp, index=False)
+    return fp
+
+
+def test_read_daily_multiple_null_dates_raise(tmp_path, monkeypatch):
+    """NaT 之间互相「相等」，去重会把多行空日期并成一行，连带丢掉那些行的 OHLCV。"""
+    _write_raw_daily(tmp_path, monkeypatch, pd.DataFrame({
+        "date": pd.to_datetime(["2026-01-05", "2026-01-06", None, None]),
+        "close": [1.0, 2.0, 3.0, 4.0],
+    }))
+    with pytest.raises(ValueError, match="2 个空日期"):
+        parquet_io.read_daily("600000")
+
+
+def test_read_daily_single_null_date_survives_roundtrip(tmp_path, monkeypatch):
+    """写侧允许单个既有 NaT（test_write_table_allows_preexisting_nat），读侧必须能往返。"""
+    _write_raw_daily(tmp_path, monkeypatch, pd.DataFrame({
+        "date": pd.to_datetime(["2026-01-05", None, "2026-01-06"]),
+        "close": [1.0, 2.0, 3.0],
+    }))
+    out = parquet_io.read_daily("600000")
+    assert len(out) == 3
+    assert out["date"].dropna().dt.strftime("%Y-%m-%d").tolist() == ["2026-01-05", "2026-01-06"]
+    assert pd.isna(out["date"].iloc[-1])
+
+
+def test_read_daily_float_yyyymmdd_parses_by_format(tmp_path, monkeypatch):
+    """float 直接 to_datetime 会被当 epoch 纳秒，整列读成 1970-01-01。"""
+    _write_raw_daily(tmp_path, monkeypatch, pd.DataFrame({
+        "date": pd.Series([20260105.0, 20260106.0], dtype="float64"),
+        "close": [1.0, 2.0],
+    }))
+    out = parquet_io.read_daily("600000")
+    assert out["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-01-05", "2026-01-06"]
+
+
+def test_read_daily_arrow_int64_with_null_is_float_upstream(tmp_path, monkeypatch):
+    """Arrow int64 列带 null，pandas 读出来必然是 float64；不能因此退化成 1970。"""
+    monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
+    paths.daily_dir().mkdir(parents=True)
+    fp = paths.daily_path("600000")
+    pq.write_table(pa.Table.from_pydict({
+        "date": pa.array([20260105, None], type=pa.int64()),
+        "close": pa.array([1.0, 2.0]),
+    }), fp)
+    assert str(pd.read_parquet(fp)["date"].dtype) == "float64"
+    out = parquet_io.read_daily("600000")
+    assert out["date"].dropna().dt.strftime("%Y-%m-%d").tolist() == ["2026-01-05"]
+    assert int(out["date"].isna().sum()) == 1
+
+
+@pytest.mark.parametrize("values", [
+    [20260105.5],
+    [19700101.0],
+    [float("nan"), float("inf"), 20260105.0],
+], ids=["fraction", "out-of-range", "inf"])
+def test_read_daily_float_outside_yyyymmdd_rejected(tmp_path, monkeypatch, values):
+    """float 不落在 YYYYMMDD 整数区间就是口径不明，不猜、不按纳秒解释。"""
+    _write_raw_daily(tmp_path, monkeypatch, pd.DataFrame({
+        "date": pd.Series(values, dtype="float64"),
+        "close": [1.0] * len(values),
+    }))
+    with pytest.raises(ValueError, match="无法确定口径"):
+        parquet_io.read_daily("600000")
+
+
+def test_read_daily_float_bad_calendar_day_rejected(tmp_path, monkeypatch):
+    """整数且在区间内但不存在的日子（20261232）同样不能静默变 NaT 去重。"""
+    _write_raw_daily(tmp_path, monkeypatch, pd.DataFrame({
+        "date": pd.Series([20260105.0, 20261232.0], dtype="float64"),
+        "close": [1.0, 2.0],
+    }))
+    with pytest.raises(ValueError, match="不是合法日期"):
         parquet_io.read_daily("600000")
 
 

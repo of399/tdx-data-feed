@@ -8,17 +8,40 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .paths import daily_path, derived_path, minute_path, read_path
 
+# float 日期列的唯一可接受口径：同 _as_date32 的年份边界 1990–2100。
+_FLOAT_DATE_LO, _FLOAT_DATE_HI = 19900101, 21001231
+
 
 def _parse_yyyymmdd(s: pd.Series) -> pd.Series:
     """整数 YYYYMMDD → date；NA 位置先掩空再解析，保持 NaT 而不是格式错。"""
     text = s.astype("Int64").astype(str).where(s.notna())
     return pd.to_datetime(text, format="%Y%m%d", errors="coerce").dt.date
+
+
+def _check_float_yyyymmdd(fp: Path, s: pd.Series) -> None:
+    """float 日期列只在「非空值全为区间内的 YYYYMMDD 整数」时放行，否则拒绝。
+
+    Arrow int64 带 null 的表读出来就是 float64，全空列也是 vacuous pass，
+    随后交给 _parse_yyyymmdd（它用 Int64 + where(notna) 保住空值）。
+    """
+    values = s.dropna().to_numpy(dtype="float64")
+    integral = np.isfinite(values) & (values == np.floor(values))
+    in_range = (values >= _FLOAT_DATE_LO) & (values <= _FLOAT_DATE_HI)
+    ok = integral & in_range
+    if not bool(ok.all()):
+        sample = values[~ok][:3].tolist()
+        raise ValueError(
+            f"{fp} 的 date 列是 float，非空值不全是 {_FLOAT_DATE_LO}–{_FLOAT_DATE_HI} "
+            f"内的 YYYYMMDD 整数（异常值示例 {sample}）：float 日期列无法确定口径，"
+            "疑似 epoch 秒/纳秒或错列，拒绝按纳秒解释"
+        )
 
 
 def _as_date32(s: pd.Series) -> pd.Series:
@@ -108,22 +131,33 @@ def read_daily(src: str | Path, columns=None) -> pd.DataFrame:
     """src 传代码（sh600519 / 600519）或 .parquet 路径；date→datetime64，升序去重。
 
     读侧按 dtype 分派而不是一律 to_datetime：存量表与 .v1.bak 备份里的 date 是
-    int64 YYYYMMDD，直接 to_datetime 会按 epoch 纳秒读成 1970-01-01。
+    int64 YYYYMMDD，直接 to_datetime 会按 epoch 纳秒读成 1970-01-01；Arrow 的
+    int64 列一旦带 null，pandas 读出来就是 float64，同样不能交给 to_datetime。
+    空日期至多 1 个：去重按 date 取值，多个 NaT 会被并成一行并静默丢掉 OHLCV。
     """
     fp = Path(src) if str(src).endswith(".parquet") else daily_path(src)
     df = pd.read_parquet(read_path(fp), columns=columns)
     if "date" in df.columns:
-        if pd.api.types.is_integer_dtype(df["date"]):
-            parsed = _parse_yyyymmdd(df["date"])
-            lost = int(parsed.isna().sum()) - int(df["date"].isna().sum())
+        raw = df["date"]
+        if pd.api.types.is_float_dtype(raw):
+            _check_float_yyyymmdd(fp, raw)
+        if pd.api.types.is_float_dtype(raw) or pd.api.types.is_integer_dtype(raw):
+            parsed = _parse_yyyymmdd(raw)
+            lost = int(parsed.isna().sum()) - int(raw.isna().sum())
             if lost > 0:
                 raise ValueError(
-                    f"{fp} 的 date 列是整数但 {lost} 个值不是 YYYYMMDD；"
+                    f"{fp} 的 date 列是 YYYYMMDD 整数但 {lost} 个值不是合法日期；"
                     "拒绝按 epoch 纳秒解释（去重会把整片行并成一行），请先确认表的日期口径"
                 )
             df["date"] = pd.to_datetime(parsed)
         else:
-            df["date"] = pd.to_datetime(df["date"])
+            df["date"] = pd.to_datetime(raw)
+        blank = int(df["date"].isna().sum())
+        if blank > 1:
+            raise ValueError(
+                f"{fp} 的 date 列有 {blank} 个空日期：按 date 去重会把多行空日期并成一行、"
+                "静默丢掉这些行的 OHLCV；请先补齐这些日期或删掉这些行"
+            )
         df = df.sort_values("date", kind="mergesort").drop_duplicates("date", keep="last")
     return df.reset_index(drop=True)
 
