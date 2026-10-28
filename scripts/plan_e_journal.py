@@ -143,6 +143,11 @@ def _bars_held(entry_day: pd.Timestamp, today: pd.Timestamp) -> int:
     return int(len(pd.bdate_range(entry_day, today)) - 1)
 
 
+def _time_due(bars_held: int) -> bool:
+    """内核口径：hold_days 含入场根，故入场后第 hold_days-1 根收盘即到期。"""
+    return bars_held >= max(1, EXIT_PLAN.hold_days - 1)
+
+
 def ensure_dirs():
     for d in [LIVE_DIR, SIGNALS_DIR, WEEKLY_DIR]:
         d.mkdir(parents=True, exist_ok=True)
@@ -380,7 +385,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
                 if hit is not None:
                     reason = hit.reason          # 内核返回 "TP"/"SL"，与 journal 既有取值一致
                     exit_price = hit.price
-                elif bars_held >= EXIT_PLAN.hold_days:
+                elif _time_due(bars_held):
                     reason = 'TIME'
                     exit_price = float(t['close'])
                 if reason:

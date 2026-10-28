@@ -42,3 +42,10 @@ def test_journal_double_trigger_settles_loss_side():
     from tdxfeed.execution.single import check_exit
     hit = check_exit(10.0, open_=10.0, high=13.5, low=8.5, close=12.0, plan=mod.EXIT_PLAN)
     assert hit.reason == "SL" and hit.price == 9.0
+
+
+def test_time_due_matches_kernel_window():
+    """TIME 边界与内核一致：hold_days=10 含入场根 → 入场后第 9 根到期。"""
+    mod = _load()
+    assert mod._time_due(8) is False
+    assert mod._time_due(9) is True
