@@ -34,9 +34,10 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from tdxfeed.daban.limit_price import exchange_prefix, is_st, limit_ratio  # noqa: E402
+from tdxfeed.paths import DATA_ROOT, daily_dir  # noqa: E402
 
-DATA = _ROOT / "data"
-DAILY = DATA / "parquet" / "daily"
+DATA = DATA_ROOT
+DAILY = daily_dir()
 TOL = 0.006  # 6 个bp 容差，够吸收四舍五入，又不足以放过真实的越界
 
 

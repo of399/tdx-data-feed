@@ -41,9 +41,10 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
     limit_ratio,
     limit_up_price,
 )
+from tdxfeed.paths import DATA_ROOT, daily_dir  # noqa: E402
 
-DATA = _ROOT / "data"
-DAILY = DATA / "parquet" / "daily"
+DATA = DATA_ROOT
+DAILY = daily_dir()
 OUT = DATA / "daban"
 EPS = 0.001  # 与通达信公式里的 -0.001 保持一致
 
