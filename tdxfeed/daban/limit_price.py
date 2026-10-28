@@ -28,8 +28,10 @@ ST / *ST 的比例是**随日期变化**的（这是 2026 年最重要的口径�
 """
 from __future__ import annotations
 
-from datetime import date, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
+
+from tdxfeed.execution import limits as _limits
+from tdxfeed.names import is_st_name as _is_st_name
 
 __all__ = [
     "LIMIT_RATIO",
@@ -55,67 +57,38 @@ MARKET_MAIN = "main"
 MARKET_GEM = "gem"
 MARKET_BSE = "bse"
 
-LIMIT_RATIO: dict[str, Decimal] = {
-    MARKET_MAIN: Decimal("0.10"),
-    MARKET_GEM: Decimal("0.20"),
-    MARKET_BSE: Decimal("0.30"),
-}
-LIMIT_RATIO_ST_MAIN_OLD = Decimal("0.05")  # 2026-07-06 之前
-LIMIT_RATIO_ST_MAIN = Decimal("0.10")      # 2026-07-06 起与主板普通股并轨
-
-# 主板风险警示股票涨跌幅由 5% 调整为 10% 的生效日（含当日）。
-MAIN_ST_RULE_CHANGE_DATE = date(2026, 7, 6)
-
-_CENT = Decimal("0.01")
-_ONE = Decimal("1")
-_PREFIXES = ("sh", "sz", "bj")
+LIMIT_RATIO = _limits.LIMIT_RATIO
+LIMIT_RATIO_ST_MAIN_OLD = _limits.LIMIT_RATIO_ST_MAIN_OLD
+LIMIT_RATIO_ST_MAIN = _limits.LIMIT_RATIO_ST_MAIN
+MAIN_ST_RULE_CHANGE_DATE = _limits.MAIN_ST_RULE_CHANGE_DATE
 
 
 def normalize_code(code: str) -> str:
     """统一为 6 位纯数字代码（去 sh/sz/bj 前缀、零填充）。"""
-    c = str(code).lower().strip()
-    for p in _PREFIXES:
-        if c.startswith(p):
-            c = c[2:]
-            break
-    return c.zfill(6)
+    return _limits.normalize_code(code)
 
 
 def market_of(code: str) -> str:
     """判断所属板块：main / gem / bse。"""
-    c = normalize_code(code)
-    if c.startswith(("920", "8", "4")):
-        return MARKET_BSE
-    if c.startswith(("300", "301", "688", "689")):
-        return MARKET_GEM
-    return MARKET_MAIN
+    return _limits.market_of(code)
 
 
 def exchange_prefix(code: str) -> str:
     """交易所前缀：sh / sz / bj。"""
-    c = normalize_code(code)
-    if market_of(c) == MARKET_BSE:
+    c = _limits.normalize_code(code)
+    if _limits.market_of(c) == MARKET_BSE:
         return "bj"
     return "sh" if c[0] in "69" else "sz"
 
 
 def is_st(name: str) -> bool:
     """名称是否含 ST / *ST（含退市整理 "退" 另由上层过滤）。"""
-    return "ST" in str(name).replace(" ", "").upper()
+    return _is_st_name(name)
 
 
-def as_date(value) -> date | None:
+def as_date(value):
     """把 'YYYYMMDD' / 'YYYY-MM-DD' / datetime / date 统一成 date；无法识别返回 None。"""
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    s = str(value).strip().replace("-", "")[:8]
-    if len(s) == 8 and s.isdigit():
-        return date(int(s[:4]), int(s[4:6]), int(s[6:]))
-    return None
+    return _limits.as_date(value)
 
 
 _as_date = as_date
@@ -127,41 +100,22 @@ def limit_ratio(code: str, name: str = "", on_date=None) -> Decimal:
     on_date 只影响主板 ST/*ST 一档：早于 2026-07-06 取 5%，之后取 10%（与主板普通票并轨）。
     不传 on_date 按现行规则（10%）；做 2020-2026 的历史区间一定要把交易日传进来。
     """
-    market = market_of(code)
-    if market == MARKET_MAIN and is_st(name):
-        d = _as_date(on_date)
-        if d is not None and d < MAIN_ST_RULE_CHANGE_DATE:
-            return LIMIT_RATIO_ST_MAIN_OLD
-        return LIMIT_RATIO_ST_MAIN
-    return LIMIT_RATIO[market]
-
-
-def _quantize_cents(raw: Decimal) -> float:
-    """四舍五入到分（交易所口径，非银行家舍入）。"""
-    return float(raw.quantize(_CENT, rounding=ROUND_HALF_UP))
+    return _limits.limit_ratio(code, is_st=_is_st_name(name), on_date=on_date)
 
 
 def limit_up_price(prev_close: float, ratio: Decimal | float = Decimal("0.10")) -> float:
     """涨停价 = 前收盘 × (1 + 比例)，四舍五入到分。"""
-    r = ratio if isinstance(ratio, Decimal) else Decimal(str(ratio))
-    if prev_close is None or prev_close <= 0:
-        return 0.0
-    return _quantize_cents(Decimal(str(prev_close)) * (_ONE + r))
+    return _limits.limit_up_price(prev_close, ratio)
 
 
 def limit_down_price(prev_close: float, ratio: Decimal | float = Decimal("0.10")) -> float:
     """跌停价 = 前收盘 × (1 - 比例)，四舍五入到分。"""
-    r = ratio if isinstance(ratio, Decimal) else Decimal(str(ratio))
-    if prev_close is None or prev_close <= 0:
-        return 0.0
-    return _quantize_cents(Decimal(str(prev_close)) * (_ONE - r))
+    return _limits.limit_down_price(prev_close, ratio)
 
 
 def is_sealed(price: float, limit_price: float) -> bool:
     """是否已封住涨停（容差半分钱，规避浮点误差）。"""
-    if limit_price <= 0 or price <= 0:
-        return False
-    return price >= limit_price - 0.005
+    return _limits.is_sealed(price, limit_price)
 
 
 def pct_change(price: float, prev_close: float) -> float:

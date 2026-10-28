@@ -76,7 +76,7 @@ def test_get_limit_without_name_or_date_keeps_legacy_values():
 
 
 def test_get_limit_threshold_equals_ratio_minus_buffer():
-    """四档阈值恒 = 交易所真实比例 − 0.5% 缓冲：比例独立重述一遍，改动须两处同时。"""
+    """四档阈值恒 = 交易所真实比例 − 0.5% 缓冲：比例独立重述一遍；实现已单一来源，这里钉的是规则值本身。"""
     for code, name, on_date, ratio in (
         ("600000", "", "2021-06-01", 0.10),
         ("600001", "ST康达", "2026-07-03", 0.05),
@@ -88,7 +88,7 @@ def test_get_limit_threshold_equals_ratio_minus_buffer():
 
 
 def test_get_limit_agrees_with_daban_limit_ratio_across_the_merger():
-    """判定侧阈值恒 = 挂单侧真实比例 − 0.5%：同一规则的两处实现不许各自漂。"""
+    """判定侧阈值恒 = 挂单侧真实比例 − 0.5%：两处入口现均委托同一实现，这里钉的是跨日期的口径覆盖。"""
     cases = [
         ("600000", "", "2021-06-01"),
         ("600001", "ST康达", "2026-07-03"),

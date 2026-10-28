@@ -56,12 +56,9 @@ def resolve_parquet(code: str) -> Path:
 
 
 def get_limit(code: str) -> float:
-    s = norm_code(code)
-    if s.startswith("920") or s.startswith("8"):
-        return 0.295
-    if s.startswith("688") or s.startswith("300") or s.startswith("301") or s.startswith("200"):
-        return 0.195
-    return 0.095
+    """涨停判定阈值。委托 tdxfeed.execution.limits（唯一实现）。"""
+    from tdxfeed.execution.limits import limit_threshold
+    return limit_threshold(code)
 
 
 def parse_daily(fp: Path) -> pd.DataFrame | None:

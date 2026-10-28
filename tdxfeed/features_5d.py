@@ -26,10 +26,13 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime
-
 import numpy as np
 import pandas as pd
+
+from .execution.limits import (
+    MAIN_ST_RULE_CHANGE_DATE,
+    limit_threshold as _limit_threshold,
+)
 
 __all__ = [
     "LIMIT_MAP",
@@ -47,53 +50,17 @@ LIMIT_MAP: dict[str, float] = {"main": 0.095, "gem": 0.195, "bse": 0.295}
 
 # 主板 ST/*ST 在 2026-07-06 与主板普通票并轨（±10%）之前是 ±5%，阈值同样留 0.5% 缓冲。
 LIMIT_ST_MAIN_OLD = 0.045
-MAIN_ST_RULE_CHANGE_DATE = date(2026, 7, 6)
-
-
-def _is_main_st_before_merger(name: str, on_date) -> bool:
-    """名称含 ST 且交易日早于 2026-07-06（daban/limit_price 是同一规则的另一份实现，改规则要同时改两处）。"""
-    if "ST" not in str(name).replace(" ", "").upper():
-        return False
-    if isinstance(on_date, datetime):
-        d = on_date.date()
-    elif isinstance(on_date, date):
-        d = on_date
-    else:
-        s = str(on_date).strip().replace("-", "")[:8]
-        if len(s) != 8 or not s.isdigit():
-            return False
-        d = date(int(s[:4]), int(s[4:6]), int(s[6:]))
-    return d < MAIN_ST_RULE_CHANGE_DATE
 
 
 def get_limit(code: str, name: str = "", on_date=None) -> float:
-    """根据代码（可选：名称与交易日）判断涨停判定阈值。
-
-    支持格式：
-      - 'bj920XXX' / '920XXX'     → 北交所 0.30
-      - 'sh688XXX' / '688XXX'    → 科创板 0.20
-      - 'sz300XXX' / 'sz301XXX' / '300XXX' / '301XXX' → 创业板 0.20
-      - 其他                       → 主板 0.10
+    """涨停判定阈值。委托 `tdxfeed.execution.limits.limit_threshold`（唯一实现）。
 
     name / on_date 只影响主板 ST/*ST 一档：早于 2026-07-06 取 5% 档，之后与主板
-    普通票并轨。两者都不传时逐值等于旧行为，既有调用点与历史模型输入不受影响。
+    普通票并轨。北交所按代码前缀（920 / 8 / 4）与 `bj` 前缀判定，不再要求显式前缀。
     做 2020-2026 的历史区间一定要把交易日传进来，否则并轨前的主板 ST 会被误判成 10% 档。
     """
-    code = str(code)
-    if code.startswith("bj") or code.startswith("920"):
-        return LIMIT_MAP["bse"]
-    if (
-        code.startswith("300")
-        or code.startswith("301")
-        or code.startswith("688")
-        or code.startswith("sz300")
-        or code.startswith("sz301")
-        or code.startswith("sh688")
-    ):
-        return LIMIT_MAP["gem"]
-    if _is_main_st_before_merger(name, on_date):
-        return LIMIT_ST_MAIN_OLD
-    return LIMIT_MAP["main"]
+    return _limit_threshold(code, is_st="ST" in str(name).replace(" ", "").upper(),
+                            on_date=on_date)
 
 
 def is_limit_up_ret(ret: float, limit: float) -> bool:
