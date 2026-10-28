@@ -144,7 +144,8 @@ def test_signal_buy_no_exit_reports_true_entry_index():
 
 def test_signal_buy_with_non_positive_entry_price_is_suspended():
     # 收盘价 0 的信号帧：两个 signal 买入模式都不得走到除法，必须显式报 suspended
-    df = _bars([(0.0, 0.0, 0.0, 0.0)])
+    # 第二根有可成交开盘——守卫失效时会真的落到 `_finish` 的除法上（ZeroDivisionError）
+    df = _bars([(0.0, 0.0, 0.0, 0.0), (10.0, 10.0, 10.0, 10.0)])
     for buy in ("signal_close", "signal_limit_up"):
         r = settle_hold_trade(df, 0, HoldPlan(buy=buy, sell="next_open"), FREE, RULE)
         assert r.status == "suspended" and r.entry_idx == 0
