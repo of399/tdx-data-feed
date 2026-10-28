@@ -57,8 +57,16 @@ def test_prices_round_to_cent_half_up():
 def test_open_limit_up_uses_threshold_contract():
     assert open_is_limit_up(11.0, 10.0, "600519") is True
     assert open_is_limit_up(10.94, 10.0, "600519") is False   # 9.4% < 9.5%
-    assert open_is_limit_up(11.94, 10.0, "300750") is False   # 19.4% < 19.5%
+    # 9.5%：过阈值（9.5%−0.1%），未到精确比例 10%。
+    # 比例口径下这里返回 False，只有 limit_threshold 口径才能通过。
+    assert open_is_limit_up(10.95, 10.0, "600519") is True
+    assert open_is_limit_up(11.93, 10.0, "300750") is False   # 19.3% < 19.4%
     assert open_is_limit_up(12.0, 10.0, "300750") is True     # 20% 板 +20% 即涨停
+
+
+def test_limit_up_ret_uses_tolerance():
+    assert is_limit_up_ret(0.094, 0.095) is True    # 容差 0.1%：0.094 ≥ 0.094
+    assert is_limit_up_ret(0.093, 0.095) is False   # 低于 0.094，容差救不了
 
 
 def test_sealed_uses_exact_price_contract():
