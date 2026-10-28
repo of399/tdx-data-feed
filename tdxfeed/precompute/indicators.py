@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 # === 路径 =================================================================
-from tdxfeed.paths import daily_dir, derived_dir  # noqa: E402
+from tdxfeed.paths import daily_dir, derived_dir
 
 DAILY_DIR = daily_dir()
 DERIVED_DIR = derived_dir()

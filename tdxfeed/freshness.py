@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tdxfeed.paths import daily_dir  # noqa: E402
+from tdxfeed.paths import daily_dir
 
 DEFAULT_PARQUET_DIR = daily_dir()
 

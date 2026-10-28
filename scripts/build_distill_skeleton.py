@@ -3,7 +3,7 @@ import os
 import sys
 
 import pandas as pd
-from _common import daily_files  # noqa: E402
+from _common import daily_files
 
 OUT = '/home/jiuben/tdx-data-feed/data/distill/skeleton.jsonl'
 WINDOW = 20

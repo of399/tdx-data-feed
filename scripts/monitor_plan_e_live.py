@@ -55,8 +55,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 import pandas as pd
-
-from _common import daily_dir, parse_date  # noqa: E402
+from _common import daily_dir, parse_date
 
 ROOT = Path(__file__).parent.parent
 LIVE_DIR = ROOT / "data" / "plan_e" / "live"

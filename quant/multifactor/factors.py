@@ -14,7 +14,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from tdxfeed.paths import daily_dir  # noqa: E402
+
+from tdxfeed.paths import daily_dir
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 PARQUET_DIR = daily_dir()

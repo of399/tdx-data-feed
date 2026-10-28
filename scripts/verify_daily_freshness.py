@@ -16,7 +16,7 @@ import sys
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from tdxfeed.paths import DATA_ROOT, daily_dir  # noqa: E402
+from tdxfeed.paths import DATA_ROOT, daily_dir
 
 try:
     from tdxfeed.symbols import INDICES, group

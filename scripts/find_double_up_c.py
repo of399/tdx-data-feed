@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import daily_dir  # noqa: E402
+from _common import daily_dir
 
 PARQUET = daily_dir()
 VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')

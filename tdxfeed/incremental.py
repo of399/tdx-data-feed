@@ -37,7 +37,7 @@ from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.writers import Writers
-from tdxfeed.paths import daily_dir  # noqa: E402
+from tdxfeed.paths import daily_dir
 
 DAILY_DIR = daily_dir()
 

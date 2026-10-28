@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from _common import adj_factor_dir, daily_dir  # noqa: E402
+from _common import adj_factor_dir, daily_dir
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()

@@ -6,7 +6,7 @@ import time
 
 import pandas as pd
 import torch
-from _common import daily_path  # noqa: E402
+from _common import daily_path
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
