@@ -25,12 +25,24 @@ def main() -> int:
     if "hypothetical_pnl" not in df.columns:
         print(f"❌ 缺 hypothetical_pnl 列: {OUT_DATA}", file=sys.stderr)
         return 1
+    # 写前闸门：attach_pnl 逐行吞异常返 None，没有这道检查，一次空跑就会 exit 0
+    # 覆盖掉唯一产物（data/ 不在 git 里）。期望值取自上一版在有日线行上的非空数。
+    have = {p.stem for p in (ROOT / "data" / "parquet" / "daily").glob("*.parquet")}
+    expected = int(df.loc[df["code"].isin(have), "hypothetical_pnl"].notna().sum())
     features = df.drop(columns=["hypothetical_pnl"])
     renamed = attach_pnl(features, max_workers=8)
-    tmp = OUT_DATA.with_name(OUT_DATA.name + ".tmp")
-    renamed.to_csv(tmp, index=False)
-    tmp.replace(OUT_DATA)
     valid = int(renamed["hypothetical_pnl"].notna().sum())
+    if valid < expected:
+        print(f"❌ 重算后非空 {valid} < 上一版有日线行的 {expected}，拒写 {OUT_DATA}",
+              file=sys.stderr)
+        return 1
+    tmp = OUT_DATA.with_name(OUT_DATA.name + ".tmp")
+    try:
+        renamed.to_csv(tmp, index=False)
+        tmp.replace(OUT_DATA)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
     print(f"RECOMPUTE_DONE rows={len(renamed)} valid={valid} out={OUT_DATA}")
     return 0
 

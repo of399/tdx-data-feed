@@ -14,7 +14,10 @@ NEW = ROOT / "data" / "double_up" / "d_signal_5d_features_vpnl.csv"
 OLD = ROOT / "data" / "double_up" / "_pre_settle_kernel_20261028" / "d_signal_5d_features_vpnl.csv"
 DAILY = ROOT / "data" / "parquet" / "daily"
 
-pytestmark = pytest.mark.skipif(not NEW.exists(), reason="缺 data/double_up 标签文件")
+pytestmark = pytest.mark.skipif(
+    not NEW.exists() or not OLD.exists() or not DAILY.exists(),
+    reason="缺 data/double_up 标签文件或 Task 1 快照（快照在 gitignore 的 data/ 里）",
+)
 
 
 def _daily_codes() -> set[str]:
@@ -25,6 +28,7 @@ def test_same_keys_and_row_count():
     new = pd.read_csv(NEW, usecols=["code", "signal_date"])
     old = pd.read_csv(OLD, usecols=["code", "signal_date"])
     assert len(new) == len(old)
+    assert list(new.columns) == list(old.columns)
     assert new["signal_date"].str.len().eq(10).all()
 
 
@@ -59,3 +63,20 @@ def test_non_label_columns_are_untouched():
     old = pd.read_csv(OLD, float_precision="round_trip")
     others = [c for c in old.columns if c != "hypothetical_pnl"]
     pd.testing.assert_frame_equal(new[others], old[others], check_exact=True)
+
+
+def test_refuses_to_write_when_labels_vanish(monkeypatch, tmp_path):
+    """安全闸门：attach_pnl 若把标签算没了，脚本必须拒写，不能 exit 0 覆盖唯一产物。"""
+    import sys as _sys
+
+    _sys.path.insert(0, str(ROOT / "scripts"))
+    import recompute_pnl_labels as R
+
+    dst = tmp_path / NEW.name
+    dst.write_bytes(NEW.read_bytes())
+    df = pd.read_csv(dst, float_precision="round_trip")
+    emptied = df.drop(columns=["hypothetical_pnl"]).assign(hypothetical_pnl=pd.NA)
+    monkeypatch.setattr(R, "OUT_DATA", dst)
+    monkeypatch.setattr(R, "attach_pnl", lambda features, max_workers=8: emptied)
+    assert R.main() == 1
+    assert dst.read_bytes() == NEW.read_bytes(), "闸门没拦住：文件被覆盖了"
