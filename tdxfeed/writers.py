@@ -6,12 +6,12 @@
 """
 import os
 import struct
+from pathlib import Path
 
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from tdxfeed.amount_fix import fill_missing_amount
+from tdxfeed.parquet_io import write_table
 
 
 class Writers:
@@ -98,25 +98,8 @@ class Writers:
 
     @staticmethod
     def _write_parquet_date32(p: str, df: pd.DataFrame) -> None:
-        """写 daily parquet，date 列强制 date32[day]（v2 schema）。
-
-        df['date'] 可为 int YYYYMMDD 或 datetime，统一解析为 date32[day]；其余列原样。
-        配合 scripts/migrate_v1_to_v2.py 实现「新数据合规 + 旧数据按需归一」，
-        且切换后增量合并不再回退为 int64（修复 writers 长期漂移根因）。
-        """
-        if pd.api.types.is_datetime64_any_dtype(df["date"]):
-            date_py = df["date"].dt.date
-        elif pd.api.types.is_integer_dtype(df["date"]):
-            date_py = pd.to_datetime(
-                df["date"].astype("int64").astype(str), format="%Y%m%d"
-            ).dt.date
-        else:
-            date_py = pd.to_datetime(df["date"], errors="coerce").dt.date
-        arr = pa.array(date_py, type=pa.date32())
-        table = pa.Table.from_pandas(df, preserve_index=False)
-        idx = table.schema.get_field_index("date")
-        table = table.set_column(idx, "date", arr)
-        pq.write_table(table, p, compression="snappy")
+        """写 daily parquet：date 强制 date32 并原子替换（实现见 tdxfeed/parquet_io.py）。"""
+        write_table(Path(p), df)
 
     def merge_write(self, symbol, new_bars, category='daily'):
         """增量合并写：新 bars 与已有 parquet 按 date 合并（新覆盖旧），

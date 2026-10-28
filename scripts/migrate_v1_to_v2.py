@@ -37,6 +37,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import adj_factor_dir, daily_dir  # noqa: E402
 
+from tdxfeed.parquet_io import write_table  # noqa: E402
+
 DAILY_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
 EXPECTED_DATE_TYPE = "date32[day]"
@@ -162,7 +164,7 @@ def cmd_migrate(args) -> int:
         bak = p.with_name(p.stem + V1_BAK_SUFFIX)
         if not bak.exists():
             os.replace(p, bak)  # 原子改名（POSIX 原子）
-        df.to_parquet(p, index=False, engine="pyarrow")
+        write_table(p, df)
         print(f"  [OK] 迁移 {p.name} -> date32 ({len(df)} rows, 备份 {bak.name})")
         migrated += 1
 

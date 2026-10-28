@@ -10,11 +10,11 @@ sys.path.insert(0, "/home/jiuben/tdx-data-feed")
 import pandas as pd
 from pytdx.hq import TdxHq_API
 
-from tdxfeed.paths import daily_dir, daily_files
+from tdxfeed.paths import daily_files, daily_path
+from tdxfeed.parquet_io import write_table
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.symbols import group
 
-OUT = daily_dir()
 SRV = ("218.6.170.47", 7709)
 SLEEP = 0.2
 
@@ -80,7 +80,7 @@ def main():
         df = df.sort_values("date")
         if len(df) < 20:
             time.sleep(0.1); continue
-        df.to_parquet(OUT / f"{s}.parquet", index=False)
+        write_table(daily_path(s), df)
         done += 1; added += 1; time.sleep(SLEEP)
         if added % 50 == 0:
             print(f"added {added} total {done}", flush=True)

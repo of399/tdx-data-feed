@@ -30,14 +30,12 @@ from pathlib import Path
 import pandas as pd
 
 from tdxfeed.amount_fix import fill_missing_amount
-import pyarrow as pa
-import pyarrow.parquet as pq
-
+from tdxfeed.parquet_io import write_table
+from tdxfeed.paths import daily_dir, daily_files
 from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.writers import Writers
-from tdxfeed.paths import daily_dir, daily_files
 
 DAILY_DIR = daily_dir()
 
@@ -73,16 +71,10 @@ def _bars_to_df(bars: list) -> pd.DataFrame:
 
 
 def _write_v2(fp: Path, df: pd.DataFrame) -> None:
-    """v2 写入：date 列强制 date32。"""
+    """v2 写入：列契约先校验，date 由 write_table 强制 date32。"""
     if list(df.columns) != V2_COLS:
         raise ValueError(f"列不符 v2: {list(df.columns)}")
-    date_py = df["date"].dt.date
-    arr = pa.array(date_py, type=pa.date32())
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    idx = table.schema.get_field_index("date")
-    table = table.set_column(idx, "date", arr)
-    fp.parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(table, fp, compression="snappy")
+    write_table(fp, df)
 
 
 def fetch_range(symbol: str, start: date, end: date) -> list | None:

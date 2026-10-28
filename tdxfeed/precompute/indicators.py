@@ -36,6 +36,7 @@ import numpy as np
 import pandas as pd
 
 # === 路径 =================================================================
+from tdxfeed.parquet_io import write_table
 from tdxfeed.paths import daily_dir, daily_files, derived_dir
 
 DAILY_DIR = daily_dir()
@@ -210,7 +211,7 @@ def process_one(code: str, force: bool = False) -> Path | None:
     if out.empty:
         return None
     DERIVED_DIR.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(dst, index=False)
+    write_table(dst, out)
     return dst
 
 

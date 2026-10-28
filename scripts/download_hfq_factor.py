@@ -31,9 +31,9 @@ socket.setdefaulttimeout(30)
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 from _common import hfq_factor_dir  # noqa: E402
+
+from tdxfeed.parquet_io import write_table  # noqa: E402
 
 OUT_DIR = hfq_factor_dir()
 OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -111,13 +111,8 @@ def fetch_one(bs, code: str, max_retries: int = 3) -> str:
             merged = merged.dropna(subset=["date"])
             merged = merged[["code", "date", "hfq_factor", "qfq_close", "hfq_close"]]
 
-            # v2 写入：date date32
-            date_py = merged["date"].dt.date
-            arr = pa.array(date_py, type=pa.date32())
-            table = pa.Table.from_pandas(merged[["code","hfq_factor","qfq_close","hfq_close"]].assign(date=date_py),
-                                          preserve_index=False)
-            table = table.set_column(table.schema.get_field_index("date"), "date", arr)
-            pq.write_table(table, fp, compression="snappy")
+            # v2 写入：date date32 + 原子替换（列序由 write_table 按 df 顺序保留）
+            write_table(fp, merged[["code", "hfq_factor", "qfq_close", "hfq_close", "date"]])
             return "ok"
         except Exception as e:
             last_err = f"{type(e).__name__}:{str(e)[:60]}"
