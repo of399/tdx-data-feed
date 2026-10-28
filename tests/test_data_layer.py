@@ -98,6 +98,56 @@ def test_write_table_allows_preexisting_nat(tmp_path):
     assert pd.isna(out["date"].iloc[1])
 
 
+def test_int64_date_roundtrip(tmp_path):
+    fp = tmp_path / "x.parquet"
+    df = pd.DataFrame({"date": pd.Series([20260105, 20260106], dtype="int64"), "c": [1, 2]})
+    parquet_io.write_table(fp, df)
+    out = pd.read_parquet(fp)
+    assert out["date"].tolist() == [date(2026, 1, 5), date(2026, 1, 6)]
+
+
+def test_nullable_int64_with_na_roundtrip(tmp_path):
+    """Int64 带 NA 若只换数据不换 pandas metadata，读回时 schema 与 metadata 冲突。"""
+    fp = tmp_path / "x.parquet"
+    df = pd.DataFrame({"date": pd.Series([20260105, None], dtype="Int64"), "c": [1, 2]})
+    parquet_io.write_table(fp, df)
+    out = pd.read_parquet(fp)
+    assert out["date"].iloc[0] == date(2026, 1, 5)
+    assert pd.isna(out["date"].iloc[1])
+    assert int(out["date"].isna().sum()) == 1
+
+
+def test_object_dtype_integer_dates(tmp_path):
+    """object 里的整数若走 default to_datetime，会被当 epoch 纳秒写成 1970-01-01。"""
+    fp = tmp_path / "x.parquet"
+    df = pd.DataFrame({"date": pd.Series([20260105, 20260106], dtype=object), "c": [1, 2]})
+    parquet_io.write_table(fp, df)
+    out = pd.read_parquet(fp)
+    assert out["date"].tolist() == [date(2026, 1, 5), date(2026, 1, 6)]
+
+
+def test_object_dtype_float_dates_rejected(tmp_path):
+    df = pd.DataFrame({"date": pd.Series([20260105.0], dtype=object), "c": [1]})
+    with pytest.raises(ValueError, match="1970-01-01"):
+        parquet_io.write_table(tmp_path / "x.parquet", df)
+
+
+def test_out_of_range_year_rejected(tmp_path):
+    """年份兜底：1970 只能来自 epoch 解析或错列，不能写盘。"""
+    df = pd.DataFrame({"date": pd.Series([19700101], dtype="int64"), "c": [1]})
+    with pytest.raises(ValueError, match="1990"):
+        parquet_io.write_table(tmp_path / "x.parquet", df)
+
+
+def test_object_dtype_python_dates(tmp_path):
+    fp = tmp_path / "x.parquet"
+    df = pd.DataFrame({"date": pd.Series([date(2026, 1, 5), date(2026, 1, 6)], dtype=object),
+                       "c": [1, 2]})
+    parquet_io.write_table(fp, df)
+    out = pd.read_parquet(fp)
+    assert out["date"].tolist() == [date(2026, 1, 5), date(2026, 1, 6)]
+
+
 def test_write_table_forces_date32_and_leaves_no_tmp(tmp_path):
     fp = tmp_path / "x.parquet"
     parquet_io.write_table(fp, _bars())

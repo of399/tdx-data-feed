@@ -15,7 +15,14 @@ import pyarrow.parquet as pq
 from .paths import daily_path, derived_path, minute_path, read_path
 
 
+def _parse_yyyymmdd(s: pd.Series) -> pd.Series:
+    """整数 YYYYMMDD → date；NA 位置先掩空再解析，保持 NaT 而不是格式错。"""
+    text = s.astype("Int64").astype(str).where(s.notna())
+    return pd.to_datetime(text, format="%Y%m%d", errors="coerce").dt.date
+
+
 def _as_date32(s: pd.Series) -> pd.Series:
+    """转成 object-of-datetime.date，交给 from_pandas 推断 date32 并同步 metadata。"""
     if pd.api.types.is_float_dtype(s):
         raise ValueError(
             f"date 列 {s.name!r} 是浮点 dtype：float 会被当作 epoch 纳秒解析，"
@@ -24,8 +31,23 @@ def _as_date32(s: pd.Series) -> pd.Series:
     if pd.api.types.is_datetime64_any_dtype(s):
         out = s.dt.date
     elif pd.api.types.is_integer_dtype(s):
-        out = pd.to_datetime(s.astype("Int64").astype(str), format="%Y%m%d",
-                             errors="coerce").dt.date
+        out = _parse_yyyymmdd(s)
+    elif pd.api.types.is_object_dtype(s):
+        nonnull = s.dropna()
+        kind = pd.api.types.infer_dtype(nonnull, skipna=True) if len(nonnull) else "empty"
+        if kind == "empty":
+            return s                                  # 全空列允许原样写
+        if kind == "integer":
+            out = _parse_yyyymmdd(s)
+        elif kind == "floating":
+            raise ValueError(
+                f"date 列 {s.name!r} 是浮点 dtype：float 会被当作 epoch 纳秒解析，"
+                "把所有值写成 1970-01-01；请先转成 YYYYMMDD 整数或字符串"
+            )
+        elif kind == "date":
+            out = s                                  # 已是 datetime.date，不走 to_datetime
+        else:                                        # string / datetime / mixed
+            out = pd.to_datetime(s, errors="coerce").dt.date
     else:
         out = pd.to_datetime(s, errors="coerce").dt.date
     nulls_before = int(s.isna().sum())
@@ -35,18 +57,28 @@ def _as_date32(s: pd.Series) -> pd.Series:
             f"date 列 {s.name!r} 有 {newly_null} 个值无法解析为日期；拒绝写盘："
             "静默变 NaT 会让读回时按 date 去重把整片行合并掉"
         )
+    years = [v.year for v in out.dropna()]
+    if years and not all(1990 <= y <= 2100 for y in years):
+        bad = min(y for y in years if not 1990 <= y <= 2100)
+        raise ValueError(
+            f"date 列 {s.name!r} 出现越界年份 {bad}（要求 1990–2100）："
+            "疑似 epoch 秒/纳秒或错列，拒绝写盘"
+        )
     return out
 
 
 def write_table(path: Path, df: pd.DataFrame, date_col: str = "date") -> Path:
-    """写 parquet：date 列强制 date32[day]；先写 .tmp 再 rename。"""
+    """写 parquet：date 列强制 date32[day]；先写 .tmp 再 rename。
+
+    先转换 date 列再 from_pandas：set_column 只换数据不换 pandas metadata，
+    会让 Int64 带 NA 的表读回报 TypeError；from_pandas 一次生成一致的两者。
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    table = pa.Table.from_pandas(df, preserve_index=False)
     if date_col in df.columns:
-        idx = table.schema.get_field_index(date_col)
-        table = table.set_column(idx, date_col,
-                                 pa.array(_as_date32(df[date_col]), type=pa.date32()))
+        df = df.copy()
+        df[date_col] = _as_date32(df[date_col])
+    table = pa.Table.from_pandas(df, preserve_index=False)
     tmp = path.with_name(path.name + ".tmp")
     pq.write_table(table, tmp, compression="snappy")
     os.replace(tmp, path)
