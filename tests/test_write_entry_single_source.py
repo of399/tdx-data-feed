@@ -1,6 +1,7 @@
 """行情表写盘只有一个入口：tdxfeed.parquet_io.write_table（date32 + 原子替换）。"""
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -153,6 +154,11 @@ def test_cmd_sync_merges_into_existing_history(tmp_path, monkeypatch, capsys):
 
     day_fp = tmp_path / "sh" / "lday" / "sh600000.day"
     assert day_fp.stat().st_size == 10 * 32   # .day 与 parquet 同源重建
+
+    # manifest 的 count 是 cmd_status 直接打印的「条数」，必须等于合并后的
+    # 行数（10），不是本次拉取的根数（5），否则与文件实际行数分叉。
+    manifest = json.loads((tmp_path / ".state" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["sh600000"]["count"] == 10
 
 
 def test_process_one_writes_date32_derived(tmp_path, monkeypatch):
