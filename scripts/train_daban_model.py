@@ -26,20 +26,21 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 
 from _common import daily_dir  # noqa: E402
-from features_5d import (  # noqa: E402
-    compute_window_features_extended,
-    get_limit,
-    is_limit_up_ret,
-    is_open_limit_up,
-)
 
 from tdxfeed.daban.sector import load_industry_map  # noqa: E402
 from tdxfeed.daban.sector_features import (  # noqa: E402
     EXTRA_FEATURE_COLS,
     build_lookup,
+)
+from tdxfeed.features_5d import (  # noqa: E402
+    compute_window_features_extended,
+    get_limit,
+    is_limit_up_ret,
+    is_open_limit_up,
 )
 
 PARQUET = daily_dir()

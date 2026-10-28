@@ -6,6 +6,7 @@
 
 同一处的第二个职责：CI 没有本地 `data/`，引用行情/产物的模块在收集期就跳过，
 让「测试集能在无数据环境跑」这件事有唯一判据。守卫见 tests/test_ci_data_skip.py。
+只读源码文本、不读 `data/` 的模块在文件里写一行 `NEEDS_DATA = False` 显式退出这个分类。
 """
 import os
 import sys
@@ -22,6 +23,9 @@ TESTS_DIR = ROOT / "tests"
 # TDX_TEST_DATA_ROOT 只给守卫测试把「数据不存在」演出来，不改真实目录。
 DATA_ROOT = Path(os.environ.get("TDX_TEST_DATA_ROOT", str(ROOT / "data")))
 _DATA_MARKERS = ("data/", "/home/jiuben")
+# 模块级显式退出：只读源码文本、不读 data/ 的模块写 `NEEDS_DATA = False`
+# （样例字符串里带 data/ 字样会被下面的分类误判）。
+_OPT_OUT_LINE = "NEEDS_DATA = False"
 
 
 def _needs_data(path: Path) -> bool:
@@ -30,6 +34,8 @@ def _needs_data(path: Path) -> bool:
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
+        return False
+    if any(line.strip() == _OPT_OUT_LINE for line in text.splitlines()):
         return False
     return any(marker in text for marker in _DATA_MARKERS)
 

@@ -5,6 +5,7 @@ import ast
 import importlib
 import importlib.util
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -92,6 +93,58 @@ def test_calc_ma_over_jsonrpc(servers):
     })
     assert "error" not in resp, resp.get("error")
     assert json.loads(resp["result"]["content"][0]["text"]) == [None, 1.5, 2.5, 3.5, 4.5]
+
+
+def _calc(servers, name, arguments):
+    resp = servers["tdx-calc"].handle_request({
+        "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+        "params": {"name": name, "arguments": arguments},
+    })
+    assert "error" not in resp, resp.get("error")
+    return json.loads(resp["result"]["content"][0]["text"])
+
+
+def test_calc_macd_flat_series(servers):
+    out = _calc(servers, "calc_macd", {"prices": [5, 5, 5, 5, 5], "fast": 2, "slow": 3, "signal": 2})
+    assert out["dif"] == [0.0] * 5
+    assert out["hist"] == [0.0] * 5
+    assert out["golden_cross"] == [0] * 5
+    assert out["above_dea"] == [0] * 5
+
+
+def test_calc_kdj_flat_series(servers):
+    out = _calc(servers, "calc_kdj", {"high": [10] * 5, "low": [10] * 5, "close": [10] * 5, "n": 3})
+    # 前 n-1 根是滚动窗口暖机期（NaN → null），其后平台序列的 RSV / K / D / J 恒为 0。
+    assert out["k"] == [None, None, 0.0, 0.0, 0.0]
+    assert out["d"] == [None, None, 0.0, 0.0, 0.0]
+    assert out["j"] == [None, None, 0.0, 0.0, 0.0]
+
+
+def test_calc_rsi_one_way_up(servers):
+    out = _calc(servers, "calc_rsi", {"prices": [1, 2, 3, 4, 5], "n": 2})
+    assert out[:2] == [None, None]
+    assert all(abs(v - 100.0) < 1e-6 for v in out[2:])
+
+
+def test_calc_boll_two_point_window(servers):
+    out = _calc(servers, "calc_boll", {"prices": [1, 2, 3], "n": 2, "k": 2})
+    band = 2 * math.sqrt(0.5)  # 样本标准差 ddof=1
+    assert out["mid"][2] == 2.5
+    assert abs(out["upper"][2] - (2.5 + band)) < 1e-9
+    assert abs(out["lower"][2] - (2.5 - band)) < 1e-9
+
+
+def test_calc_adj_factor_product(servers):
+    out = _calc(servers, "calc_adj_factor", {"xdxr_events": [
+        {"date": "20200101", "songzhuan": 0.5, "rights": 0, "bonus": 0.1},
+        {"date": "20210101", "songzhuan": 0.0, "rights": 0.0, "bonus": 0.0},
+    ]})
+    assert out == {"fwd_factor": 1.5, "bwd_factor": 0.666667, "n_events": 2}
+
+
+def test_calc_adj_factor_empty(servers):
+    out = _calc(servers, "calc_adj_factor", {"xdxr_events": []})
+    assert out == {"fwd_factor": 1.0, "bwd_factor": 1.0, "n_events": 0}
 
 
 def test_tools_list_endpoint_matches_registry(servers):

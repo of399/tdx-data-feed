@@ -12,6 +12,11 @@ import ast
 import re
 from pathlib import Path
 
+# 本模块只读仓库源码文本做 AST 扫描，不读 data/；样例字符串里的 data/ 字样
+# 会被根 conftest 的「无数据跳过」分类误判，故显式退出。
+# （放在 import 块之后：语句插在 import 之前会触发 E402。）
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parents[1]
 
 FLAT = re.compile(r"data[/\\](?:parquet\b|adj_factor\b|hfq_factor\b|finance\b)")

@@ -24,11 +24,13 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 
 from _common import daily_dir  # noqa: E402
-from features_5d import get_limit, is_limit_up_ret  # noqa: E402
+
+from tdxfeed.features_5d import get_limit, is_limit_up_ret  # noqa: E402
 
 PARQUET_DIR = daily_dir()
 

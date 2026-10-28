@@ -39,16 +39,16 @@ import numpy as np
 import pandas as pd
 
 _ROOT = Path(__file__).resolve().parents[1]
-for _p in (str(_ROOT / "scripts"), str(_ROOT / "tdxfeed")):
+for _p in (str(_ROOT), str(_ROOT / "scripts"), str(_ROOT / "tdxfeed")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 from _common import compute_window_features_extended  # noqa: E402
-from features_5d import get_limit, is_open_limit_up  # noqa: E402
 
 from tdxfeed.daban.filter import SectorFilter, load_sector_features  # noqa: E402
 from tdxfeed.daban.limit_price import limit_up_price  # noqa: E402
 from tdxfeed.daban.sector import load_industry_map  # noqa: E402
+from tdxfeed.features_5d import get_limit, is_open_limit_up  # noqa: E402
 
 SPLIT_DATE = "2025-06-01"
 RANDOM_SEED = 42

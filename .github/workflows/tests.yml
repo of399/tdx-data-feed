@@ -32,5 +32,5 @@ jobs:
           passed=$(grep -Eo '[0-9]+ passed' /tmp/pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
           skipped=$(grep -Eo '[0-9]+ skipped' /tmp/pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
           echo "passed=${passed:-0} skipped=${skipped:-0}"
-          # CI 可达成值 ≈ 718 = 无数据演练 734（TDX_TEST_DATA_ROOT=/nonexistent）− 11 条本机专属 passed（v5/tests/test_ask_path_integration.py 8 + tests/test_math_unit_deployed_matches_repo.py 3，CI 无 venv-math / 无已部署单元时会 skip）− 5 条告警栈用例（test_alerting_pipeline.py::TestPipelineStatic，CI 无 9090/9093/8002 时 skip）；再留 18 条余量给平台与 requirements-ci.txt 依赖版本差异。
+          # CI 可达成值 ≈ 719 = 无数据演练 734（TDX_TEST_DATA_ROOT=/nonexistent）− 10 条本机专属 passed（v5/tests/test_ask_path_integration.py 8 + tests/test_math_unit_deployed_matches_repo.py 2；该文件 3 条里 1 条是不依赖部署的元守卫，CI 照过）− 5 条告警栈用例（test_alerting_pipeline.py::TestPipelineStatic，CI 无 9090/9093/8002 时 skip）；再留 19 条余量，覆盖 CI 上未枚举到的 skip 差异。
           test "${passed:-0}" -ge 700

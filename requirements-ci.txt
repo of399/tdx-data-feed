@@ -19,6 +19,8 @@ fastapi>=0.115.0
 uvicorn>=0.30.0
 # 2.x 把 Server.list_tools 换掉了，v5/mcp_servers/* 仍是 1.x 写法
 mcp>=1.2,<2
+# tests/test_mcp_contracts.py 顶层 import，校验 inputSchema
+jsonschema>=4.20
 scikit-learn>=1.5.0
 lightgbm>=4.5.0
 akshare>=1.15.50
