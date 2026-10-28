@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from .paths import universe_path
+from . import paths
 
 _CACHE: dict[str, str] | None = None
 
@@ -12,7 +12,7 @@ def load_universe() -> dict[str, str]:
     """code(6 位) -> name。文件缺失返回空字典，由调用方决定是否致命。"""
     global _CACHE
     if _CACHE is None:
-        fp = universe_path()
+        fp = paths.universe_path()
         _CACHE = json.loads(fp.read_text(encoding="utf-8")) if fp.exists() else {}
     return _CACHE
 

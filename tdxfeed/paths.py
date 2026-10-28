@@ -13,8 +13,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA_ROOT = Path(os.environ.get("TDX_OUT_ROOT", ROOT / "data"))
 
-_BARE_TABLES = {"adj_factor", "hfq_factor"}
-
 
 def _six(code: str) -> str:
     c = str(code).lower().strip()
@@ -41,9 +39,15 @@ def daily_path(code: str) -> Path:
 
 
 def minute_path(code: str, period: str) -> Path:
-    p = str(period).strip().lower().lstrip("m") if not str(period).startswith("min") else str(period)
-    p = p if p.startswith("min") else f"min{p}"
-    return DATA_ROOT / "parquet" / p / f"{exchange_prefix(code)}{_six(code)}.parquet"
+    """period 归一成单个 min 前缀目录：1 / m1 / min1 / 1min 都落在 min1。"""
+    p = str(period).strip().lower()
+    if p.startswith("min"):
+        p = p[len("min"):]
+    elif p.endswith("min"):
+        p = p[:-len("min")]
+    if p.startswith("m"):
+        p = p[1:]
+    return DATA_ROOT / "parquet" / f"min{p}" / f"{exchange_prefix(code)}{_six(code)}.parquet"
 
 
 def adj_factor_path(code: str) -> Path:
