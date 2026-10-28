@@ -24,7 +24,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-DEFAULT_PARQUET_DIR = Path("/home/jiuben/tdx-data-feed/data/parquet/daily")
+from tdxfeed.paths import daily_dir  # noqa: E402
+
+DEFAULT_PARQUET_DIR = daily_dir()
 
 # 已知 A 股休市日（按交易所年度公告补充；示例含 2026 国庆调休）。
 # 仅用于"豁免休市日"，缺失会导致该日之后首日仍按周末逻辑少算一天，偏保守（放行）。

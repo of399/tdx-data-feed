@@ -15,7 +15,14 @@ import pandas as pd
 sys.path.insert(0, '/home/jiuben/tdx-data-feed')
 sys.path.insert(0, '/home/jiuben/tdx-data-feed/tdxfeed')
 
-OUT = '/home/jiuben/tdx-data-feed/data/parquet'
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from tdxfeed.paths import parquet_root  # noqa: E402
+
+OUT = str(parquet_root())
 FIN_JSON = os.path.join(OUT, 'finance')
 XDR_JSON = os.path.join(OUT, 'xdxr')
 FIN_PQ = os.path.join(OUT, 'finance.parquet')

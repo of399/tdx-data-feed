@@ -22,12 +22,13 @@ import polars as pl
 
 from .factors_candidates import CANDIDATE_NAMES, compute_candidate_features
 from .factors_polars import compute_window_features_extended_polars
+from .paths import daily_dir
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("stage1_wide_table")
 
 ROOT = Path(__file__).resolve().parent.parent
-DAILY = ROOT / "data" / "parquet" / "daily"
+DAILY = daily_dir()
 SRC_CSV = ROOT / "data" / "double_up" / "d_signal_5d_features_vpnl.csv"
 OUT_PARQUET = ROOT / "data" / "double_up" / "stage1_wide_table.parquet"
 

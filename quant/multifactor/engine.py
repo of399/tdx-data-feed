@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from tdxfeed.paths import daily_dir  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -47,7 +48,7 @@ from .portfolio import (  # noqa: E402
 from .risk_model import IndustryMap, RiskModel, cov_diagnostics  # noqa: E402
 from .valuation_data import ValuationConfig, ValuationProvider  # noqa: E402
 
-PARQUET_DIR = ROOT / "data" / "parquet" / "daily"
+PARQUET_DIR = daily_dir()
 OUTPUT_DIR = ROOT / "data" / "plan_e"
 
 

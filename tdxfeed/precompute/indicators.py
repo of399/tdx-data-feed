@@ -36,9 +36,11 @@ import numpy as np
 import pandas as pd
 
 # === 路径 =================================================================
+from tdxfeed.paths import daily_dir, derived_dir  # noqa: E402
+
 ROOT = Path("/home/jiuben/tdx-data-feed")
-DAILY_DIR = ROOT / "data/parquet/daily"
-DERIVED_DIR = ROOT / "data/parquet/derived"
+DAILY_DIR = daily_dir()
+DERIVED_DIR = derived_dir()
 
 # === 技术指标计算 =========================================================
 def calc_ma(close: pd.Series, windows=(5, 10, 20, 60)) -> pd.DataFrame:
