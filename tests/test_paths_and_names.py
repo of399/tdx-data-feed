@@ -50,6 +50,22 @@ def test_adj_and_derived_naming_differ_by_table(tmp_path, monkeypatch):
     assert paths.derived_path("sh600519").name == "sh600519_indicators.parquet"
 
 
+def test_explicit_prefix_is_not_rederived(tmp_path, monkeypatch):
+    """sh000001（上证指数）与 sz000001（平安银行）都真实存在，不许互相顶替。"""
+    monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
+    assert paths.daily_path("sh000001").name == "sh000001.parquet"
+    assert paths.daily_path("000001").name == "sz000001.parquet"
+    assert paths.daily_path("sh000300").name == "sh000300.parquet"
+    assert paths.daily_path("sh510300").name == "sh510300.parquet"
+
+
+def test_dir_accessors_accept_explicit_root(tmp_path):
+    """带 --root / Writer.out_root 的调用方也要走同一套定位。"""
+    assert paths.parquet_root(tmp_path) == tmp_path / "parquet"
+    assert paths.daily_dir(tmp_path) == tmp_path / "parquet" / "daily"
+    assert paths.daily_dir() == paths.DATA_ROOT / "parquet" / "daily"
+
+
 def test_missing_file_raises_instead_of_falling_back(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
     with pytest.raises(FileNotFoundError):

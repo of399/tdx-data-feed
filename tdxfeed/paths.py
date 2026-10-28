@@ -24,10 +24,19 @@ def _six(code: str) -> str:
 
 
 def exchange_prefix(code: str) -> str:
-    c = _six(code)
-    if c.startswith(("920", "8", "4")):
+    """文件名该用的市场前缀：入参自带前缀时以入参为准，否则按代码段推断。
+
+    不能无条件重推：sh000001（上证指数）与 sz000001（平安银行）同时存在，
+    重推会把前者悄悄指到后者。
+    """
+    c = str(code).lower().strip()
+    for p in ("sh", "sz", "bj"):
+        if c.startswith(p):
+            return p
+    six = _six(c)
+    if six.startswith(("920", "8", "4")):
         return "bj"
-    return "sh" if c[0] in "69" else "sz"
+    return "sh" if six[0] in "69" else "sz"
 
 
 DAILY_BAK_SUFFIX = ".v1.bak.parquet"
@@ -44,8 +53,9 @@ def _minute_name(period: str) -> str:
     return f"min{p}"
 
 
-def parquet_root() -> Path:
-    return DATA_ROOT / "parquet"
+def parquet_root(root: str | Path | None = None) -> Path:
+    """root 只为调用方带自己的数据根（如 --root / Writer.out_root）时保留覆盖。"""
+    return (Path(root) if root is not None else DATA_ROOT) / "parquet"
 
 
 def adj_factor_dir() -> Path:
@@ -86,8 +96,8 @@ def adj_factor_files() -> list[Path]:
     return sorted(adj_factor_dir().glob("*.parquet"))
 
 
-def daily_dir() -> Path:
-    return parquet_root() / "daily"
+def daily_dir(root: str | Path | None = None) -> Path:
+    return parquet_root(root) / "daily"
 
 
 def daily_path(code: str) -> Path:

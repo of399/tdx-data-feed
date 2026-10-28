@@ -19,11 +19,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
 
+from tdxfeed.paths import DATA_ROOT, daily_dir
 from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.writers import Writers
 
-OUT_ROOT = os.environ.get("TDX_OUT_ROOT", "/home/jiuben/tdx-data-feed/data")
+OUT_ROOT = str(DATA_ROOT)
 TARGETS = ["sh601238", "sh605303", "sh688496", "sz000016", "sz002731", "sz301139"]
 
 
@@ -38,7 +39,7 @@ def main():
     results = []
 
     for sym in TARGETS:
-        pf = os.path.join(OUT_ROOT, "parquet", "daily", f"{sym}.parquet")
+        pf = daily_dir() / f"{sym}.parquet"
         exist_max = None
         if os.path.exists(pf):
             exist_max = _ymd(pd.read_parquet(pf, columns=["date"])["date"].max())

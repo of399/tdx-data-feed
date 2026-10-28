@@ -23,18 +23,23 @@ def _six(code: str) -> str:
 
 
 def exchange_prefix(code: str) -> str:
-    c = _six(code)
-    if c.startswith(("920", "8", "4")):
+    """入参自带前缀时以入参为准，否则按代码段推断（sh000001≠sz000001）。"""
+    c = str(code).lower().strip()
+    for p in ("sh", "sz", "bj"):
+        if c.startswith(p):
+            return p
+    six = _six(c)
+    if six.startswith(("920", "8", "4")):
         return "bj"
-    return "sh" if c[0] in "69" else "sz"
+    return "sh" if six[0] in "69" else "sz"
 
 
-def parquet_root() -> Path:
-    return DATA_ROOT / "parquet"
+def parquet_root(root: str | Path | None = None) -> Path:
+    return (Path(root) if root is not None else DATA_ROOT) / "parquet"
 
 
-def daily_dir() -> Path:
-    return parquet_root() / "daily"
+def daily_dir(root: str | Path | None = None) -> Path:
+    return parquet_root(root) / "daily"
 
 
 def adj_factor_dir() -> Path:

@@ -377,9 +377,12 @@ def test_v5_twin_agrees_with_main_package(tmp_path, monkeypatch):
     v5 = _load_v5_paths()
     monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
     monkeypatch.setattr(v5, "DATA_ROOT", tmp_path)
-    for code in ("600519", "000001", "920001", "sh600519", "bj920001", "300750"):
+    for code in ("600519", "000001", "920001", "sh600519", "bj920001", "300750",
+                 "sh000001", "sh000300", "sh510300", "sz000001"):
         assert v5.daily_path(code) == paths.daily_path(code), code
         assert v5.adj_factor_path(code) == paths.adj_factor_path(code), code
+    assert v5.parquet_root(tmp_path) == paths.parquet_root(tmp_path)
+    assert v5.daily_dir(tmp_path) == paths.daily_dir(tmp_path)
     for period in ("5", "15", "60", "min60"):
         assert v5.minute_dir(period) == paths.minute_dir(period), period
     assert v5.derived_path("sh600519") == paths.derived_path("sh600519")

@@ -16,6 +16,8 @@ import sys
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tdxfeed.paths import DATA_ROOT, daily_dir  # noqa: E402
+
 try:
     from tdxfeed.symbols import INDICES, group
 except Exception:  # pragma: no cover
@@ -83,11 +85,11 @@ def main():
     ap.add_argument("--threshold", type=int, default=20260912)
     ap.add_argument(
         "--root",
-        default=os.environ.get("TDX_OUT_ROOT", "/home/jiuben/tdx-data-feed/data"),
+        default=str(DATA_ROOT),
     )
     args = ap.parse_args()
 
-    pq_dir = os.path.join(args.root, "parquet", "daily")
+    pq_dir = daily_dir(args.root)
     files = sorted(f for f in glob.glob(os.path.join(pq_dir, "*.parquet")) if ".bak" not in f)
     total = len(files)
     buckets: dict[str, dict] = {}

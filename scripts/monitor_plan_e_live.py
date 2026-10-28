@@ -56,18 +56,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import numpy as np
 import pandas as pd
 
-try:
-    from _common import parse_date
-except ImportError:  # 兜底：脚本脱离 scripts/ 运行时
-    def parse_date(x: Any) -> pd.Timestamp:
-        return pd.to_datetime(x)
+from _common import daily_dir, parse_date  # noqa: E402
 
 ROOT = Path(__file__).parent.parent
 LIVE_DIR = ROOT / "data" / "plan_e" / "live"
 JOURNAL = LIVE_DIR / "journal.csv"
 POSITIONS = LIVE_DIR / "positions.json"
-
-from _common import daily_dir  # noqa: E402
 
 PARQUET = daily_dir()
 OBS_DIR = LIVE_DIR / "observation_reports"
