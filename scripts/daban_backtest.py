@@ -282,6 +282,8 @@ def _backtest_chase(
 
         # 入场当日也要判（旧实现从 k=j 起）：内核的时间窗固定从 entry+1 起（plan_e 口径），
         # 所以这一根在调用侧用同一阶梯判。开盘价即入场价，跳空条款在这一根不会生效。
+        # 触发比较是价位（low <= entry*(1-sl)）而非收益比例，恰好相等的 K 线旧代码会因
+        # 浮点噪声不触发：2026-09 切片的 957 笔里有 1 笔因此把出场日提前 4 天（同价同因）。
         hit = _single.check_exit(entry, open_=entry,
                                  high=float(win["high"].iloc[0]),
                                  low=float(win["low"].iloc[0]),
