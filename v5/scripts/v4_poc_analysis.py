@@ -10,8 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-
-from _paths import daily_dir  # noqa: E402
+from _paths import daily_dir
 
 # ===== 路径常量 =====
 VAULT_DIR = Path("/home/jiuben/StockVault")

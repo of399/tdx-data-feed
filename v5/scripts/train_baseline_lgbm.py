@@ -23,9 +23,8 @@ import time
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from _paths import daily_files, daily_path
 from sklearn.metrics import classification_report, roc_auc_score
-
-from _paths import daily_files, daily_path  # noqa: E402
 
 START_DATE = "2001-01-01"
 TRIGGER_CSV = "v5/audit/double_triggers_enriched.csv"

@@ -18,8 +18,7 @@ import re
 from pathlib import Path
 
 import pandas as pd
-
-from _paths import daily_dir  # noqa: E402
+from _paths import daily_dir
 
 VAULT_DIR = Path("/home/jiuben/StockVault/01-标的")
 PARQUET_DIR = daily_dir()

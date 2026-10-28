@@ -14,9 +14,8 @@ warnings.filterwarnings("ignore")
 
 import pandas as pd  # noqa: E402
 import torch  # noqa: E402
-from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
-
 from _paths import daily_dir  # noqa: E402
+from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
 
 PARQUET_DIR = daily_dir()
 MERGED = "/home/jiuben/models/Qwen3-14B-tdx-v6-merged"

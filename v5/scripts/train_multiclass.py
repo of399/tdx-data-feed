@@ -19,9 +19,8 @@ import time
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from _paths import daily_path
 from sklearn.metrics import classification_report, f1_score, roc_auc_score
-
-from _paths import daily_path  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--features', default='v5/audit/baseline_features.parquet')

@@ -34,8 +34,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-from _paths import daily_files  # noqa: E402
+from _paths import daily_files
 
 START_DATE = "2001-01-01"
 WINDOW = 20

@@ -21,9 +21,8 @@ import random
 import time
 from pathlib import Path
 
+from _paths import daily_path
 from llama_cpp import Llama
-
-from _paths import daily_path  # noqa: E402
 
 GGUF_PATH = "/home/jiuben/models/Qwen3-14B-tdx-v6-final-Q4_K_M.gguf"
 TRIGGERS_CSV = "/tmp/sh_sz_samples.csv"  # scan_double.py 默认输出
