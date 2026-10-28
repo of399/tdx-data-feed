@@ -96,6 +96,10 @@ if str(ROOT) not in sys.path:
 # P0-1 ④：置换检验（H0 策略日盈亏顺序随机 = 随机抽样同分布）
 from quant.multifactor.cv_utils import permutation_return_test  # noqa: E402
 
+# 出场阶梯唯一实现（AGENTS.md「回测成交口径」）：plan_e 只算入场日，结算委托内核
+from tdxfeed.execution.costs import CostModel  # noqa: E402
+from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
+
 _PARQUET_CACHE: dict[str, pd.DataFrame] = {}
 
 
@@ -265,82 +269,34 @@ def _eff_slippage(code_clean: str, slippage: float, bj_slippage: float) -> float
 def _settle_from_entry(df: pd.DataFrame, entry_idx: int, hold_days: int,
                        tp: float, sl: float, fee: float,
                        eff_slip: float) -> dict | None:
-    """从给定入场日按出场阶梯结算一笔——回测与随机择时基线共用这一段，口径不许分叉。
+    """从给定入场日按出场阶梯结算一笔——委托 tdxfeed.execution.single（唯一实现）。
 
-    逐日判定：同一根 K 线双触发取保守侧（先判止损），跳空穿越价位按当日开盘成交。
-    出场价同时回灌进逐日收益序列，保证资金曲线和 return_pct 同源。
+    `_has_exit_window` 的「至少 3 天前向窗口」是本报告的数据可用性预检，
+    不属于结算口径，留在调用侧。
+
+    `insufficient="skip"`（内核默认）：被数据端点截断的笔历史上就报 `TIME`，
+    改成 `"last_close"` 会把这些笔标成 `END`、动报告内容、md5 闸门必红。
     """
-    entry = df['open'].iloc[entry_idx]
-    if entry <= 0 or not _has_exit_window(len(df), entry_idx, hold_days):
+    if not _has_exit_window(len(df), entry_idx, hold_days):
         return None
-
-    start = entry_idx + 1
-    end = min(start + hold_days - 1, len(df))
-    tp_lvl = entry * (1 + tp)
-    sl_lvl = entry * (1 + sl)
-    exit_idx = end - 1
-    reason = 'TIME'
-    exit_price = None
-    for j in range(start, end):
-        hit_sl = df['low'].iloc[j] <= sl_lvl
-        hit_tp = df['high'].iloc[j] >= tp_lvl
-        if not (hit_sl or hit_tp):
-            continue
-        # 日内高低点无法证明先后，同时够到就按亏损一侧结算
-        open_j = df['open'].iloc[j] if df['open'].iloc[j] > 0 else None
-        if hit_sl:
-            exit_idx, reason = j, 'SL'
-            exit_price = min(sl_lvl, open_j) if open_j is not None else sl_lvl
-        else:
-            exit_idx, reason = j, 'TP'
-            exit_price = max(tp_lvl, open_j) if open_j is not None else tp_lvl
-        break
-
-    # 区间极值（持有期，含入场日）用于 max_gain/max_loss 展示
-    high_max = df['high'].iloc[entry_idx:exit_idx + 1].max()
-    low_min = df['low'].iloc[entry_idx:exit_idx + 1].min()
-    max_gain = (high_max - entry) / entry
-    max_loss = (low_min - entry) / entry
-
-    entry_date = df['date'].iloc[entry_idx]
-    exit_date = df['date'].iloc[exit_idx]
-    if reason == 'TIME':
-        exit_price = df['close'].iloc[exit_idx]
-    gross = (exit_price - entry) / entry
-
-    # 净收益（扣除单边佣金 + 滑点，双边合计 2×(fee+eff_slip)）
-    entry_eff = entry * (1 + eff_slip)
-    exit_eff = exit_price * (1 - eff_slip)
-    net_ret = exit_eff * (1 - fee) / (entry_eff * (1 + fee)) - 1
-
-    # 持仓期逐日收益（用于按交易日对齐的真实资金曲线，含成本拖累）
-    side_cost = fee + eff_slip
-    daily = []
-    prev_close = entry
-    for k in range(entry_idx, exit_idx + 1):
-        # 出场日结算在成交价上：盘中触发就离场，收盘价已与本笔无关，
-        # 否则资金曲线和 return_pct 两个口径对不上（TP 日冲高回落时差 20 个点）
-        close_k = exit_price if k == exit_idx else df['close'].iloc[k]
-        r = close_k / prev_close - 1 if prev_close > 0 else 0
-        if k == entry_idx:
-            r -= side_cost          # 入场佣金 + 滑点
-        if k == exit_idx:
-            r -= side_cost          # 出场佣金 + 滑点
-        daily.append((str(df['date'].iloc[k])[:10], r))
-        prev_close = close_k
-
+    plan = SingleTradePlan(judge="intrabar", tp=tp, sl=sl,
+                           hold_days=hold_days, sl_first=True)
+    costs = CostModel(commission=fee, slippage=eff_slip)
+    r = settle_single_trade(df, entry_idx, plan, costs, insufficient="skip")
+    if r is None:
+        return None
     return {
-        'entry_date': str(entry_date)[:10],
-        'entry_price': round(entry, 2),
-        'exit_date': str(exit_date)[:10],
-        'exit_price': round(exit_price, 2),
-        'return_pct': round(net_ret, 4),
-        'return_pct_gross': round(gross, 4),
-        'max_gain_pct': round(max_gain, 4),
-        'max_loss_pct': round(max_loss, 4),
-        'exit_reason': reason,
-        'hold': f"T+{exit_idx - entry_idx + 1}",
-        'daily': daily,
+        'entry_date': r.entry_date,
+        'entry_price': round(r.entry_price, 2),
+        'exit_date': r.exit_date,
+        'exit_price': round(r.exit_price, 2),
+        'return_pct': round(r.net_ret, 4),
+        'return_pct_gross': round(r.gross_ret, 4),
+        'max_gain_pct': round(r.max_gain, 4),
+        'max_loss_pct': round(r.max_loss, 4),
+        'exit_reason': r.reason,
+        'hold': f"T+{r.exit_idx - r.entry_idx + 1}",
+        'daily': list(r.daily),
     }
 
 

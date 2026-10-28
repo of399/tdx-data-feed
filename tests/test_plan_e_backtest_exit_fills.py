@@ -133,3 +133,27 @@ def test_time_exit_prices_at_close():
     for _, day_ret in result["daily"]:
         compound *= 1 + day_ret
     assert compound - 1 == pytest.approx(result["return_pct_gross"], abs=1e-9)
+
+
+def test_settle_from_entry_delegates_to_kernel():
+    """迁移后内核是唯一实现：改内核行为必须能穿透到 plan_e。"""
+    from tdxfeed.execution import single
+
+    # 5 根帧：entry_idx=1 时 start=2、end=min(11,5)=5，end-start=3 才过 `_has_exit_window`
+    _seed([(10.0, 10.0, 10.0, 10.0), (10.0, 10.0, 10.0, 10.0),
+           (10.0, 13.5, 8.5, 12.0), (12.0, 12.5, 11.8, 12.0),
+           (12.0, 12.2, 11.9, 12.1)])
+    base = pe._settle_from_entry(pe._PARQUET_CACHE[CODE], 1, 10, 0.30, -0.10, 0.0, 0.0)
+    assert base["exit_reason"] == "SL"
+
+    calls = []
+    original = single.check_exit
+
+    def spy(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    from unittest.mock import patch
+    with patch.object(single, "check_exit", side_effect=spy):
+        pe._settle_from_entry(pe._PARQUET_CACHE[CODE], 1, 10, 0.30, -0.10, 0.0, 0.0)
+    assert calls, "plan_e 的出场判定没有走内核 check_exit"
