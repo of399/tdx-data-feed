@@ -40,7 +40,7 @@ sys.path.insert(0, str(ROOT))
 
 # 结算内核（唯一实现）：出场阶梯与时间窗跟 plan_e_backtest 同源。
 from tdxfeed.execution.bars import as_bars  # noqa: E402
-from tdxfeed.execution.costs import CostModel  # noqa: E402
+from tdxfeed.execution.costs import PLAN_E_COSTS  # noqa: E402
 from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
 
 MODEL_FILE = ROOT / "data" / "double_up" / "d_signal_5d_model.txt"
@@ -55,8 +55,6 @@ OUTPUT_DIR = ROOT / "data" / "plan_e"
 TP_PCT = 0.30
 SL_PCT = -0.10
 HOLD_DAYS = 10
-TRADE_FEE_BPS = 0.03
-TRADE_SLIPPAGE_BPS = 0.10
 
 # 18 维基础特征(v8 模型)
 FEATURE_COLS_BASE_18 = [
@@ -137,18 +135,20 @@ def simulate_trade(df_full: pd.DataFrame, signal_date: pd.Timestamp, code: str) 
     future = df_full[df_full["date"] > signal_date].reset_index(drop=True)
     if len(future) < 2:
         return None
-    bars = as_bars(future)
-    # 内核只判 `<= 0`，NaN 会漏过去——这条守卫由调用侧兜住。
-    if float(bars["open"].iloc[0]) <= 0 or np.isnan(float(bars["open"].iloc[0])):
+    # 只切内核真正会读的窗口（入场根 + hold_days-1 根判定根）。多切一行到 HOLD_DAYS+1
+    # 与切全长等价：内核的 end = min(entry_idx + hold_days, n) 之后的行从不被访问；
+    # 而 as_bars 会把传入切片整体转 float64，尾部任何脏行都不该让整轮长跑崩掉。
+    bars = as_bars(future.iloc[: HOLD_DAYS + 1])
+    # 内核只判 `<= 0`，NaN/inf 会漏过去——这条守卫由调用侧兜住（一次转 float 复用）。
+    entry_open = float(bars["open"].iloc[0])
+    if not np.isfinite(entry_open) or entry_open <= 0:
         return None
     plan = SingleTradePlan(judge="intrabar", tp=TP_PCT, sl=SL_PCT,
                            hold_days=HOLD_DAYS, sl_first=True)
-    # 常量名叫 _BPS，值其实是**百分数**（0.03 = 0.03%、0.10 = 0.10%），与旧式
-    # `(fee+slip)*2/100` 一致；除以 1e4 会把它缩小 100 倍。
-    # stamp_sell 显式钉 0：方案 E 全链路无印花税，不能靠 CostModel 默认值隐性维持。
-    costs = CostModel(commission=TRADE_FEE_BPS / 100,
-                      slippage=TRADE_SLIPPAGE_BPS / 100, stamp_sell=0.0)
-    r = settle_single_trade(bars, 0, plan, costs, insufficient="last_close")
+    # 成本取共享常量：与 plan_e 全链路同一口径，不再在本文件手算费率换算。
+    # 内核在 `exit_price <= 0`（坏收盘）时返回 None，本笔不计入——比旧实现记一笔
+    # 约 -100% 更乐观，属已知口径差。
+    r = settle_single_trade(bars, 0, plan, PLAN_E_COSTS, insufficient="last_close")
     if r is None:
         return None
     return {
