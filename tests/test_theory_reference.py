@@ -20,7 +20,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agents.orchestrator import Orchestrator  # noqa: E402
+from skill_router.orchestrator import Orchestrator  # noqa: E402
 
 VAULT_ROOT = Path("/home/jiuben/ObsidianVaults/tdx-data-feed")
 THEORY_DIR = VAULT_ROOT / "09-理论讲义"
@@ -316,7 +316,7 @@ def test_book_paths_point_at_real_dirs(skill):
 # === 6. 端到端（需要索引 + MCP 子进程）=====================================
 @pytest.fixture()
 def runtime():
-    from agents.runtime import SkillRuntime
+    from skill_router.runtime import SkillRuntime
     rt = SkillRuntime(ROOT / "skills", ROOT / "mcp" / "servers")
     rt.load_all_skills()
     try:
@@ -349,7 +349,7 @@ def test_runtime_rejects_theory_reference_without_query(runtime):
 @pytest.mark.skipif(not VAULT_STORE.exists(), reason="vault 索引未构建")
 def test_runtime_news_fallback_excludes_theory(runtime):
     """runtime 的 news-summary 兜底必须带上 exclude_category，否则讲义会混进新闻。"""
-    from agents.runtime import THEORY_CATEGORY as RT_CATEGORY
+    from skill_router.runtime import THEORY_CATEGORY as RT_CATEGORY
     assert RT_CATEGORY == THEORY_CATEGORY
     resp = runtime.call_mcp("tdx-vault", "search", {
         "query": "600000 浦发银行 新闻",

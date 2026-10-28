@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
 """
-agents/cli.py — 多 Agent 系统命令行入口
+skill_router/cli.py — 多 Agent 系统命令行入口
 ========================================
 
 用法：
     # 单次查询
-    python -m agents.cli "sh600000 怎么看？"
-    python -m agents.cli "sh600519 营收近 4 季度？"
-    python -m agents.cli "什么是异方差？对回归推断有什么影响"   # 财经七书讲义检索
+    python -m skill_router.cli "sh600000 怎么看？"
+    python -m skill_router.cli "sh600519 营收近 4 季度？"
+    python -m skill_router.cli "什么是异方差？对回归推断有什么影响"   # 财经七书讲义检索
 
     # 交互式 REPL（多轮对话）
-    python -m agents.cli --interactive
+    python -m skill_router.cli --interactive
 
     # 指定 LoRA checkpoint（启用 LLM 推理）
-    python -m agents.cli --model training/output/qwen3-14b-tdx/checkpoint-final "sh600000"
+    python -m skill_router.cli --model training/output/qwen3-14b-tdx/checkpoint-final "sh600000"
 
     # 只看意图
-    python -m agents.cli --intent-only "sh600000 财务"
+    python -m skill_router.cli --intent-only "sh600000 财务"
 """
 
 import argparse
 import json
 from pathlib import Path
 
-from agents.orchestrator import Orchestrator
+from skill_router.orchestrator import Orchestrator
 
 
 # === 格式化输出 =============================================================

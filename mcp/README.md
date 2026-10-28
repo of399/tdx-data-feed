@@ -3,7 +3,7 @@
 
 本目录定义 **6 个 MCP Server**，统一封装数据/工具接入层，供上层 Skill / Agent 调用。
 
-> ⚠️ `agents/runtime.py` 的 `SERVER_SCRIPT_MAP` 与 `skills/*.yaml` 按 `mcp/servers/` 硬编码引用本目录，移动或归档会导致 YAML 技能链启动失败。
+> ⚠️ `skill_router/runtime.py` 的 `SERVER_SCRIPT_MAP` 与 `skills/*.yaml` 按 `mcp/servers/` 硬编码引用本目录，移动或归档会导致 YAML 技能链启动失败。
 
 ## 架构
 ```

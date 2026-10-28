@@ -26,7 +26,7 @@ repowiki:
   documents:
     - title: "总体架构与数据流"
       goal: "给出采集 → 因子 → 训练 → 预测 → 回测 → 运维的端到端拓扑，说明各模块边界与相互调用关系，并指出哪些链路已进入研究态。"
-      hints: "以 tdxfeed/、quant/、v5/、agents/、scripts/、deploy/ 的实际目录为模块依据，不要用 _archive/ 或 data/ 推断结构。"
+      hints: "以 tdxfeed/、quant/、v5/、skill_router/、scripts/、deploy/ 的实际目录为模块依据，不要用 _archive/ 或 data/ 推断结构。"
 
     - title: "通达信行情数据管道与因子计算"
       parent: "总体架构与数据流"
@@ -59,8 +59,8 @@ repowiki:
       hints: "scripts/distill_outputs.py、training/config、training/eval、data/distill/skeleton.jsonl。"
 
     - title: "多 Agent 编排与运行时"
-      goal: "说明 agents 目录下 CLI、编排器与运行时的职责划分及其与 MCP 工具池的调用关系。"
-      hints: "agents/cli.py、agents/orchestrator.py、agents/runtime.py。"
+      goal: "说明 skill_router 目录下 CLI、编排器与运行时的职责划分及其与 MCP 工具池的调用关系。"
+      hints: "skill_router/cli.py、skill_router/orchestrator.py、skill_router/runtime.py。"
 
     - title: "调度、部署与监控运维"
       goal: "梳理 Makefile 目标入口、systemd 服务与定时器的两套归属、Prometheus 与 Alertmanager 告警链路以及硬依赖与 OnFailure 推送的当前设计。"
@@ -76,7 +76,7 @@ repowiki:
 
 knowledgecard:
   notes:
-    - text: "模块划分以运行与代码边界为准：tdxfeed（行情、因子、风控、daban）、scripts（研究脚本与运维脚本共存，按 plan_e_/distill_/audit_/backfill_ 前缀区分）、v5（LLM 管道自成一套，含自己的 scripts 与 systemd）、agents、quant/multifactor、deploy 与 v5/monitoring、tests、docs。"
+    - text: "模块划分以运行与代码边界为准：tdxfeed（行情、因子、风控、daban）、scripts（研究脚本与运维脚本共存，按 plan_e_/distill_/audit_/backfill_ 前缀区分）、v5（LLM 管道自成一套，含自己的 scripts 与 systemd）、skill_router、quant/multifactor、deploy 与 v5/monitoring、tests、docs。"
       author: jiuben
     - text: "不要为 _archive、data、logs、models、venv、downloads 生成知识模块，它们不是可维护的代码边界；docs 目录只作为文档模块，不当作实现模块。"
       author: jiuben

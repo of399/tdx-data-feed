@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-agents/orchestrator.py — L4 编排器（意图路由 + 多轮状态 + 串接多 Skill）
+skill_router/orchestrator.py — L4 编排器（意图路由 + 多轮状态 + 串接多 Skill）
 =========================================================================
 
 职责：
@@ -11,12 +11,12 @@ agents/orchestrator.py — L4 编排器（意图路由 + 多轮状态 + 串接�
     5. 把结果组装成最终回答
 
 用法：
-    from agents.orchestrator import Orchestrator
+    from skill_router.orchestrator import Orchestrator
     orch = Orchestrator()
     print(orch.handle("sh600000 怎么看？"))
 
 依赖：
-    agents/runtime.py
+    skill_router/runtime.py
 """
 
 import re
@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from agents.runtime import SkillRuntime
+from skill_router.runtime import SkillRuntime
 
 # === 意图路由规则 ===========================================================
 INTENT_PATTERNS = [

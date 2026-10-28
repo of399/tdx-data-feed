@@ -12,7 +12,7 @@ description: |
 
 llm:
   model_id: qwen3-7b                  # 仅作能力档位标注：SkillRuntime 不做按 skill 的模型路由
-                                      #（见 agents/runtime.py:execute_skill），实际使用全局加载的 base+LoRA
+                                      #（见 skill_router/runtime.py:execute_skill），实际使用全局加载的 base+LoRA
   base_model: Qwen/Qwen3-7B
   # 注：生产预测走 LightGBM predict.py；本 skill 为 LLM 财务摘要（可选增强），非主路径
   inference:

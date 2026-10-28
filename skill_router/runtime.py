@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-agents/runtime.py — Skill Runtime 与 MCP 子进程管理器
+skill_router/runtime.py — Skill Runtime 与 MCP 子进程管理器
 ======================================================
 
 职责：
@@ -18,7 +18,7 @@ agents/runtime.py — Skill Runtime 与 MCP 子进程管理器
 不依赖任何 LLM 框架（LangChain / LlamaIndex），保持轻量。
 
 用法：
-    from agents.runtime import SkillRuntime
+    from skill_router.runtime import SkillRuntime
     rt = SkillRuntime(skills_dir=Path("skills"), mcp_dir=Path("mcp/servers"))
     rt.load_all_skills()
     result = rt.execute_skill("kline-analysis", {"code": "sh600000"})
@@ -39,13 +39,13 @@ from typing import Any
 import yaml
 
 # === 路径与日志 =============================================================
-LOG_FILE = Path("/home/jiuben/tdx-data-feed/logs/agents.log")
+LOG_FILE = Path("/home/jiuben/tdx-data-feed/logs/skill_router.log")
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     filename=str(LOG_FILE), level=logging.INFO,
     format="%(asctime)s [agents:runtime] %(message)s",
 )
-log = logging.getLogger("agents.runtime")
+log = logging.getLogger("skill_router.runtime")
 
 
 # === MCP server 名称 → 脚本映射 =============================================
