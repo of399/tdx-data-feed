@@ -32,6 +32,8 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from _common import daily_dir  # noqa: E402
+
 from tdxfeed.daban.limit_price import (  # noqa: E402
     exchange_prefix,
     limit_ratio,
@@ -40,7 +42,7 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
 from tdxfeed.daban.sector import load_industry_map  # noqa: E402
 from tdxfeed.date_utils import parse_date_series  # noqa: E402
 
-DAILY_DIR = _ROOT / "data" / "parquet" / "daily"
+DAILY_DIR = daily_dir()
 OUT_DIR = _ROOT / "data" / "factors"
 COLS = ["date", "open", "high", "low", "close"]
 

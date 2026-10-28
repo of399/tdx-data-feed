@@ -33,7 +33,10 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
-PARQUET_DIR = ROOT / "data" / "parquet" / "daily"
+
+from _common import daily_dir  # noqa: E402
+
+PARQUET_DIR = daily_dir()
 DOUBLE_UP = ROOT / "data" / "double_up" / "double_up_2020_2026_detail.csv"
 OUT_JSONL = ROOT / "data" / "cls2000_samples.jsonl"
 OUT_META = ROOT / "data" / "cls2000_meta.json"

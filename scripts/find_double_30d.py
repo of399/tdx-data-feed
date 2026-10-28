@@ -28,9 +28,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from _common import adj_factor_dir, daily_dir  # noqa: E402
 
-PARQUET = Path('/home/jiuben/tdx-data-feed/data/parquet/daily')
-ADJ = Path('/home/jiuben/tdx-data-feed/data/adj_factor')
+PARQUET = daily_dir()
+ADJ = adj_factor_dir()
 NAME_MAP_PATH = Path('/home/jiuben/tdx-data-feed/data/all_a_stocks.json')
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 

@@ -27,8 +27,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from _common import daily_dir  # noqa: E402
 
-PARQUET = Path('/home/jiuben/tdx-data-feed/data/parquet/daily')
+PARQUET = daily_dir()
 V1_DETAIL = Path('/home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_detail.csv')
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 

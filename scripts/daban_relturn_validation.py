@@ -20,10 +20,12 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from _common import daily_dir  # noqa: E402
+
 from tdxfeed.daban.limit_price import limit_ratio, limit_up_price  # noqa: E402
 from tdxfeed.date_utils import parse_date_series  # noqa: E402
 
-DAILY_DIR = _ROOT / "data" / "parquet" / "daily"
+DAILY_DIR = daily_dir()
 ALPHA = _ROOT / "data" / "daban" / "alpha_sources_20200101_20261019.parquet"
 
 

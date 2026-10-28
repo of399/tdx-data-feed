@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import pandas as pd
-
+from _common import daily_files  # noqa: E402
 from train_pnl_proxy import OUT_DATA, attach_pnl
 
 
@@ -27,7 +27,7 @@ def main() -> int:
         return 1
     # 写前闸门：attach_pnl 逐行吞异常返 None，没有这道检查，一次空跑就会 exit 0
     # 覆盖掉唯一产物（data/ 不在 git 里）。期望值取自上一版在有日线行上的非空数。
-    have = {p.stem for p in (ROOT / "data" / "parquet" / "daily").glob("*.parquet")}
+    have = {p.stem for p in daily_files()}
     expected = int(df.loc[df["code"].isin(have), "hypothetical_pnl"].notna().sum())
     features = df.drop(columns=["hypothetical_pnl"])
     renamed = attach_pnl(features, max_workers=8)

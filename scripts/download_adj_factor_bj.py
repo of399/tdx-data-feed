@@ -17,7 +17,9 @@ import pandas as pd
 socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
 
-OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/adj_factor')
+from _common import adj_factor_dir  # noqa: E402
+
+OUT_DIR = adj_factor_dir()
 ALL_STOCKS = Path('/home/jiuben/tdx-data-feed/data/all_a_stocks.json')
 LOG = Path('/tmp/adj_factor_bj_akshare.log')
 

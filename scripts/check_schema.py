@@ -22,8 +22,11 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 ROOT = Path(__file__).parent.parent
-DAILY_DIR = ROOT / "data" / "parquet" / "daily"
-ADJ_DIR = ROOT / "data" / "adj_factor"
+
+from _common import adj_factor_dir, daily_dir  # noqa: E402
+
+DAILY_DIR = daily_dir()
+ADJ_DIR = adj_factor_dir()
 
 DAILY_EXPECTED_COLS = {"date", "open", "high", "low", "close", "volume", "amount"}
 ADJ_EXPECTED_COLS = {"code", "date", "adj_factor", "qfq_close", "raw_close"}

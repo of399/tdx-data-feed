@@ -3,8 +3,6 @@
 用法: python download_universe.py --target 10000
 """
 import argparse
-import glob
-import os
 import sys
 import time
 
@@ -12,10 +10,11 @@ sys.path.insert(0, "/home/jiuben/tdx-data-feed")
 import pandas as pd
 from pytdx.hq import TdxHq_API
 
+from tdxfeed.paths import daily_dir, daily_files
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.symbols import group
 
-OUT = "/home/jiuben/tdx-data-feed/data/parquet/daily/"
+OUT = daily_dir()
 SRV = ("218.6.170.47", 7709)
 SLEEP = 0.2
 
@@ -59,7 +58,7 @@ def main():
     cand = [c for c in codes if group(c) in ("sh", "sz")]
     order = {"sh": 0, "sz": 1}
     cand.sort(key=lambda c: order[group(c)])
-    existing = set(os.path.basename(p)[:-8] for p in glob.glob(OUT + "*.parquet") if ".bak" not in p)
+    existing = {p.stem for p in daily_files()}
     print(f"候选 {len(cand)} 只, 已有 daily {len(existing)} 只", flush=True)
 
     src = SinaSource()
@@ -81,7 +80,7 @@ def main():
         df = df.sort_values("date")
         if len(df) < 20:
             time.sleep(0.1); continue
-        df.to_parquet(OUT + s + ".parquet", index=False)
+        df.to_parquet(OUT / f"{s}.parquet", index=False)
         done += 1; added += 1; time.sleep(SLEEP)
         if added % 50 == 0:
             print(f"added {added} total {done}", flush=True)

@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 
+from _common import daily_dir  # noqa: E402
 from features_5d import (  # noqa: E402
     compute_window_features_extended,
     get_limit,
@@ -41,7 +42,7 @@ from tdxfeed.daban.sector_features import (  # noqa: E402
     build_lookup,
 )
 
-PARQUET = ROOT / "data" / "parquet" / "daily"
+PARQUET = daily_dir()
 OUT_DIR = ROOT / "data" / "double_up"
 MODEL_OUT = OUT_DIR / "d_signal_5d_model_daban.txt"
 REPORT_OUT = OUT_DIR / "daban_train_report.md"

@@ -25,13 +25,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tdxfeed.amount_fix import backfill_daily_dir  # noqa: E402
+from tdxfeed.paths import DATA_ROOT, daily_dir  # noqa: E402
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="回填 daily parquet 成交额缺口（默认 dry-run）")
-    ap.add_argument("--daily-dir", default=str(ROOT / "data/parquet/daily"))
-    ap.add_argument("--out-root", default=str(ROOT / "data"))
-    ap.add_argument("--backup-dir", default=str(ROOT / "data/parquet/daily_amount_bak"),
+    ap.add_argument("--daily-dir", default=str(daily_dir()))
+    ap.add_argument("--out-root", default=str(DATA_ROOT))
+    ap.add_argument("--backup-dir", default=str(daily_dir().with_name("daily_amount_bak")),
                     help="落盘前的原文件备份目录")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--start", type=int, default=20260916,

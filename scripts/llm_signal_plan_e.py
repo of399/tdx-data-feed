@@ -37,7 +37,10 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
-PARQUET_DIR = ROOT / "data" / "parquet" / "daily"
+
+from _common import daily_dir  # noqa: E402
+
+PARQUET_DIR = daily_dir()
 OLLAMA_URL = "http://127.0.0.1:11434"
 WINDOW = 20
 

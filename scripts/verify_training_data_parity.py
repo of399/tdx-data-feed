@@ -24,7 +24,10 @@ import polars as pl
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-DAILY = ROOT / "data" / "parquet" / "daily"
+
+from _common import daily_dir  # noqa: E402
+
+DAILY = daily_dir()
 SRC = ROOT / "data" / "double_up" / "d_signal_5d_features_vpnl.csv"
 FEAT26 = [
     "limit", "prev_close", "ret_5d", "ret_3d", "max_5d_pct", "limit_up_5d",

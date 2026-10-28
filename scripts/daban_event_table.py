@@ -47,7 +47,11 @@ from tdxfeed.daban.sector import load_industry_map  # noqa: E402
 FEATURES = ROOT / "data/daban/min60_features_20261022.parquet"
 OUT = ROOT / "data/daban/event_table_min60_20261022.parquet"
 META = ROOT / "data/daban/event_table_min60_20261022.meta.json"
-MIN60_DIR = ROOT / "data/parquet/min60"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
+from _common import minute_dir  # noqa: E402
+
+MIN60_DIR = minute_dir("min60")
 BARS = ("1030", "1130", "1400", "1500")
 EPS = 0.005
 

@@ -24,7 +24,10 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
-PK = ROOT / "data" / "parquet" / "daily"
+
+from _common import daily_dir  # noqa: E402
+
+PK = daily_dir()
 SRC = ROOT / "data" / "v4"
 CODE_RE = re.compile(r"对股票\s+(\d{6})")
 DATE_RE = re.compile(r"截至\s*(\d{4}-\d{2}-\d{2})")

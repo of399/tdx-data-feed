@@ -1,11 +1,10 @@
-import glob
 import json
 import os
 import sys
 
 import pandas as pd
+from _common import daily_files  # noqa: E402
 
-PK = '/home/jiuben/tdx-data-feed/data/parquet/daily/'
 OUT = '/home/jiuben/tdx-data-feed/data/distill/skeleton.jsonl'
 WINDOW = 20
 STEP = 5
@@ -61,7 +60,7 @@ def build(sym, df):
     return out
 
 def main():
-    files = sorted(glob.glob(PK + '*.parquet'))
+    files = daily_files()
     print('parquet 文件数:', len(files))
     if files:
         print('首文件列名:', list(pd.read_parquet(files[0]).columns))

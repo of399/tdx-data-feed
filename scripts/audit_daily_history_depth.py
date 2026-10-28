@@ -36,7 +36,10 @@ import pandas as pd  # noqa: E402
 from tdxfeed.history_paging import PAGE_CAP, PageRequestError, http_page  # noqa: E402
 from tdxfeed.symbols import a_share_symbols, sym_of_a_share  # noqa: E402
 
-DAILY = ROOT / "data" / "parquet" / "daily"
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
+from _common import daily_dir  # noqa: E402
+
+DAILY = daily_dir()
 UNIVERSE = ROOT / "data" / "all_a_stocks.json"
 TARGET_DEFAULT = 20000101
 PROBE_END = "2000-12-31"   # 窗右端：窗内有行就说明源能给到 2000 年之前

@@ -55,7 +55,10 @@ RANDOM_SEED = 42
 COST = 0.0030
 NEG_RATIO = 5
 LIVE_MODEL = _ROOT / "data" / "double_up" / "d_signal_5d_model_daban.txt"
-PARQUET = _ROOT / "data" / "parquet" / "daily"
+
+from _common import daily_dir  # noqa: E402
+
+PARQUET = daily_dir()
 
 LGB_PARAMS = {
     "objective": "binary",

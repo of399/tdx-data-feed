@@ -28,7 +28,10 @@ import sacrebleu
 from rouge_score import rouge_scorer
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
-PARQUET_DIR = ROOT / "data" / "parquet" / "daily"
+
+from _common import daily_dir  # noqa: E402
+
+PARQUET_DIR = daily_dir()
 TEST_JSONL = ROOT / "train" / "data" / "test.jsonl"
 OUT = ROOT / "data" / "bench_v7r.json"
 OLLAMA_URL = "http://127.0.0.1:11434"

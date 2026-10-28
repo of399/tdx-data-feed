@@ -27,7 +27,10 @@ from pathlib import Path
 warnings.filterwarnings('ignore')
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
-OUT = ROOT / 'data' / 'adj_factor'
+
+from _common import adj_factor_dir  # noqa: E402
+
+OUT = adj_factor_dir()
 OUT.mkdir(parents=True, exist_ok=True)
 ALL_STOCKS = ROOT / 'data' / 'all_a_stocks.json'
 ETF_CODES = ROOT / 'data' / 'etf_codes.txt'

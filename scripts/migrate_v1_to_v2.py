@@ -33,8 +33,12 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 ROOT = Path(__file__).resolve().parent.parent
-DAILY_DIR = ROOT / "data" / "parquet" / "daily"
-ADJ_DIR = ROOT / "data" / "adj_factor"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
+from _common import adj_factor_dir, daily_dir  # noqa: E402
+
+DAILY_DIR = daily_dir()
+ADJ_DIR = adj_factor_dir()
 EXPECTED_DATE_TYPE = "date32[day]"
 V1_BAK_SUFFIX = ".v1.bak.parquet"
 DUAL_WRITE_MIN_DAYS = 30  # v2 提案步骤 4：双写期 30 天

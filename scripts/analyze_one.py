@@ -6,10 +6,10 @@ import time
 
 import pandas as pd
 import torch
+from _common import daily_path  # noqa: E402
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-PK = '/home/jiuben/tdx-data-feed/data/parquet/daily/'
 WINDOW = 20
 DM = {"": 0}  # 强制单卡，避开双卡跨卡通信瓶颈
 
@@ -35,7 +35,7 @@ def unit_mult(amount, volume, close):
 
 
 def build_rows(sym):
-    df = pd.read_parquet(PK + sym + '.parquet').sort_values('date').reset_index(drop=True)
+    df = pd.read_parquet(daily_path(sym)).sort_values('date').reset_index(drop=True)
     if len(df) < WINDOW:
         raise SystemExit(f"{sym} 数据不足 {WINDOW} 条")
     win = df.iloc[-WINDOW:]

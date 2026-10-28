@@ -25,10 +25,12 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from _common import daily_dir, minute_dir  # noqa: E402
+
 from tdxfeed.daban.scanner import daily_path, load_universe  # noqa: E402
 
-MIN60_DIR = ROOT / "data/parquet/min60"
-DAILY_DIR = ROOT / "data/parquet/daily"
+MIN60_DIR = minute_dir("min60")
+DAILY_DIR = daily_dir()
 OUT = ROOT / "data/daban/min60_features_20261022.parquet"
 OUT_MKT = ROOT / "data/daban/min60_market_20261022.parquet"
 START, END = "20250905", "20260924"

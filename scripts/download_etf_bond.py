@@ -37,7 +37,10 @@ from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.writers import Writers
 
 ROOT = Path(__file__).parent.parent
-DAILY_DIR = ROOT / "data" / "parquet" / "daily"
+
+from _common import daily_dir  # noqa: E402
+
+DAILY_DIR = daily_dir()
 W = Writers(str(ROOT))
 
 logging.basicConfig(

@@ -37,8 +37,11 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
-PARQUET = ROOT / 'data/parquet/daily'
-ADJ_DIR = ROOT / 'data/adj_factor'
+
+from _common import adj_factor_dir, daily_dir  # noqa: E402
+
+PARQUET = daily_dir()
+ADJ_DIR = adj_factor_dir()
 ALL_STOCKS = ROOT / 'data/all_a_stocks.json'
 DOUBLE_UP = ROOT / 'data/double_up/double_up_v2_2020_2026_detail.csv'
 OUT_DIR = ROOT / 'data/factors'

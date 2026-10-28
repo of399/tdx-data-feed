@@ -33,8 +33,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+from _common import hfq_factor_dir  # noqa: E402
 
-OUT_DIR = Path("/home/jiuben/tdx-data-feed/data/hfq_factor")
+OUT_DIR = hfq_factor_dir()
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 ALL_STOCKS = Path("/home/jiuben/tdx-data-feed/data/all_a_stocks.json")
 LOG = Path("/tmp/hfq_factor.log")

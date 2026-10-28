@@ -29,8 +29,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("audit_adj")
 
 ROOT = Path(__file__).resolve().parent.parent
-DAILY = ROOT / "data" / "parquet" / "daily"
-ADJ = ROOT / "data" / "adj_factor"
+
+from _common import adj_factor_dir, daily_dir  # noqa: E402
+
+DAILY = daily_dir()
+ADJ = adj_factor_dir()
 OUT = DAILY / "_audit_adjust_convention.csv"
 RECENT_N = 30
 TOL = 0.005

@@ -66,7 +66,10 @@ ROOT = Path(__file__).parent.parent
 LIVE_DIR = ROOT / "data" / "plan_e" / "live"
 JOURNAL = LIVE_DIR / "journal.csv"
 POSITIONS = LIVE_DIR / "positions.json"
-PARQUET = ROOT / "data" / "parquet" / "daily"
+
+from _common import daily_dir  # noqa: E402
+
+PARQUET = daily_dir()
 OBS_DIR = LIVE_DIR / "observation_reports"
 HISTORY = LIVE_DIR / "monitor_history.csv"
 

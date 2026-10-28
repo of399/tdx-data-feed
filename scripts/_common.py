@@ -24,6 +24,20 @@ from tdxfeed.features_5d import (  # noqa: E402
     is_open_limit_up,
     is_yizi,
 )
+from tdxfeed.paths import (  # noqa: E402
+    DATA_ROOT,
+    adj_factor_dir,
+    adj_factor_files,
+    daily_dir,
+    daily_files,
+    daily_path,
+    derived_dir,
+    hfq_factor_dir,
+    minute_dir,
+    parquet_root,
+    read_path,
+    xdxr_path,
+)
 
 
 def norm_code(c) -> str:
@@ -44,15 +58,27 @@ def is_bj(c) -> bool:
 
 
 __all__ = [
+    "DATA_ROOT",
+    "adj_factor_dir",
+    "adj_factor_files",
     "compute_window_features",
     "compute_window_features_extended",
+    "daily_dir",
+    "daily_files",
+    "daily_path",
+    "derived_dir",
     "get_limit",
+    "hfq_factor_dir",
     "is_bj",
     "is_limit_up_ret",
     "is_open_limit_up",
     "is_yizi",
+    "minute_dir",
     "norm_code",
+    "parquet_root",
     "parse_date",
     "parse_date_series",
+    "read_path",
     "to_date_str",
+    "xdxr_path",
 ]

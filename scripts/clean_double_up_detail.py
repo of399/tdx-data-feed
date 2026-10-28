@@ -31,8 +31,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 log = logging.getLogger('clean_detail')
 
 ROOT = Path(__file__).parent.parent
-PARQUET = ROOT / 'data' / 'parquet' / 'daily'
-ADJ = ROOT / 'data' / 'adj_factor'
+
+from _common import adj_factor_dir, daily_dir  # noqa: E402
+
+PARQUET = daily_dir()
+ADJ = adj_factor_dir()
 IN = ROOT / 'data' / 'double_up' / 'double_up_2020_2026_detail.csv'
 OUT = ROOT / 'data' / 'double_up'
 

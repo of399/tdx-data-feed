@@ -46,7 +46,10 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 socket.setdefaulttimeout(25)
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
-DAILY_DIR = ROOT / "data" / "parquet" / "daily"
+
+from _common import daily_dir  # noqa: E402
+
+DAILY_DIR = daily_dir()
 VAL_DIR = ROOT / "data" / "valuation"
 VAL_DIR.mkdir(parents=True, exist_ok=True)
 PE_PB_PATH = VAL_DIR / "pe_pb_daily.parquet"

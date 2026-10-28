@@ -36,6 +36,9 @@ ROOT = Path(__file__).parent.parent
 LOG_FILE = ROOT / 'logs' / 'canary.log'
 HISTORY_FILE = ROOT / 'logs' / 'canary_history.jsonl'
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
+from _common import adj_factor_dir, daily_dir  # noqa: E402
+
 # 阈值
 OLLAMA_TIMEOUT = 5           # 秒
 PARQUET_MIN_COUNT = 5000     # 最少日 K 文件数
@@ -141,8 +144,8 @@ def check_data_files() -> dict:
     """检查关键数据文件数量"""
     result = {'name': 'data_files', 'status': 'ok', 'details': {}}
 
-    pq_dir = ROOT / 'data' / 'parquet' / 'daily'
-    adj_dir = ROOT / 'data' / 'adj_factor'
+    pq_dir = daily_dir()
+    adj_dir = adj_factor_dir()
 
     n_pq = len([p for p in pq_dir.glob('*.parquet') if '.bak' not in p.name]) if pq_dir.exists() else 0
     n_adj = len([p for p in adj_dir.glob('*.parquet') if '.bak' not in p.name]) if adj_dir.exists() else 0

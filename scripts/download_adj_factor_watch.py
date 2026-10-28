@@ -9,7 +9,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-ADJ_DIR = Path('/home/jiuben/tdx-data-feed/data/adj_factor')
+from _common import adj_factor_dir  # noqa: E402
+
+ADJ_DIR = adj_factor_dir()
 SCRIPT = '/home/jiuben/tdx-data-feed/scripts/download_adj_factor_b.py'
 LOG = Path('/tmp/adj_factor_watch.log')
 

@@ -22,7 +22,11 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
-PARQUET = ROOT / 'data/parquet/daily'
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
+from _common import daily_dir  # noqa: E402
+
+PARQUET = daily_dir()
 OUT_DIR = ROOT / 'data/plan_e'
 CANDIDATE_FP = OUT_DIR / 'v3_early_test_candidates_20260927_2107.csv'
 

@@ -39,7 +39,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("sim_daily_compare")
 
 ROOT = Path(__file__).parent.parent
-PARQUET_DIR = ROOT / "data" / "parquet" / "daily"
+
+from _common import daily_dir  # noqa: E402
+
+PARQUET_DIR = daily_dir()
 OUT_DIR = ROOT / "data" / "sim"
 LAMBDA = 0.94  # EWMA 衰减系数
 

@@ -35,11 +35,13 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-DAILY_DIR = ROOT / "data" / "parquet" / "daily"
-ADJ_DIR = ROOT / "data" / "adj_factor"
-HFQ_DIR = ROOT / "data" / "hfq_factor"
-MIN15_DIR = ROOT / "data" / "parquet" / "min15"
-MIN5_DIR = ROOT / "data" / "parquet" / "min5"
+from _common import adj_factor_dir, daily_dir, hfq_factor_dir, minute_dir  # noqa: E402
+
+DAILY_DIR = daily_dir()
+ADJ_DIR = adj_factor_dir()
+HFQ_DIR = hfq_factor_dir()
+MIN15_DIR = minute_dir("min15")
+MIN5_DIR = minute_dir("min5")
 CHECK_SCHEMA = ROOT / "scripts" / "check_schema.py"
 PREDICT_SCRIPT = ROOT / "scripts" / "predict.py"
 CANARY_SCRIPT = ROOT / "scripts" / "canary_health_check.py"

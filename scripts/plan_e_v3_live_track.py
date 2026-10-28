@@ -48,7 +48,10 @@ LIVE_DIR = ROOT / 'data/plan_e/live_v3'
 FACTOR_FP = ROOT / 'data/factors/event_factors_with_sentiment.parquet'
 DOUBLE_UP_FP = ROOT / 'data/double_up/double_up_v2_2020_2026_detail.csv'
 ALL_STOCKS = ROOT / 'data/all_a_stocks.json'
-PARQUET = ROOT / 'data/parquet/daily'
+
+from _common import daily_dir  # noqa: E402
+
+PARQUET = daily_dir()
 SIGNIF_FP = ROOT / 'data/factor_significance_detail.csv'
 
 # 跟踪参数（v3 提前版）

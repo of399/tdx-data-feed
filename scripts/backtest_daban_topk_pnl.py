@@ -36,8 +36,11 @@ from tdxfeed.date_utils import parse_date_series  # noqa: E402
 
 DEFAULT_DATA = ROOT / "data/double_up/daban_pattern_eval_20261022.parquet"
 DEFAULT_MODEL = ROOT / "data/double_up/d_signal_5d_model_daban.txt"
-DAILY_DIR = ROOT / "data/parquet/daily"
-ADJ_DIR = ROOT / "data/adj_factor"
+
+from _common import adj_factor_dir, daily_dir  # noqa: E402
+
+DAILY_DIR = daily_dir()
+ADJ_DIR = adj_factor_dir()
 META_COLS = ["date", "code", "consecutive_boards", "label", "label_buyable"]
 
 

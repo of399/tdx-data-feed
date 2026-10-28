@@ -85,8 +85,11 @@ warnings.filterwarnings('ignore')
 ROOT = Path(__file__).parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-PARQUET_DIR = ROOT / 'data' / 'parquet' / 'daily'
-ADJ_DIR = ROOT / 'data' / 'adj_factor'
+
+from _common import adj_factor_dir, daily_dir  # noqa: E402
+
+PARQUET_DIR = daily_dir()
+ADJ_DIR = adj_factor_dir()
 MODEL_FILE = ROOT / 'data' / 'double_up' / 'd_signal_5d_model.txt'
 OUTPUT_DIR = ROOT / 'data' / 'predictions'
 UNIVERSE_FILE = ROOT / 'data' / 'all_a_stocks.json'

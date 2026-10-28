@@ -31,7 +31,10 @@ from tdxfeed.daban.scanner import daily_path, load_universe  # noqa: E402
 from tdxfeed.date_utils import parse_date_series  # noqa: E402
 
 SNAP = ROOT / "data/double_up/daban_pattern_eval_20261022.parquet"
-DAILY_DIR = ROOT / "data/parquet/daily"
+
+from _common import daily_dir  # noqa: E402
+
+DAILY_DIR = daily_dir()
 OUT = ROOT / "docs/DABAN_INTRADAY_IC_20261022.md"
 MODELS = {
     "live": ROOT / "data/double_up/d_signal_5d_model_daban.txt",

@@ -53,7 +53,10 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
     normalize_code,
 )
 
-DAILY_DIR = _ROOT / "data" / "parquet" / "daily"
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
+from _common import daily_dir  # noqa: E402
+
+DAILY_DIR = daily_dir()
 EVENTS_PATH = _ROOT / "data" / "daban" / "event_table_min60_20261022.parquet"
 UNIVERSE_PATH = _ROOT / "data" / "all_a_stocks.json"
 OUT_DIR = _ROOT / "data" / "daban"

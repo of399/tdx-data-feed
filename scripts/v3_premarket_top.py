@@ -26,8 +26,11 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
-PARQUET = ROOT / 'data/parquet/daily'
-ADJ = ROOT / 'data/adj_factor'
+
+from _common import adj_factor_dir, daily_dir  # noqa: E402
+
+PARQUET = daily_dir()
+ADJ = adj_factor_dir()
 ALL_STOCKS = ROOT / 'data/all_a_stocks.json'
 SIGNALS_DIR = ROOT / 'data/plan_e/live_v3/signals'
 DAILY_DIR = ROOT / 'data/plan_e/live_v3/daily_reports'

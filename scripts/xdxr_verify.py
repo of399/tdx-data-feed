@@ -31,8 +31,11 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
-DAILY_DIR = ROOT / "data/parquet/daily"
-XDXR_PARQUET = ROOT / "data/parquet/xdxr.parquet"
+
+from _common import daily_dir, xdxr_path  # noqa: E402
+
+DAILY_DIR = daily_dir()
+XDXR_PARQUET = xdxr_path()
 
 # 高送转候选池（送转 >= 0.5 的历史名册，覆盖茅台/五粮液/格力/万科等）
 DEFAULT_HIGH_BONUS = [

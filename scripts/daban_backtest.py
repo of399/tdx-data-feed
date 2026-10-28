@@ -40,8 +40,11 @@ from tdxfeed.date_utils import parse_date_series  # noqa: E402
 from tdxfeed.execution import single as _single  # noqa: E402
 from tdxfeed.execution.costs import CostModel  # noqa: E402
 
-DAILY_DIR = _ROOT / "data" / "parquet" / "daily"
-ADJ_DIR = _ROOT / "data" / "adj_factor"
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
+from _common import adj_factor_dir, daily_dir  # noqa: E402
+
+DAILY_DIR = daily_dir()
+ADJ_DIR = adj_factor_dir()
 OUT_DIR = _ROOT / "data" / "daban"
 COLS = ["date", "open", "high", "low", "close", "volume"]
 

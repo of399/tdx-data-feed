@@ -82,7 +82,10 @@ warnings.filterwarnings('ignore')
 
 ROOT = Path(__file__).parent.parent
 DOUBLE_UP_CSV = ROOT / 'data' / 'double_up' / 'double_up_2020_2026_detail.csv'
-PARQUET_DIR = ROOT / 'data' / 'parquet' / 'daily'
+
+from _common import daily_dir  # noqa: E402
+
+PARQUET_DIR = daily_dir()
 OUTPUT_DIR = ROOT / 'data' / 'plan_e'
 # 实盘样本集（由 scripts/plan_e_real_samples.py 从 journal 回灌，累积去重）
 REAL_TRADES_CSV = ROOT / 'data' / 'double_up' / 'real_trades.csv'
