@@ -32,6 +32,10 @@
 - 随机择时基线（`--random-timing-trials`，默认 300）只随机化入场日、标的池不动，属**条件**推断：标准误来自同票日际波动，比跨标的的 σ≈20.9%/笔 小一个量级，既不能证明选股有效，也不能外推到没见过的票。
 - 四者的完整措辞由 `plan_e_backtest.py` 生成的报告段落承载；`docs/math_upgrade_plan_20261015.md` 正文已按此更正，只有 M1 变更记录留旧措辞。
 
+## 训练标签口径
+
+- `hypothetical_pnl` 由 `scripts/train_pnl_proxy.compute_hypothetical_pnl` 产出，已委托 `tdxfeed/execution/` 的内核 A。2026-10-28 起标签口径为：入场次根起判定、同根双触发结算亏损侧、跳空按开盘。**此前训练的模型与报告都是旧口径**，横比前先看标签版本（`data/double_up/_pre_settle_kernel_20261028/` 是旧版快照）。本轮重训的对照与取舍见 `docs/research/2026-10-28-stage1-retrain-after-settle-kernel.md`。
+
 ## 实盘边界
 
 - 方案 E 与 daban 已于 2026-10-24 退出实盘入口：`--mode daily` 不再逐笔算下单量，盘前清单仅作研究产出；`--mode buy/sell` 只用于人工记账。不要删这两个模式，也不要归档已退役的单元文件。
