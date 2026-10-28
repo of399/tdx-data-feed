@@ -14,10 +14,14 @@ def date_str(value) -> str:
 
 
 def as_bars(df: pd.DataFrame, *, suffix: str = "") -> pd.DataFrame:
-    """返回固定列序、从 0 开始的副本。缺列抛 KeyError，不静默补零。"""
-    cols = {name: (f"{name}{suffix}" if f"{name}{suffix}" in df.columns else name)
-            for name in OHLCV}
-    missing = [name for name, src in cols.items() if src not in df.columns]
+    """返回固定列序、从 0 开始的副本。
+
+    ``suffix`` 为空时使用裸列；非空时五列必须全部带该后缀，任一缺失抛 KeyError，
+    不回退到裸列——否则一半复权一半不复权的帧会静默混进内核。
+    """
+    cols = ({name: f"{name}{suffix}" for name in OHLCV} if suffix
+            else {name: name for name in OHLCV})
+    missing = [src for src in cols.values() if src not in df.columns]
     if missing:
         raise KeyError(f"缺列 {missing}（suffix={suffix!r}）")
     out = pd.DataFrame({
