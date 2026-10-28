@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 # === 路径 =================================================================
-from tdxfeed.paths import daily_dir, derived_dir
+from tdxfeed.paths import daily_dir, daily_files, derived_dir
 
 DAILY_DIR = daily_dir()
 DERIVED_DIR = derived_dir()
@@ -231,7 +231,7 @@ def main():
         return
 
     # 全市场 / 增量
-    files = sorted(DAILY_DIR.glob("*.parquet"))
+    files = daily_files()
     total = len(files)
     print(f"目标 {total} 个标的 ...")
     ok, skip, fail = 0, 0, 0

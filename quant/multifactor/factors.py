@@ -15,10 +15,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tdxfeed.paths import daily_dir
+from tdxfeed.paths import daily_path, read_path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-PARQUET_DIR = daily_dir()
 SENT_DIR = ROOT / "data" / "sentiment"
 
 
@@ -49,12 +48,8 @@ def is_stock_code(code: str) -> bool:
 
 
 def resolve_parquet(code: str) -> Path:
-    bare = norm_code(code)
-    for cand in (bare, f"bj{bare}"):
-        p = PARQUET_DIR / f"{cand}.parquet"
-        if p.exists():
-            return p
-    return PARQUET_DIR / f"{bare}.parquet"
+    """code 带不带前缀都行；路径由 tdxfeed.paths 唯一决定（本函数无仓内调用方）。"""
+    return read_path(daily_path(code))
 
 
 def get_limit(code: str) -> float:

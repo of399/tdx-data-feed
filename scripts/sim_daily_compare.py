@@ -40,9 +40,8 @@ log = logging.getLogger("sim_daily_compare")
 
 ROOT = Path(__file__).parent.parent
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_path, read_path  # noqa: E402
 
-PARQUET_DIR = daily_dir()
 OUT_DIR = ROOT / "data" / "sim"
 LAMBDA = 0.94  # EWMA 衰减系数
 
@@ -51,14 +50,8 @@ LAMBDA = 0.94  # EWMA 衰减系数
 # 数据加载
 # --------------------------------------------------------------------------- #
 def resolve_parquet(code: str) -> Path:
-    """按市场前缀解析 parquet 路径（与 plan_e_backtest 一致）。"""
-    code_clean = str(code).zfill(6).lstrip("bj")
-    for cand in [f"{code_clean}.parquet", f"sh{code_clean}.parquet",
-                 f"sz{code_clean}.parquet", f"bj{code_clean}.parquet"]:
-        f = PARQUET_DIR / cand
-        if f.exists():
-            return f
-    raise FileNotFoundError(f"未找到 {code} 的日K文件（已尝试 sh/sz/bj 前缀）")
+    """带不带前缀都行；裸 6 位按交易所规则定前缀（000001 → sz000001，不是上证指数）。"""
+    return read_path(daily_path(code))
 
 
 # 统一日期解析：单一数据源见 tdxfeed/date_utils.parse_date

@@ -37,7 +37,7 @@ from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.writers import Writers
-from tdxfeed.paths import daily_dir
+from tdxfeed.paths import daily_dir, daily_files
 
 DAILY_DIR = daily_dir()
 
@@ -176,7 +176,7 @@ def main() -> None:
     elif args.codes_file:
         syms = [s.strip() for s in Path(args.codes_file).read_text().splitlines() if s.strip()]
     else:
-        syms = sorted([p.stem for p in DAILY_DIR.glob("*.parquet")])
+        syms = [p.stem for p in daily_files()]
 
     if args.limit:
         syms = syms[: args.limit]

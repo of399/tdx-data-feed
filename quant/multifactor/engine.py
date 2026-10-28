@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tdxfeed.paths import daily_dir
+from tdxfeed.paths import daily_files
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -49,7 +49,6 @@ from .portfolio import (  # noqa: E402
 from .risk_model import IndustryMap, RiskModel, cov_diagnostics  # noqa: E402
 from .valuation_data import ValuationConfig, ValuationProvider  # noqa: E402
 
-PARQUET_DIR = daily_dir()
 OUTPUT_DIR = ROOT / "data" / "plan_e"
 
 
@@ -281,10 +280,9 @@ def run_mf_backtest(cfg: MFConfig,
     from plan_e_backtest import dsr_p_from_annual_sharpe  # noqa: E402
 
     # 1. 股票池 + 缓存（close/open/amount + 因子原始序列）
-    # 仅纳入沪深 A 股个股（剔除指数 / ETF / 债券 / 北交所），且排除迁移备份 .bak；
+    # 仅纳入沪深 A 股个股（剔除指数 / ETF / 债券 / 北交所）；
     # 先过滤再截断 limit，避免 limit 截断到文件排序靠前的指数/ETF/债券。
-    files = [f for f in sorted(PARQUET_DIR.glob("*.parquet"))
-             if ".bak" not in f.name and is_stock_code(f.stem)]
+    files = [f for f in daily_files() if is_stock_code(f.stem)]
     if cfg.limit:
         files = files[: cfg.limit]
     cache: dict[str, dict] = {}

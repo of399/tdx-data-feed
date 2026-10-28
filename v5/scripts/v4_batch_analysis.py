@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from _paths import daily_dir
+from _paths import daily_dir, daily_files
 
 # ===== 路径 =====
 VAULT_DIR = Path("/home/jiuben/StockVault/01-标的")
@@ -64,7 +64,7 @@ def get_top_stocks(top_n: int) -> list[tuple[str, str]]:
     返回 [(code, parquet_stem), ...]
     """
     pairs = []
-    for f in PARQUET_DIR.glob("*.parquet"):
+    for f in daily_files():
         stem = f.stem  # sh600519 / sz000001
         try:
             df = pd.read_parquet(f, columns=["amount"])
@@ -79,13 +79,13 @@ def get_top_stocks(top_n: int) -> list[tuple[str, str]]:
 
 
 def get_all_stocks() -> list[str]:
-    return sorted([f.stem for f in PARQUET_DIR.glob("*.parquet")])
+    return [p.stem for p in daily_files()]
 
 
 def get_a_share_stocks() -> list[str]:
     """仅 A 股（沪深主板/创业板/科创板）：600/601/603/605/000/002/003/300/688"""
     a_prefixes = ("sh60", "sh688", "sz000", "sz002", "sz003", "sz300", "bj")
-    return sorted([f.stem for f in PARQUET_DIR.glob("*.parquet") if f.stem.startswith(a_prefixes)])
+    return [p.stem for p in daily_files() if p.stem.startswith(a_prefixes)]
 
 
 def build_prompt(code: str, name: str, df_tail: pd.DataFrame) -> tuple[str, str]:

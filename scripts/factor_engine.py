@@ -38,10 +38,8 @@ import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import adj_factor_dir, daily_dir  # noqa: E402
+from _common import daily_files, daily_path, read_path  # noqa: E402
 
-PARQUET = daily_dir()
-ADJ_DIR = adj_factor_dir()
 ALL_STOCKS = ROOT / 'data/all_a_stocks.json'
 DOUBLE_UP = ROOT / 'data/double_up/double_up_v2_2020_2026_detail.csv'
 OUT_DIR = ROOT / 'data/factors'
@@ -51,8 +49,8 @@ ST_VAULT = Path('/home/jiuben/StockVault/01-标的')
 def norm_code(code: str) -> str:
     """剥离 sh/sz/bj 前缀，返回裸 6 位代码。
 
-    data/parquet/daily 文件名实为裸代码（600825）+ 北交所 bj 前缀（bj920000），
-    而非 sh/sz 前缀；统一归一后 name_map / ST 集合 / 翻倍样本匹配才一致。
+    data/parquet/daily 的文件名是 sh/sz 前缀；裸名只存在于 `.v1.bak` 迁移备份里，
+    统一归一后 name_map / ST 集合 / 翻倍样本匹配才一致。
 
     审计 Round2 复核注记(2026-10-18): 与 scripts/_common.norm_code 语义不同——
     本版仅"剥前缀"(无 lower/zfill), 输入是内部生成的文件名/裸代码;
@@ -62,13 +60,8 @@ def norm_code(code: str) -> str:
 
 
 def resolve_parquet(code: str) -> Path:
-    """code 为裸 6 位；北交所文件为 bj 前缀，主板为裸名。返回实际路径。"""
-    bare = norm_code(code)
-    for cand in (bare, f"bj{bare}"):
-        p = PARQUET / f"{cand}.parquet"
-        if p.exists():
-            return p
-    return PARQUET / f"{bare}.parquet"
+    """code 带不带 sh/sz/bj 前缀都行；路径由 paths.daily_path 唯一决定，缺文件抛 FileNotFoundError。"""
+    return read_path(daily_path(code))
 
 
 def get_limit(code: str) -> float:
@@ -226,7 +219,7 @@ def cross_section_mode(start: str, end: str, limit: int = 0):
     )
     from quant.multifactor.valuation_data import ValuationConfig, ValuationProvider
 
-    files = sorted(PARQUET.glob("*.parquet"))
+    files = daily_files()
     if limit:
         files = files[:limit]
     cache: dict = {}
@@ -317,7 +310,7 @@ def main():
     pos_df = pos_df[pos_df['start_date'] >= pd.Timestamp(args.start_date)].reset_index(drop=True)
     print(f'  正样本（start_date >= {args.start_date}）: {len(pos_df):,} 笔')
 
-    files = sorted(p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name)
+    files = daily_files()
     if args.limit > 0:
         files = files[:args.limit]
         codes_in_files = set(f.stem for f in files)
@@ -389,7 +382,10 @@ def main():
 
             for code in sampled:
                 if code not in cache:
-                    fp = resolve_parquet(code)
+                    try:
+                        fp = resolve_parquet(code)
+                    except FileNotFoundError:
+                        continue
                     df_full = parse_daily(fp)
                     if df_full is None or len(df_full) < 60:
                         continue

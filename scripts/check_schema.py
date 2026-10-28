@@ -23,10 +23,7 @@ import pyarrow.parquet as pq
 
 ROOT = Path(__file__).parent.parent
 
-from _common import adj_factor_dir, daily_dir  # noqa: E402
-
-DAILY_DIR = daily_dir()
-ADJ_DIR = adj_factor_dir()
+from _common import adj_factor_files, daily_files  # noqa: E402
 
 DAILY_EXPECTED_COLS = {"date", "open", "high", "low", "close", "volume", "amount"}
 ADJ_EXPECTED_COLS = {"code", "date", "adj_factor", "qfq_close", "raw_close"}
@@ -109,8 +106,8 @@ def main() -> None:
     parser.add_argument("--json", action="store_true", help="JSON 输出")
     args = parser.parse_args()
 
-    daily_paths = sorted(DAILY_DIR.glob("*.parquet"))
-    adj_paths = sorted(ADJ_DIR.glob("*.parquet"))
+    daily_paths = daily_files()
+    adj_paths = adj_factor_files()
 
     daily_report = scan_dir(daily_paths, DAILY_EXPECTED_COLS, DAILY_EXPECTED_DATE_TYPE, "daily")
     adj_report = scan_dir(adj_paths, ADJ_EXPECTED_COLS, ADJ_EXPECTED_DATE_TYPE, "adj_factor")
