@@ -83,7 +83,9 @@ def compute_hypothetical_pnl(code: str, sig_date: pd.Timestamp) -> float | None:
     if not np.isfinite(entry) or entry <= 0:
         return None
     plan = SingleTradePlan(judge="intrabar", tp=TP, sl=SL, hold_days=HOLD_DAYS, sl_first=True)
-    costs = CostModel(commission=FEE / 2, slippage=SLIP / 2)
+    # stamp_sell 显式钉 0：与 plan_e / sim_live 同一口径「无印花税」，不靠 CostModel
+    # 的 dataclass 默认值隐性维持（默认值一旦改动，标签与回测会静默分叉）。
+    costs = CostModel(commission=FEE / 2, slippage=SLIP / 2, stamp_sell=0.0)
     r = settle_single_trade(bars, 0, plan, costs, insufficient="last_close")
     return None if r is None else float(r.net_ret)
 
