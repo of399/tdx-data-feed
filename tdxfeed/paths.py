@@ -30,16 +30,10 @@ def exchange_prefix(code: str) -> str:
     return "sh" if c[0] in "69" else "sz"
 
 
-def daily_dir() -> Path:
-    return DATA_ROOT / "parquet" / "daily"
+DAILY_BAK_SUFFIX = ".v1.bak.parquet"
 
 
-def daily_path(code: str) -> Path:
-    return daily_dir() / f"{exchange_prefix(code)}{_six(code)}.parquet"
-
-
-def minute_path(code: str, period: str) -> Path:
-    """period 归一成单个 min 前缀目录：1 / m1 / min1 / 1min 都落在 min1。"""
+def _minute_name(period: str) -> str:
     p = str(period).strip().lower()
     if p.startswith("min"):
         p = p[len("min"):]
@@ -47,19 +41,73 @@ def minute_path(code: str, period: str) -> Path:
         p = p[:-len("min")]
     if p.startswith("m"):
         p = p[1:]
-    return DATA_ROOT / "parquet" / f"min{p}" / f"{exchange_prefix(code)}{_six(code)}.parquet"
+    return f"min{p}"
+
+
+def parquet_root() -> Path:
+    return DATA_ROOT / "parquet"
+
+
+def adj_factor_dir() -> Path:
+    return DATA_ROOT / "adj_factor"
+
+
+def hfq_factor_dir() -> Path:
+    return DATA_ROOT / "hfq_factor"
+
+
+def derived_dir() -> Path:
+    return parquet_root() / "derived"
+
+
+def minute_dir(period: str) -> Path:
+    return parquet_root() / _minute_name(period)
+
+
+def finance_parquet() -> Path:
+    return parquet_root() / "finance.parquet"
+
+
+def finance_deep_dir() -> Path:
+    return parquet_root() / "finance_deep"
+
+
+def xdxr_path() -> Path:
+    return parquet_root() / "xdxr.parquet"
+
+
+def daily_files() -> list[Path]:
+    """active daily 文件，排除 .v1.bak 迁移备份；按文件名排序。"""
+    return sorted(p for p in daily_dir().glob("*.parquet")
+                  if not p.name.endswith(DAILY_BAK_SUFFIX))
+
+
+def adj_factor_files() -> list[Path]:
+    return sorted(adj_factor_dir().glob("*.parquet"))
+
+
+def daily_dir() -> Path:
+    return parquet_root() / "daily"
+
+
+def daily_path(code: str) -> Path:
+    return daily_dir() / f"{exchange_prefix(code)}{_six(code)}.parquet"
+
+
+def minute_path(code: str, period: str) -> Path:
+    return minute_dir(period) / f"{exchange_prefix(code)}{_six(code)}.parquet"
 
 
 def adj_factor_path(code: str) -> Path:
-    return DATA_ROOT / "adj_factor" / f"{_six(code)}.parquet"
+    return adj_factor_dir() / f"{_six(code)}.parquet"
 
 
 def hfq_factor_path(code: str) -> Path:
-    return DATA_ROOT / "hfq_factor" / f"{_six(code)}.parquet"
+    return hfq_factor_dir() / f"{_six(code)}.parquet"
 
 
 def derived_path(code: str) -> Path:
-    return DATA_ROOT / "parquet" / "derived" / f"{exchange_prefix(code)}{_six(code)}_indicators.parquet"
+    return derived_dir() / f"{exchange_prefix(code)}{_six(code)}_indicators.parquet"
 
 
 def universe_path() -> Path:
