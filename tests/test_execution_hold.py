@@ -135,6 +135,21 @@ def test_next_open_sell_is_relative_to_entry_bar():
     assert r.entry_idx == 0 and r.exit_idx == 1 and r.exit_price == 10.5
 
 
+def test_signal_buy_no_exit_reports_true_entry_index():
+    # buy=signal_close 时 entry_idx=signal_idx；旧实现固定 signal_idx+1，会差一根
+    df = _bars([(10.0, 10.0, 10.0, 10.0)])
+    r = settle_hold_trade(df, 0, HoldPlan(buy="signal_close", sell="next_open"), FREE, RULE)
+    assert r.status == "no_exit" and r.entry_idx == 0
+
+
+def test_signal_buy_with_non_positive_entry_price_is_suspended():
+    # 收盘价 0 的信号帧：两个 signal 买入模式都不得走到除法，必须显式报 suspended
+    df = _bars([(0.0, 0.0, 0.0, 0.0)])
+    for buy in ("signal_close", "signal_limit_up"):
+        r = settle_hold_trade(df, 0, HoldPlan(buy=buy, sell="next_open"), FREE, RULE)
+        assert r.status == "suspended" and r.entry_idx == 0
+
+
 def test_net_uses_cost_model():
     df = _bars([(10.0, 10.0, 10.0, 10.0), (10.0, 10.5, 9.9, 10.4), (10.4, 10.6, 10.2, 10.5)])
     cm = CostModel(commission=0.00025, stamp_sell=0.0005, slippage=0.0005)

@@ -67,6 +67,10 @@ def settle_hold_trade(bars: pd.DataFrame, signal_idx: int, plan: HoldPlan,
             return _gap_result(entry_idx, eb, eb["open"], "unbuyable_open_limit")
         entry_price = eb["open"]
 
+    # 信号帧收盘价为 0/负（停牌脏数据）时入场价无效：不是算出来的 0 元成交，是买不进
+    if entry_price <= 0:
+        return _gap_result(entry_idx, sig, 0.0, "suspended")
+
     if plan.sell == "t_plus_2_open":
         exit_idx = signal_idx + 2
         sell_reason = "t2_open"
