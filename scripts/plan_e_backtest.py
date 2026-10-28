@@ -281,7 +281,9 @@ def _settle_from_entry(df: pd.DataFrame, entry_idx: int, hold_days: int,
         return None
     plan = SingleTradePlan(judge="intrabar", tp=tp, sl=sl,
                            hold_days=hold_days, sl_first=True)
-    costs = CostModel(commission=fee, slippage=eff_slip)
+    # stamp_sell 显式钉 0：plan_e 全链路「无印花税」原先只靠 CostModel 的 dataclass
+    # 默认值隐性维持，默认值一旦改动报告会静默变数。
+    costs = CostModel(commission=fee, slippage=eff_slip, stamp_sell=0.0)
     r = settle_single_trade(df, entry_idx, plan, costs, insufficient="skip")
     if r is None:
         return None

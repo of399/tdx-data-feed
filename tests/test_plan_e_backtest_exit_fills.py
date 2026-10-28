@@ -157,3 +157,18 @@ def test_settle_from_entry_delegates_to_kernel():
     with patch.object(single, "check_exit", side_effect=spy):
         pe._settle_from_entry(pe._PARQUET_CACHE[CODE], 1, 10, 0.30, -0.10, 0.0, 0.0)
     assert calls, "plan_e 的出场判定没有走内核 check_exit"
+
+
+def test_truncated_window_still_reports_time():
+    """数据端点截断（未满 hold_days）仍报 TIME——`insufficient="skip"` 的口径锁。
+
+    5 根帧、entry_idx=1 时出场窗口只有 3 根（end-start=3，刚好过 `_has_exit_window`），
+    期间不触发 TP/SL；旧实现报 TIME，内核若换成 `"last_close"` 会变 END。
+    """
+    _seed([(10.0, 10.0, 10.0, 10.0), (10.0, 10.0, 10.0, 10.0),
+           (10.0, 10.1, 9.9, 10.0), (10.0, 10.2, 9.8, 10.1),
+           (10.1, 10.2, 10.0, 10.1)])
+    r = pe._settle_from_entry(pe._PARQUET_CACHE[CODE], 1, 10, 0.30, -0.10, 0.0, 0.0)
+    assert r is not None
+    assert r["exit_reason"] == "TIME"
+    assert r["hold"] == "T+4"  # exit_idx=4, entry_idx=1
