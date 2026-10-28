@@ -1,15 +1,10 @@
-"""math 工具表单一来源：stdio 的 list_tools 与 HTTP 的工具文档都由它生成。
+"""math 工具表：stdio 的 list_tools 与 HTTP 的 TOOL_NAMES 都从这里取。
 
-本文件由实施计划 Task 11 Step 3 的生成器产出，不要手改；
-改工具签名请改 math_sympy.py 后重跑生成器。
+本文件就是工具表的权威来源，改工具签名请直接改这里——
+`STDIO_TOOL_SPECS` 改参数 / 增删条目，
+`HTTP_TOOL_NAMES` 改对外列举顺序（客户端可见的顺序，见 tests/test_mcp_contracts.py 的保序守卫）。
 """
 from __future__ import annotations
-
-HTTP_ONLY_TOOL_NAMES = [
-    "math_concept_link",
-    "math_bilingual_translate",
-    "math_ontology_stats",
-]
 
 STDIO_TOOL_SPECS = [{'name': 'sympy_compute',
   'description': '通用 SymPy 计算（带缓存 + 错误可解释）',
@@ -240,6 +235,8 @@ HTTP_TOOL_NAMES = [
     "math_derivation_build_cached",
     "math_derivation_reverse",
 ]
+
+HTTP_ONLY_TOOL_NAMES = [n for n in HTTP_TOOL_NAMES if n not in STDIO_TOOL_NAMES]
 
 __all__ = [
     "HTTP_ONLY_TOOL_NAMES",

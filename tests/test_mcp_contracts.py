@@ -117,8 +117,37 @@ def test_math_http_is_stdio_plus_three(math_specs):
     ]
 
 
+def test_http_tool_order_is_pinned(math_specs):
+    """HTTP /tools 的列举顺序是对外契约：23 名逐位钉死，独有 3 个必须仍在第 9–11 位（下标 9..11）。"""
+    assert math_specs.HTTP_TOOL_NAMES == [
+        "are_equiv",
+        "sympy_compute",
+        "math_error_report",
+        "math_fix_typo",
+        "math_validate_symbols",
+        "math_cache_stats",
+        "math_numeric_solve",
+        "math_ast_dump",
+        "math_batch_equiv",
+        "math_concept_link",
+        "math_bilingual_translate",
+        "math_ontology_stats",
+        "prove_equiv_with_precondition",
+        "math_derivation_chain",
+        "math_derivation_replay",
+        "math_strategy_route",
+        "math_strategy_route_and_execute",
+        "solve_inequality",
+        "simplify_piecewise",
+        "math_step_extract",
+        "math_derivation_cache_stats",
+        "math_derivation_build_cached",
+        "math_derivation_reverse",
+    ]
+    assert math_specs.HTTP_TOOL_NAMES[9:12] == math_specs.HTTP_ONLY_TOOL_NAMES
+
+
 def test_math_dispatch_matches_names(math_specs):
-    sys.path.insert(0, str(ROOT / "v5"))
     stdio = importlib.import_module("mcp_servers.math_sympy")
     http = importlib.import_module("mcp_servers.math_sympy_http")
     stdio_names = _dispatch_names(stdio, "call_tool")
