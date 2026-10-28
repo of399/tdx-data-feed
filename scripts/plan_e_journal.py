@@ -109,6 +109,7 @@ from quant.execution.optimal_execution import (  # noqa: E402
     execution_table_markdown,
     suggest_execution,
 )
+from tdxfeed.execution.single import SingleTradePlan, check_exit  # noqa: E402
 
 warnings.filterwarnings('ignore')
 
@@ -131,6 +132,15 @@ MAX_POSITIONS = 10             # 最大持仓
 TP_PCT = 0.30                  # 止盈
 SL_PCT = -0.10                 # 止损
 HOLD_DAYS = 10                 # 时间止损
+
+# 与回测同一口径：日内判定、双触发结算亏损侧、跳空按开盘
+EXIT_PLAN = SingleTradePlan(judge="intrabar", tp=TP_PCT, sl=SL_PCT,
+                            hold_days=HOLD_DAYS, sl_first=True)
+
+
+def _bars_held(entry_day: pd.Timestamp, today: pd.Timestamp) -> int:
+    """交易根数：用工作日近似交易日（journal 的日期循环本身就是 freq='B'）。"""
+    return int(len(pd.bdate_range(entry_day, today)) - 1)
 
 
 def ensure_dirs():
@@ -362,26 +372,17 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
                 if today_data.empty:
                     continue
                 t = today_data.iloc[0]
-                high = float(t['high'])
-                low = float(t['low'])
                 entry = p['entry_price']
-                # 检查 TP/SL
-                max_gain = (high - entry) / entry
-                max_loss = (low - entry) / entry
-                hold_days = (trade_date - pd.to_datetime(p['entry_date'])).days
-
-                reason = None
-                exit_price = None
-                if max_gain >= TP_PCT:
-                    reason = 'TP'
-                    exit_price = entry * (1 + TP_PCT)
-                elif max_loss <= SL_PCT:
-                    reason = 'SL'
-                    exit_price = entry * (1 + SL_PCT)
-                elif hold_days >= HOLD_DAYS:
+                bars_held = _bars_held(pd.to_datetime(p['entry_date']), trade_date)
+                hit = check_exit(entry, open_=float(t['open']), high=float(t['high']),
+                                 low=float(t['low']), close=float(t['close']), plan=EXIT_PLAN)
+                reason, exit_price = None, None
+                if hit is not None:
+                    reason = hit.reason          # 内核返回 "TP"/"SL"，与 journal 既有取值一致
+                    exit_price = hit.price
+                elif bars_held >= EXIT_PLAN.hold_days:
                     reason = 'TIME'
                     exit_price = float(t['close'])
-
                 if reason:
                     qty = p['qty']
                     proceeds = exit_price * qty
@@ -399,7 +400,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
                         'pnl': round(pnl, 2),
                         'pnl_pct': round(pnl_pct, 4),
                         'reason': reason,
-                        'hold_days': hold_days,
+                        'hold_days': bars_held,
                         'entry_date': p['entry_date'],
                         'signal_date': p['signal_date'],
                     })
@@ -526,7 +527,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
                     'pnl': round(pnl, 2),
                     'pnl_pct': round(pnl_pct, 4),
                     'reason': 'END',
-                    'hold_days': (dates[-1] - pd.to_datetime(p['entry_date'])).days,
+                    'hold_days': _bars_held(pd.to_datetime(p['entry_date']), dates[-1]),
                     'entry_date': p['entry_date'],
                     'signal_date': p['signal_date'],
                 })
