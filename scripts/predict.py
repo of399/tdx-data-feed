@@ -174,13 +174,12 @@ from tdxfeed.daban.sector_features import (  # noqa: E402
     build_lookup,
 )
 from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
+from tdxfeed.names import is_st_name  # noqa: E402
 
 
 def is_st(name: str) -> int:
     """判断 ST（影响涨跌幅）"""
-    if not isinstance(name, str):
-        return 0
-    return 1 if ('ST' in name or '*ST' in name) else 0
+    return int(is_st_name(name))
 
 
 # 审计 P1-4-1 (2026-10-17): _PARQUET_CACHE 已删除——全市场 predict 每股只算一次,

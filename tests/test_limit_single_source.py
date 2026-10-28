@@ -89,3 +89,46 @@ def test_daban_as_date_follows_kernel(monkeypatch):
     from datetime import date
     monkeypatch.setattr(limits, "as_date", lambda *a, **k: date(2030, 1, 1))
     assert limit_price.as_date("20260101") == date(2030, 1, 1)
+
+
+def test_quant_zt_density_uses_market_threshold():
+    """689 是科创板：+10% 不算涨停（委托前 quant 按主板 9.5% 误判）。"""
+    import numpy as np
+    import pandas as pd
+
+    from quant.multifactor.factors import compute_stock_raw
+
+    n = 30
+    close = np.full(n, 10.0)
+    close[-1] = 11.0
+    df = pd.DataFrame({
+        "date": pd.bdate_range("2024-01-01", periods=n),
+        "open": close, "high": close, "low": close, "close": close,
+        "volume": 1e6, "amount": 1e7,
+    })
+    assert float(compute_stock_raw(df, "sh600519")["zt_density_20d"].iloc[-1]) == pytest.approx(0.05)
+    assert float(compute_stock_raw(df, "sh689009")["zt_density_20d"].iloc[-1]) == pytest.approx(0.0)
+    assert float(compute_stock_raw(df, "sz300750")["zt_density_20d"].iloc[-1]) == pytest.approx(0.0)
+
+
+def test_threshold_change_is_confined_to_689():
+    """委托前后阈值只在 689 段变化：范围变大就等于 mf 报表出现无法归因的差异。"""
+    import re
+
+    from quant.multifactor.factors import get_limit
+    from tdxfeed.paths import daily_files
+
+    def legacy(code: str) -> float:
+        s = re.sub(r"^(sh|sz|bj)", "", str(code))
+        if s.startswith("920") or s.startswith("8"):
+            return 0.295
+        if s.startswith("688") or s.startswith("300") or s.startswith("301") or s.startswith("200"):
+            return 0.195
+        return 0.095
+
+    files = daily_files()
+    if not files:
+        pytest.skip("无行情目录，跳过全代码分类扫描")
+    changed = [fp.stem for fp in files if abs(legacy(fp.stem) - get_limit(fp.stem)) > 1e-12]
+    assert "sh689009" in changed
+    assert [c for c in changed if c != "sh689009"] == []

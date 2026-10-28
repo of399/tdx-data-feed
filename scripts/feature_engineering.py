@@ -35,7 +35,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import compute_window_features
+from _common import compute_window_features_extended
 from find_d_signal_5d import load_one
 
 ROOT = Path(__file__).parent.parent
@@ -65,53 +65,11 @@ NEW_FEATURES = [
 
 
 def build_extended_features(window_df: pd.DataFrame, code: str) -> dict | None:
-    """18 维基础 + 8 维工程化 = 26 维。"""
-    base = compute_window_features(window_df, code)
-    if base is None:
+    """18 维基础 + 8 维工程化 = 26 维。全部计算委托 tdxfeed.features_5d。"""
+    ext = compute_window_features_extended(window_df, code)
+    if ext is None:
         return None
-    prev_5 = window_df.iloc[-5:]
-    close = prev_5["close"]
-    pct = close.pct_change().fillna(0)
-    amount = prev_5["amount"]
-    high = prev_5["high"]
-    low = prev_5["low"]
-    open_ = prev_5["open"]
-
-    accel = float(base["ret_5d"] - base["ret_3d"])
-
-    daily_range = (high - low).replace(0, np.nan)
-    efficiency = float(((close - open_) / daily_range).mean())
-    if np.isnan(efficiency):
-        efficiency = 0.0
-
-    vol_norm = float(base["ret_5d"] / base["volatility_5d"]) if base["volatility_5d"] > 0 else 0.0
-
-    amount_3d_mean = float(amount.iloc[-3:].mean())
-    surge_3d = float(amount.iloc[-1] / amount_3d_mean) if amount_3d_mean > 0 else 1.0
-
-    up_days = int((pct > 0).sum())
-    down_days = int((pct < 0).sum())
-    up_down = float(up_days / max(down_days, 1))
-
-    high_max = float(high.max())
-    dist_high = float((high_max - close.iloc[-1]) / close.iloc[-1]) if close.iloc[-1] > 0 else 0.0
-
-    low_min = float(low.min())
-    dist_low = float((close.iloc[-1] - low_min) / close.iloc[-1]) if close.iloc[-1] > 0 else 0.0
-
-    amt_per_price = float(base["avg_amount_5d"] / base["prev_close"]) if base["prev_close"] > 0 else 0.0
-
-    return {
-        **base,
-        "acceleration": accel,
-        "range_efficiency": efficiency,
-        "vol_norm_ret": vol_norm,
-        "amount_surge_3d": surge_3d,
-        "up_down_ratio": up_down,
-        "dist_to_5d_high": dist_high,
-        "dist_to_5d_low": dist_low,
-        "amt_per_price": amt_per_price,
-    }
+    return {key: ext[key] for key in FEATURE_BASE + [name for name, _ in NEW_FEATURES]}
 
 
 def phase1_analyze(df_source: pd.DataFrame) -> tuple[dict, list, list]:
