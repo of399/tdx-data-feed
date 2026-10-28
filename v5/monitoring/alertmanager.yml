@@ -32,14 +32,16 @@ route:
       continue: true
 
 receivers:
-  # 默认：当前未配置任何 integration
-  # ⚠️ 2026-09-21 webhook_configs 已注释（127.0.0.1:5001 无人接收，am 每 4h 重复失败无意义）
-  # ⚠️ email/Slack 凭证是占位符 (oncall@example.com / <secret>)，需用户提供后才可启用
+  # 默认兜底：也走 PushPlus。
+  # 原来这里是「未配置任何 integration」的空 receiver —— 没打 severity 标签的告警
+  # 路由到 default 后被静默丢弃，等于规则写了等于没写（2026-10-28 修）。
   - name: 'default'
-    # webhook_configs:
-    #   - url: 'http://127.0.0.1:5001/alerts'  # 可选 webhook 接收端 (DISABLED 2026-09-21)
+    webhook_configs:
+      - url: 'http://127.0.0.1:5002/pushplus'
+        send_resolved: true
+        max_alerts: 0
 
-  # 🔴 严重告警：推送到 PushPlus（个人微信）  2026-09-21 启用
+  # 🔴 严重 / 🟡 warning 也统一推到 PushPlus（个人微信）  2026-09-21 启用
   # 流程：alertmanager → pushplus_bridge (:5002) → pushplus.plus API → 微信
   - name: 'critical-webhook'
     webhook_configs:
@@ -47,24 +49,14 @@ receivers:
         send_resolved: true
         max_alerts: 0  # 0 = 所有 alert 一次推送
 
-  # 🟡 warning 告警：Slack
-  # ⚠️ 启用步骤：
-  #   1. 创建 Slack webhook：https://api.slack.com/apps → Incoming Webhooks
-  #   2. 把下面 api_url 替换为实际 URL（格式：https://hooks.slack.com/services/T.../B.../XXX）
-  #   3. 重启 alertmanager：sudo systemctl restart alertmanager
-  #   (因 prom 已开 --web.enable-lifecycle，am 也建议 reload config: curl -XPOST http://127.0.0.1:9093/-/reload)
+  # 🟡 warning 原先配的是 Slack 占位 URL（hooks.slack.com/services/T1234/...），
+  # 从未注册成功、每次投递 404——留着就是一条「自称会告警」的静默失败路径。
+  # 单机单通道：warning 改投 PushPlus，名字保留是为了不惊动已有的接收端断言。
   - name: 'slack-warnings'
-    slack_configs:
-      - api_url: 'https://hooks.slack.com/services/T1234/B5678/AbCdEfGhIjKlMnOpQrStUvWx'  # PLACEHOLDER, 需替换
-        channel: '#math-monitor-alerts'  # 实际 channel
-#        send_resolved: true
-        title: '[{{ .Status }}] {{ .GroupLabels.alertname }}'
-        text: |
-          {{ range .Alerts }}
-          *Summary*: {{ .Annotations.summary }}
-          *Description*: {{ .Annotations.description }}
-          *Runbook*: {{ .Annotations.runbook }}
-          {{ end }}
+    webhook_configs:
+      - url: 'http://127.0.0.1:5002/pushplus'
+        send_resolved: true
+        max_alerts: 0
 
 inhibit_rules:
   # 如果 upstream down，抑制所有相关告警

@@ -1,15 +1,18 @@
 """数据链路的失败可见性（2026-10-24）。
 
-`tdxfeed-sync` 每晚 18:00 跑 30 分钟，`predict-daily` 靠 `After=`+`Wants=` 排在它后面。
-`Wants=` 是弱依赖：sync 挂掉只会留在 logs/sync.err 里，predict 照样拿着隔夜数据出榜——
-除非 `precheck_freshness.sh` 抽样恰好抽到变陈的那批票。日志不是告警，没人半夜翻 journal。
+`tdxfeed-sync` 每晚跑 30 分钟，`predict-daily` 18:05 排在它后面出榜。历史上两者用
+`After=`+`Wants=` 串联：`Wants=` 是弱依赖，sync 挂掉只会留在 logs/sync.err 里，
+predict 照样拿着隔夜数据出榜——除非 `precheck_freshness.sh` 抽样恰好抽到变陈的那批票。
+日志不是告警，没人半夜翻 journal。
+
+2026-10-28 起同步只剩系统级 `tdx-sync.timer`（16:30）一个调度源，用户级
+`tdxfeed-sync.timer` 退役；predict 不再挂 sync 依赖，数据到位与否由 ExecStartPre 的
+新鲜度守卫判定（同步没跑成 → exit 2 → 整轮不跑 + OnFailure 告警）。
 
 这里锁四件事：
-1. predict 硬依赖 sync（`Requires=`），sync 起不来就别出榜。实测 sync 耗时 30+ 分钟，
-   predict 的依赖作业会和在跑的那个合流，不会把全市场同步重复跑一遍（10-19~10-23 的
-   journal 里 sync 每天只有一次 Starting，predict 都在 sync「Finished」的同一秒才开始）。
-   反过来，探针单元验证了 deps 失败时 systemd 会给出
-   `Dependency failed for …` 并且 dependent 完全不跑。
+1. predict 不拉第二遍同步（没有 `Requires=`/`After=`/`Wants=` 指向 tdxfeed-sync），
+   且必须保留 `precheck_freshness.sh` 这个新鲜度门禁——去掉依赖又不设门禁，就是
+   回到「拿隔夜数据出榜」。
 2. 三个数据链路单元失败时投递告警（`OnFailure=onfailure-alert@<单位>.service`），
    且同单元有一小时冷却——canary 每 5 分钟一次，没冷却就是每小时 12 条微信。
 3. 告警载荷必须能被现存的 pushplus 桥接受（`v5/scripts/pushplus_bridge.py` 读的是
@@ -58,17 +61,23 @@ def _values(text: str, key: str) -> set[str]:
     return {ln.split("=", 1)[1].strip() for ln in _opt_lines(text, key)}
 
 
-# ---------- 1. predict 硬依赖 sync ----------
+# ---------- 1. predict 不拉第二遍同步，数据到位靠新鲜度门禁 ----------
 
-def test_predict_daily_hard_requires_sync():
-    """Wants= 只尽力拉起，失败不拦；sync 挂了 predict 仍会用隔夜数据出榜。"""
+def test_predict_daily_does_not_pull_a_second_sync():
+    """同步调度源已收口到系统级 tdx-sync.timer（16:30），用户级 tdxfeed-sync 退役。
+
+    这里再挂 Requires=/After=/Wants= 都会把用户级 sync 拉回来：Requires 直接起一遍，
+    After 单独留着会把 predict 排到一个永不完结的空单元后面。两个都开着就是每晚
+    两遍全市场同步。
+    """
     text = _unit("predict-daily.service")
-    assert "tdxfeed-sync.service" in _values(text, "Requires"), \
-        "predict 对 sync 仍是弱依赖，同步失败照样跑"
-    assert "tdxfeed-sync.service" not in _values(text, "Wants"), \
-        "Requires= 之外还留着 Wants=，读不出到底硬不硬"
-    assert "tdxfeed-sync.service" in _values(text, "After"), \
-        "去掉排序会并发起跑，Requires= 变成抢锁"
+    for key in ("Requires", "After", "Wants"):
+        assert "tdxfeed-sync.service" not in _values(text, key), \
+            f"{key}= 还指着退役的用户级 sync，会把它拉回来"
+
+    exec_pre = _values(text, "ExecStartPre")
+    assert any("precheck_freshness.sh" in v for v in exec_pre), \
+        "没有新鲜度门禁又不依赖 sync，同步失败时 predict 会拿隔夜数据出榜"
 
 
 # ---------- 2. 失败要投递告警 ----------

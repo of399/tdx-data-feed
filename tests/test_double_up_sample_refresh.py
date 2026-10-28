@@ -12,7 +12,7 @@
 把它定时化之前，先要它不会假成功。
 
 锁四件事：
-1. `systemd/plan-e-double-up.{service,timer}` 存在，排在 18:00 sync 与 18:10 journal
+1. `systemd/plan-e-double-up.{service,timer}` 存在，排在系统级 16:30 sync 与 18:10 journal
    之后（`Persistent=true`：全量重算，补跑无害且必要）；
 2. 生产者把零命中、读失败的 parquet、以及**任一市场段从有到无**都当成失败，
    非零退出且不覆盖旧样本；
@@ -81,12 +81,16 @@ def test_double_up_timer_is_a_weekday_catchup_timer():
 
 
 def test_double_up_timer_runs_after_sync_and_journal():
-    """18:00 sync 写当日 K 线、18:10 journal 读同一份 CSV，刷新不能插到中间。"""
+    """16:30 系统级 sync 写当日 K 线、18:10 journal 读同一份 CSV，刷新不能插到中间。"""
     mine = _on_calendar(_unit(SYSTEMD / "plan-e-double-up.timer")).split()[1]
-    for other, want_later in (("tdxfeed-sync.timer", True), ("plan-e-journal.timer", True)):
-        theirs = _on_calendar(_unit(SYSTEMD / other)).split()[1]
+    others = (
+        (_unit(SYSTEMD / "system" / "tdx-sync.timer"), True),
+        (_unit(SYSTEMD / "plan-e-journal.timer"), True),
+    )
+    for theirs_text, want_later in others:
+        theirs = _on_calendar(theirs_text).split()[1]
         if want_later:
-            assert mine > theirs, f"plan-e-double-up 应在 {other}（{theirs}）之后，实际 {mine}"
+            assert mine > theirs, f"plan-e-double-up 应在 {theirs} 之后，实际 {mine}"
 
 
 def test_double_up_service_wires_freshness_precheck_and_alert():

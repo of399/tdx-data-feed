@@ -5,7 +5,7 @@ Canary 健康检查脚本
 
 每 5 分钟跑一次，检查：
   1. Ollama 服务在线 + 模型可访问
-  2. 数据采集（tdxfeed-sync）健康
+  2. 数据采集（系统级 tdx-sync）健康
   3. 关键数据文件存在性
   4. GPU 状态
   5. systemd timer 状态
@@ -42,6 +42,10 @@ PARQUET_MIN_COUNT = 5000     # 最少日 K 文件数
 ADJ_MIN_COUNT = 5000         # 最少复权因子文件数
 DISK_MIN_FREE_GB = 20        # 最小剩余磁盘 GB
 
+# 这些检查出问题（error 或 warn）才退出非零 → systemd OnFailure → 微信。
+# GPU/磁盘这类长期 warn 不在此列：每 5 分钟推一次就是刷屏，留 journal 与 canary 历史即可。
+PAGING_CHECKS = frozenset({'tdxfeed_sync', 'data_files', 'timers'})
+
 
 def check_ollama() -> dict:
     """检查 Ollama 服务"""
@@ -70,47 +74,63 @@ def check_ollama() -> dict:
     return result
 
 
+def _show(unit: str, props: str) -> dict:
+    out = subprocess.run(
+        ['systemctl', 'show', unit, f'--property={props}'],
+        capture_output=True, text=True, timeout=5
+    )
+    details = {}
+    for line in out.stdout.strip().splitlines():
+        if '=' in line:
+            k, v = line.split('=', 1)
+            details[k.strip()] = v.strip()
+    return details
+
+
+def _parse_systemd_ts(value: str):
+    """解析 `Tue 2026-10-27 16:31:59 CST` → datetime；空的/不可解析返回 None。
+
+    只取末尾两段（日期 + 时刻）：星期前缀随 locale 变，`%Y-%m-%d` 也吃不掉它。
+    """
+    value = value.replace('CST', '').strip()
+    parts = value.split()
+    if len(parts) < 2:
+        return None
+    try:
+        return datetime.strptime(' '.join(parts[-2:]), '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return None
+
+
 def check_tdxfeed_sync() -> dict:
-    """检查最后一次 tdxfeed-sync 时间（应该 ≤ 24 小时前）"""
+    """检查最后一次全市场同步（系统级 tdx-sync.timer/service，应 ≤ 48 小时前）。
+
+    时间源必须是 timer 的 `LastTriggerUSec`：oneshot service 跑完被 GC 后，
+    `ActiveEnterTimestamp` 一律为空，原来的年龄检查会整段跳过——同步停两周也报 ok。
+    """
     result = {'name': 'tdxfeed_sync', 'status': 'ok', 'details': {}}
     try:
-        # 查 systemd 上次运行时间
-        out = subprocess.run(
-            ['systemctl', '--user', 'show', 'tdxfeed-sync.service',
-             '--property=ActiveEnterTimestamp,Result,SubState'],
-            capture_output=True, text=True, timeout=5
-        )
-        lines = out.stdout.strip().split('\n')
-        details = {}
-        for line in lines:
-            if '=' in line:
-                k, v = line.split('=', 1)
-                details[k] = v
+        timer = _show('tdx-sync.timer', 'LastTriggerUSec,ActiveState')
+        service = _show('tdx-sync.service', 'Result')
+        result['details'] = {**timer, **service}
 
-        result['details'] = details
+        problems = []
+        last_result = service.get('Result', '')
+        if last_result and last_result != 'success':
+            problems.append(f'last run result: {last_result}')
 
-        # 检查是否是成功（exit code 0）
-        if 'Result' in details and details['Result'] != 'success':
+        ts = _parse_systemd_ts(timer.get('LastTriggerUSec', ''))
+        if ts is None:
+            problems.append('sync never triggered')
+        else:
+            age = datetime.now() - ts
+            result['details']['age_hours'] = round(age.total_seconds() / 3600, 2)
+            if age > timedelta(days=2):
+                problems.append(f'sync too old: {age}')
+
+        if problems:
             result['status'] = 'warn'
-            result['message'] = f"last run result: {details['Result']}"
-
-        # 检查时间
-        timestamp_str = details.get('ActiveEnterTimestamp', '')
-        if timestamp_str:
-            # 格式：Sun 2026-09-27 18:00:12 CST
-            try:
-                ts_str = timestamp_str.replace('CST', '').strip()
-                # 取后两段
-                parts = ts_str.split()
-                if len(parts) >= 3:
-                    ts = datetime.strptime(' '.join(parts[-3:]), '%Y-%m-%d %H:%M:%S')
-                    age = datetime.now() - ts
-                    result['details']['age_hours'] = round(age.total_seconds() / 3600, 2)
-                    if age > timedelta(days=2):
-                        result['status'] = 'warn'
-                        result['message'] = f'sync too old: {age}'
-            except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
-                print(f"[WARN] swallowed: {e!r}")
+            result['message'] = '; '.join(problems)
     except Exception as e:
         result['status'] = 'error'
         result['message'] = str(e)[:200]
@@ -167,21 +187,29 @@ def check_disk() -> dict:
 
 
 def check_timers() -> dict:
-    """检查关键 systemd timer 是否激活"""
+    """检查关键 systemd timer 是否激活。
+
+    同步已收口到系统级 tdx-sync.timer（16:30），它不属于 --user 管理器；
+    只用 `--user` 查会把它读成 inactive，天天误报。这里按作用域逐个查。
+    """
     result = {'name': 'timers', 'status': 'ok', 'details': {}}
-    timers = ['predict-daily.timer', 'plan-e-journal.timer', 'tdxfeed-sync.timer']
+    timers = (
+        ('predict-daily.timer', 'user'),
+        ('plan-e-journal.timer', 'user'),
+        ('tdx-sync.timer', 'system'),
+    )
     inactive = []
-    for t in timers:
+    for t, scope in timers:
         try:
-            out = subprocess.run(
-                ['systemctl', '--user', 'is-active', t],
-                capture_output=True, text=True, timeout=3
-            )
+            cmd = ['systemctl', 'is-active', t]
+            if scope == 'user':
+                cmd.insert(1, '--user')
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
             if out.stdout.strip() != 'active':
                 inactive.append(t)
         except Exception:
             inactive.append(t)
-    result['details'] = {'checked': timers, 'inactive': inactive}
+    result['details'] = {'checked': [t for t, _ in timers], 'inactive': inactive}
     if inactive:
         result['status'] = 'warn'
         result['message'] = f'inactive timers: {inactive}'
@@ -311,9 +339,12 @@ def main():
     with open(LOG_FILE, 'a', encoding='utf-8') as f:
         f.write(line + '\n')
 
-    # 异常时退出非零（让 systemd alert）
-    if n_err > 0:
-        sys.exit(1)
+    # 异常时退出非零（让 systemd 的 OnFailure 变成微信推送）
+    # 数据链路的 warn 也要喊：同步变陈、关键文件不足、timer 掉线都不会抛异常，
+    # 只打印进 journal 等于没人知道——那正是「静默失败」。
+    paging = [c for c in all_checks
+              if c['name'] in PAGING_CHECKS and c['status'] in ('warn', 'error')]
+    sys.exit(1 if (n_err > 0 or paging) else 0)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,19 @@
+[Unit]
+Description=tdx-autonomy (watchdog + circuit breaker)
+Documentation=v5-implementation-plan.md §4.2 M4
+After=network-online.target math-sympy-http.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/tdx_autonomy.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tdx-autonomy
+User=jiuben
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Generate Vault Evolution Report at 09:00 daily
+Documentation=file:///home/jiuben/tdx-data-feed/v5-implementation-plan.md
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+Unit=evolution_daily_report.service
+
+[Install]
+WantedBy=timers.target

@@ -1,9 +1,9 @@
 {
-  "_comment": "v5-VE1-M2 MCP servers 配置片段 — 由 s7-install-mcp-config.py 合并到 CodeBuddy settings.json",
-  "_comment_2": "CodeBuddy MCP 配置位置：~/.config/CodeBuddy CN/User/settings.json 的 mcp.servers 字段",
+  "_comment": "v5-VE1-M2 MCP servers 启动口径单源 — 数学 server 必须用 venv-math（antlr 4.11），见 AGENTS.md",
+  "_comment_2": "s7-install-mcp-config.py 原目标是 CodeBuddy settings.json；CodeBuddy 已退役，接入新客户端时以本文件为准重新生成注册",
   "mcpServers": {
     "math-sympy": {
-      "command": "/home/jiuben/tdx-data-feed/venv/bin/python",
+      "command": "/home/jiuben/tdx-data-feed/venv-math/bin/python",
       "args": ["/home/jiuben/tdx-data-feed/v5/mcp_servers/math_sympy.py"],
       "env": {},
       "disabled": false

@@ -9,7 +9,9 @@
 # ---- 数据采集 ----
 baostock>=0.8.9
 akshare>=1.15.50
-pandas>=2.2.0
+# pandas 3.x 默认 str dtype：tdxfeed/daban/paper.py 往账本字符串列写浮点会抛 TypeError
+# （tests/test_daban_paper.py::test_backfill_end_to_end 在 3.1 复现），锁 2.x 与 lock 一致
+pandas>=2.2.0,<3
 numpy>=1.26.0
 pyarrow>=15.0.0
 # fastparquet 为可选依赖：pyarrow 已覆盖所有 parquet 读写，无脚本 import fastparquet。

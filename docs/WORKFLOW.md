@@ -37,7 +37,7 @@
 | `scripts/backfill_daily_amount.py` | 成交额历史批量回填（**默认 dry-run**，落盘须显式 `--apply`；写前备份到 `data/parquet/daily_amount_bak/`）| daily parquet | 补齐后的 parquet + `.day` | 手动 |
 | `scripts/download_universe.py` | 沪深 A 股代码清单/补全 | pytdx 枚举 + Sina 日 K | `data/all_a_stocks.json` | 手动 |
 | `scripts/analyze_one.py` | 单只股多因子分析（技术面）| parquet/daily + adj_factor | dict（落库） | 单股触发 |
-| `tdxfeed/full_sync.py` | **实际生产全量同步**（systemd 调用）：Sina 源日K + akshare 清单 + 财务/复权增量（**2026-10-26 起接入腾讯源分页深取**）| Sina/akshare/baostock/腾讯 | `data/parquet/daily/*.parquet`（5,236）+ `sh\|sz/lday/*.day`（增量双写）| `tdxfeed-sync.timer` 每晚 18:00 |
+| `tdxfeed/full_sync.py` | **实际生产全量同步**（systemd 调用）：Sina 源日K + akshare 清单 + 财务/复权增量（**2026-10-26 起接入腾讯源分页深取**）| Sina/akshare/baostock/腾讯 | `data/parquet/daily/*.parquet`（5,236）+ `sh\|sz/lday/*.day`（增量双写）| 系统级 `tdx-sync.timer` 工作日 16:30 |
 | `tdxfeed/cli.py` | `sync` 子命令：单标的拉取双写（**仅手动单只，非全量**）| Sina/akshare/tencent | 同上 | 手动 |
 | `scripts/akshare_industry_loader.py` | 申万/同花顺行业分类加载（股票→行业映射）| akshare `stock_industry_clf_hist_sw` | `data/industry/sw_*.csv`（335 三级）| 手动 |
 | `scripts/akshare_concept_loader.py` | 同花顺(THS)题材/概念板块列表（名称+代码）加载与查询 | akshare `stock_board_concept_name_ths` | `data/concept/ths_concept_list.csv`（375 板块）| 手动（7 天缓存）|
@@ -93,14 +93,14 @@
 | `scripts/train_health.sh` | 训练进程健康检查（ckpt 记录、孤儿跳过；无训练会话时空闲退出）| systemd timer 每 5min |
 | `scripts/plot_loss.py` | loss 曲线可视化 | 手动 `--all` 自动扫所有 v* 目录 |
 | `scripts/gen_dashboard.py` | 综合 HTML 仪表盘 | 手动（包含所有数据快照）|
-| `systemd/tdxfeed-sync.timer` | 行情同步（`tdxfeed.full_sync`，每晚 18:00）；失败走 `OnFailure=onfailure-alert@…` 推送 | systemd timer |
+| 系统级 `tdx-sync.timer`（镜像在 `systemd/system/`）| 行情同步（`tdxfeed.full_sync`，工作日 16:30）；用户级 `tdxfeed-sync.timer`（18:00）2026-10-28 退役，文件留库仅供回滚 | systemd timer |
 | `systemd/predict-daily.timer` | 方案 D 每日预测（收盘后，含 `precheck_freshness.sh` 数据新鲜度守卫）；对 sync 是 `Requires=`（同步失败则整轮不跑），失败同样推送 | systemd timer |
 | `systemd/plan-e-journal.timer` | 方案 E 每日信号清单归档（18:10，After predict-daily）——**2026-10-24 晚重开**：直接复用 08:45 那份盘前清单归档 `signals_YYYYMMDD.csv`，产出仍是研究口径、不给下单建议；读不到今日清单时不跑 CLI 兜底（晚间用的是收盘数据）| systemd timer |
 | `systemd/plan-e-today.timer` | 方案 E 盘前今日清单（08:45 跑 `plan_e_backtest.py --today`）——**2026-10-24 晚重开**（当天上午曾随「退出实盘入口」一起停用）；退出实盘入口这件事不变，`--mode daily` 依旧不算拆单量 | systemd timer |
-| `systemd/plan-e-double-up.timer` | 方案 E 翻倍样本重建（18:30，排在 18:00 sync 与 18:10 journal 之后）——**2026-10-24 新增**：跑 `scripts/find_double_up_c.py` 重算翻倍样本 CSV（08:45 那次「近 7 日翻倍首次触发」预筛的候选池）；含 `precheck_freshness.sh` 与 `OnFailure`，脚本对零命中/某市场段归零非零退出并保留上一版；10-24 实测 16s 扫完 5,236 只 parquet，读失败 0 | systemd timer |
+| `systemd/plan-e-double-up.timer` | 方案 E 翻倍样本重建（18:30，排在 16:30 系统级 sync 与 18:10 journal 之后）——**2026-10-24 新增**：跑 `scripts/find_double_up_c.py` 重算翻倍样本 CSV（08:45 那次「近 7 日翻倍首次触发」预筛的候选池）；含 `precheck_freshness.sh` 与 `OnFailure`，脚本对零命中/某市场段归零非零退出并保留上一版；10-24 实测 16s 扫完 5,236 只 parquet，读失败 0 | systemd timer |
 | **`systemd/daban-ticket.timer`** | **daban 试验仓：工作日盘中每 5 分钟产一份人工委托单**（`scripts/daban_entry.py`；**本单元不下单**）| 09-11、13-14 每 5 min · **enabled + active**（10-25 新增）|
 | `systemd/plan-e-today.timer` | 方案 E 盘前今日清单（08:45 跑 `plan_e_backtest.py --today`）——**2026-10-24 晚重开**（当天上午曾随「退出实盘入口」一起停用）；退出实盘入口这件事不变，`--mode daily` 依旧不算拆单量 | systemd timer |
-| `systemd/plan-e-double-up.timer` | 方案 E 翻倍样本重建（18:30，排在 18:00 sync 与 18:10 journal 之后）——**2026-10-24 新增**：跑 `scripts/find_double_up_c.py` 重算 `data/double_up/double_up_2020_2026_detail.csv`，那正是 08:45 那次「近 7 日翻倍首次触发」预筛的候选池；此前只能手工 `make analyze-double-up`，样本 `peak_date` 停在 2026-09-22，新触发日进不了清单。含 `precheck_freshness.sh` 与 `OnFailure`，脚本对零命中/某市场段归零非零退出并保留上一版；2026-10-24 实测 16s 扫完 5236 只 parquet，读失败 0 | systemd timer |
+| `systemd/plan-e-double-up.timer` | 方案 E 翻倍样本重建（18:30，排在 16:30 系统级 sync 与 18:10 journal 之后）——**2026-10-24 新增**：跑 `scripts/find_double_up_c.py` 重算 `data/double_up/double_up_2020_2026_detail.csv`，那正是 08:45 那次「近 7 日翻倍首次触发」预筛的候选池；此前只能手工 `make analyze-double-up`，样本 `peak_date` 停在 2026-09-22，新触发日进不了清单。含 `precheck_freshness.sh` 与 `OnFailure`，脚本对零命中/某市场段归零非零退出并保留上一版；2026-10-24 实测 16s 扫完 5236 只 parquet，读失败 0 | systemd timer |
 | `systemd/plan-e-monitor.timer` | 方案 E 持仓监控（18:40）——**2026-10-24 已 disable**：实盘账本为空（无 positions.json，journal.csv 只有表头）| systemd timer（停用） |
 | `systemd/plan-e-weekly.timer` | 方案 E 周报汇总（周五 20:00）——**2026-10-24 已 disable**（无实盘流水可汇总）| systemd timer（停用） |
 | `systemd/plan-e-real-refresh.timer` | 方案 E 实盘样本回灌调参（周日 21:00）——**从未启用**，2026-10-24 一并确认停用（输入是同一份空账本）| systemd timer（停用） |
@@ -155,7 +155,7 @@
 ### 2.4 自动化任务（automations）
 
 - **现状**：`.codebuddy/automations/` 下有 4 个目录（`v4` / `v5-daemon` / `v8-retrain-review` / `v9-training-watch`），每个只有 `memory.md`，**没有 `automation.toml`**，因此不会被 CodeBuddy 调度。
-- **真实定时任务全部在 systemd user timer**：通用那五是 `tdxfeed-sync` / `predict-daily` / `canary-health` / `trainsh-health` / `tdx-clean-logs`（外加 `obsidian-sync.path`），方案 E 侧另有三只 armed：`plan-e-today` / `plan-e-journal` / `plan-e-double-up`，**打板侧另有 `daban-ticket`**（工作日 09-11 / 13-14 每 5 分钟产人工委托单，10-25 新增，已 enabled + active）。方案 E 的六只单元（上面三只 + `plan-e-monitor` / `plan-e-weekly` / `plan-e-real-refresh`，最后一只从未启用过）文件都在库里：2026-10-24 上午五只一起 disable，当晚 `plan-e-today` + `plan-e-journal` 重开（自动产出的仍只是研究清单，退出实盘入口的决定不变），同日补上 `plan-e-double-up`（18:30 重建 08:45 那次预筛要读的翻倍样本 CSV），monitor / weekly / real-refresh 维持停用——它们的输入是那份空账本。`make timer-enable` 启用通用三只 + 这三只 plan-e timer 与 obsidian path，`trainsh-health` / `tdx-clean-logs` 靠持久化的 enable 状态活着。
+- **真实定时任务分两套管理器**：用户级（`systemctl --user`）是 `predict-daily` / `canary-health` / `trainsh-health` / `tdx-clean-logs`（外加 `obsidian-sync.path`）；系统级（`/etc/systemd/system`，仓库镜像在 `systemd/system/`，漂移守卫 `tests/test_systemd_system_units_mirror.py`）负责数据与运维底座：`tdx-sync`（工作日 16:30 全市场同步）/ `tdx-monitor` / `tdx-verification` / `audit-log-rotate` / `daily-fallback-report` / `evolution_daily_report` / `scheduler_agent` / `suggestion_agent` / `tdx-autonomy` / `tdx-evolution` / `pushplus_bridge`。方案 E 侧另有三只 armed：`plan-e-today` / `plan-e-journal` / `plan-e-double-up`，**打板侧另有 `daban-ticket`**（工作日 09-11 / 13-14 每 5 分钟产人工委托单，10-25 新增，已 enabled + active）。方案 E 的六只单元（上面三只 + `plan-e-monitor` / `plan-e-weekly` / `plan-e-real-refresh`，最后一只从未启用过）文件都在库里：2026-10-24 上午五只一起 disable，当晚 `plan-e-today` + `plan-e-journal` 重开（自动产出的仍只是研究清单，退出实盘入口的决定不变），同日补上 `plan-e-double-up`（18:30 重建 08:45 那次预筛要读的翻倍样本 CSV），monitor / weekly / real-refresh 维持停用——它们的输入是那份空账本。`make timer-enable` 只启用用户级那几只（通用三只 + 这三只 plan-e timer + obsidian path；同步已收口到系统级，不再进 enable 列表），`trainsh-health` / `tdx-clean-logs` 靠持久化的 enable 状态活着。
 - 若未来要恢复 CodeBuddy automation，必须补 `automation.toml` 并在 IDE 中启用；仅 `memory.md` 不构成自动化。
 
 ---
@@ -188,7 +188,7 @@
 | **WorkBuddy资产迁移** | user | 国内/海外版切换 | 否 |
 | **skill-vetter** | user | skill 安全审查 | 否 |
 
-**运行时技能（`skills/*.yaml`，9 个，由 `agents/orchestrator.py` 路由）**：
+**运行时技能（`skills/*.yaml`，9 个，由 `skill_router/orchestrator.py` 路由）**：
 
 | Skill | LLM 后端 | 说明 |
 |---|---|---|
@@ -202,7 +202,7 @@
 | `theory-reference` | `none` | 财经七书讲义纯检索，限定 vault `09-理论讲义` 目录，不消耗 GPU |
 | **`daban`** | `none` | **纯工具**：全市场 29 维打分 → T+1 收盘涨停概率 Top-N（唯一工具 `mcp:tdx-backtest.daban_top_picks`，约 3-4 秒）；⚠️ **只作排序研究、不是买入指令**（诚实成交口径 -0.78%/笔，`overall_go=false`）|
 
-> Agent 主要靠 execute_command / file ops / Task(code-explorer)；运行时技能由 `agents/orchestrator.py` 意图路由分发（新增 `daban` 意图：打板/连板/首板/次日涨停/涨停候选/接力板）。
+> Agent 主要靠 execute_command / file ops / Task(code-explorer)；运行时技能由 `skill_router/orchestrator.py` 意图路由分发（新增 `daban` 意图：打板/连板/首板/次日涨停/涨停候选/接力板）。
 
 ---
 
@@ -215,7 +215,7 @@
 | **github** | `docker run ... ghcr.io/github/github-mcp-server` | repos, issues, pull_requests, actions, code_search | PR/Issue/搜索代码 |
 | **codebuddy-integration** | IDE 内置集成 server | CloudBase / Supabase / CloudStudio / EdgeOne / Lighthouse | 云服务集成 |
 
-### 4.2 技能运行时 MCP 服务（`agents/runtime.py` 拉起）
+### 4.2 技能运行时 MCP 服务（`skill_router/runtime.py` 拉起）
 
 | Server | 脚本 | 工具 | 用途 |
 |---|---|---|---|
@@ -234,7 +234,7 @@
 
 > ⚠️ **数学服务已迁独立虚拟环境 `venv-math/`**（2026-10-24）：主 venv 的 `antlr4 4.11` 与 `omegaconf 4.9.*` 存在死锁，数学 MCP 服务（`math_sympy_http`）改由 `venv-math` 承载；`make verify-math` 的校验 harness 与 stdio 注册也改用该环境，并已作为漂移守卫入库。**不要在主 venv 里跑数学服务。**
 
-#### 4.2.1 意图路由（`agents/orchestrator.py`）
+#### 4.2.1 意图路由（`skill_router/orchestrator.py`）
 
 `route()` 按顺序匹配 `INTENT_PATTERNS`，命中即返回；`theory-reference` 走前置独立判定，不进该列表。
 
@@ -443,7 +443,7 @@ tdx-data-feed/
    d_signal_5d_model.txt + report
 
    [决策层 · 生产 · 纯 CPU]
-   predict.py (18:05, Requires= tdxfeed-sync) ──→ data/predictions/predict_*.{csv,md}
+   predict.py (18:05, ExecStartPre=precheck_freshness.sh) ──→ data/predictions/predict_*.{csv,md}
    plan_e_backtest.py --today (08:45) ──→ data/plan_e/plan_e_today.csv
    plan_e_journal.py (18:10) ──→ data/plan_e/live/journal.csv（只归档, 不建仓）
    daban_entry.py (盘中每 5 min) ──→ data/daban/tickets/ticket_*.{md,json}（只产单, 人工下单）
@@ -483,10 +483,10 @@ tdx-data-feed/
 
 | 任务 | 自动触发 | 手动触发 | 触发器 |
 |---|---|---|---|
-| 行情同步 | ✅ | - | systemd timer `tdxfeed-sync.timer` (18:00 daily) |
+| 行情同步 | ✅ | - | 系统级 systemd timer `tdx-sync.timer` (工作日 16:30) |
 | 训练健康检查 | ✅ | - | systemd timer `trainsh-health.timer` (5min) |
 | 翻倍样本重建 | ✅ | ✅ | `plan-e-double-up.timer`（18:30）/ `make analyze-double-up` |
-| 方案 D 每日预测（predict.py）| ✅ | - | systemd `predict-daily.timer`（收盘后，依赖 tdxfeed-sync）|
+| 方案 D 每日预测（predict.py）| ✅ | - | systemd `predict-daily.timer`（收盘后，前置数据新鲜度检查）|
 | 方案 E 盘前清单 | ✅ | ✅ | `plan-e-today.timer`（08:45 工作日）/ `make plan-e-today` |
 | 方案 E 归档 | ✅ | ✅ | `plan-e-journal.timer`（18:10）/ `make journal` |
 | **daban 试验仓委托单** | ✅ | ✅ | `daban-ticket.timer`（工作日盘中每 5 min）/ `scripts/daban_entry.py` |
@@ -629,12 +629,12 @@ tdx-data-feed/
 
 ### 7.5 部署形态说明（2026-10-26 复核）
 
-- **生产形态 = `venv` 虚拟环境 + 用户级 systemd timer**（唯一实际运行方式）：`tdxfeed-sync` → `predict-daily` 顺序编排（predict 对 sync 是 `Requires=`，同步失败就不出榜），`canary-health` 每 5min 巡检；方案 E 那条 `→ plan-e-journal` 下游链路 2026-10-24 上午整批 disable、当晚 `plan-e-today` + `plan-e-journal` 重开（只恢复自动算研究清单，不恢复建仓入口）。同一批（2026-10-24）给 `tdxfeed-sync` / `predict-daily` / `canary-health` 挂了 `OnFailure=onfailure-alert@<单元>.service` → `scripts/onfailure_alert.py`，把「单元挂了」变成微信推送；此前这些失败只落在 `logs/*.err` 里。
+- **生产形态 = `venv` 虚拟环境 + systemd timer（同步在系统级，其余在用户级）**（唯一实际运行方式）：工作日 16:30 系统级 `tdx-sync` 拉数据，18:05 用户级 `predict-daily` 出榜（不再挂同步依赖，数据是否到位由 `precheck_freshness.sh` 判定），`canary-health` 每 5min 巡检（数据链路的 warn 也会退出非零触发告警）；方案 E 那条 `→ plan-e-journal` 下游链路 2026-10-24 上午整批 disable、当晚 `plan-e-today` + `plan-e-journal` 重开（只恢复自动算研究清单，不恢复建仓入口）。同一批（2026-10-24）给 `predict-daily` / `canary-health`（以及退役前的用户级 `tdxfeed-sync`）挂了 `OnFailure=onfailure-alert@<单元>.service` → `scripts/onfailure_alert.py`，把「单元挂了」变成微信推送；此前这些失败只落在 `logs/*.err` 里。
 - **数学服务是例外**：独立 `venv-math`（antlr4 4.11 ↔ omegaconf 4.9.* 死锁），`make verify-math` 校验，**不要在主 venv 跑**。
 - **`docker-compose.yml` 是目标架构（未实际部署）**：仓库里的 compose 栈（Ollama/PostgreSQL/Redis/Prometheus/Grafana + exporters）当前**未启用**；实际跑的监控栈见下条，是宿主机上的系统级 systemd 单元，不是容器。
 - **监控栈已在跑（2026-10-24 实测，推翻 2026-10-16 的「维持未部署」）**：`prometheus` / `alertmanager` / `grafana-server` / `pushplus_bridge` 四个**系统级**单元均 active+enabled，2026-10-22 20:40~20:41 起；Prometheus 5 个抓取目标全 up（`prometheus`/`alertmanager`/`node`/`canary`/`math-sympy-http`），当前 0 条 firing 规则；Grafana 在 :3000。当时「不部署」的理由（GPU 被 Ollama 占满、内存紧）没有复查记录。
 - **告警桥有两个同名东西，别搞混（2026-10-24 核实）**：在用的是系统级 `/etc/systemd/system/pushplus_bridge.service`（以 jiuben 身份跑 `v5/scripts/pushplus_bridge.py`，:5002，`/health` 返回 token 已配置）；2026-10-16 那次「停用」的是仓库里 `systemd/pushplus-bridge.service` 这个 **user 级**单元，至今 disabled——`docs/pushplus_bridge_status_2026-10-16.md` 里「端口 :5002 关闭」只对那次操作负责，现在 :5002 是通的。`onfailure-alert@` 和 Alertmanager 都往这个 :5002 投。
-- **Makefile ≠ 生产口径（已对齐）**：`make data-sync` 实为单标的 `tdxfeed.cli sync`（无参默认 `sh600000`，**不会拉全市场**）；全市场增量同步由 `make full-sync`（`tdxfeed.full_sync`，即 `tdxfeed-sync.timer` 每晚 18:00 调用的生产入口）负责。现已在 Makefile 新增 `full-sync` 目标并加注释澄清分工；改调度须同步两边，避免行为漂移。
+- **Makefile ≠ 生产口径（已对齐）**：`make data-sync` 实为单标的 `tdxfeed.cli sync`（无参默认 `sh600000`，**不会拉全市场**）；全市场增量同步由 `make full-sync`（`tdxfeed.full_sync`，即系统级 `tdx-sync.timer` 工作日 16:30 调用的生产入口）负责。现已在 Makefile 新增 `full-sync` 目标并加注释澄清分工；改调度须同步两边，避免行为漂移。
 - **systemd 漂移铁律**：凡改 `systemd/` 下文件，提交后必须 `make timer-install` + `daemon-reload`，否则加载旧文件（被 canary 持续检测告警）。
 
 ---

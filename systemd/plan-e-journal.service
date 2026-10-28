@@ -2,6 +2,7 @@
 Description=方案 E 每日信号归档（18:10 在 predict-daily 之后）
 After=predict-daily.service
 Wants=predict-daily.service
+OnFailure=onfailure-alert@plan-e-journal.service
 
 [Service]
 Type=oneshot

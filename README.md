@@ -370,7 +370,8 @@ sudo loginctl enable-linger $USER
 
 # 加载并启动
 systemctl --user daemon-reload
-for t in tdxfeed-sync predict-daily plan-e-journal plan-e-weekly canary-health; do
+# 每日同步是系统级 tdx-sync.timer（16:30），由 root 启用/重启，不在 --user 列表里
+for t in predict-daily plan-e-journal plan-e-weekly canary-health; do
     systemctl --user enable $t.timer
     systemctl --user start $t.timer
 done
@@ -383,7 +384,7 @@ systemctl --user list-timers --all
 >
 > | Timer | systemd 配置 | README §11.1 描述 | 状态 |
 > |---|---|---|---|
-> | `tdxfeed-sync.timer` | 18:00 daily | 18:00 | ✓ 一致 |
+> | `tdx-sync.timer`（系统级）| 工作日 16:30 | 18:00（旧用户级已退役）| ✓ 已收口 |
 > | `predict-daily.timer` | **18:05** daily | 18:30 | ⚠️ 配置领先文档 25min |
 > | `plan-e-journal.timer` | **18:10** daily | 18:35 | ⚠️ 配置领先文档 25min |
 > | `plan-e-weekly.timer` | 周五 20:00 | 周五 20:00 | ✓ 一致 |
@@ -620,7 +621,7 @@ docker compose logs -f tdx-app
 
 由 `predict-daily.timer` 触发，无需人工介入。流程：
 
-1. 数据同步（18:00）
+1. 数据同步（工作日 16:30，系统级 `tdx-sync.timer`）
 2. 预测（18:30）
 3. 写 journal（18:35）
 4. 周报汇总（周五 20:00）
@@ -807,8 +808,8 @@ export https_proxy=http://proxy:8080
 **检查**：
 
 ```bash
-systemctl --user status tdxfeed-sync.timer
-journalctl --user -u tdxfeed-sync.service -n 50
+systemctl status tdx-sync.timer
+journalctl -u tdx-sync.service -n 50
 ```
 
 **修复**：
@@ -816,7 +817,7 @@ journalctl --user -u tdxfeed-sync.service -n 50
 ```bash
 sudo loginctl enable-linger $USER
 systemctl --user daemon-reload
-systemctl --user restart tdxfeed-sync.timer
+sudo systemctl restart tdx-sync.timer   # 系统级单元，需要 root
 ```
 
 ### 7.4 GPU 问题
@@ -1041,26 +1042,26 @@ REDIS_HOST=localhost
 
 | Timer | 时间（实际配置）| README 描述 | 动作 |
 |---|---|---|---|
-| `tdxfeed-sync.timer` | 18:00 daily | 18:00 | baostock 增量同步 |
+| `tdx-sync.timer`（系统级）| 工作日 16:30 | 18:00（旧用户级已退役）| 全市场增量同步 |
 | `predict-daily.timer` | **18:05** daily | 18:30 | 全市场预测 |
 | `plan-e-journal.timer` | **18:10** daily | 18:35 | 写实盘 journal |
 | `plan-e-weekly.timer` | 周五 20:00 | 周五 20:00 | 周报汇总 |
 | `canary-health.timer` | 5 min | 5 min | 健康检查 |
 
 > **修订建议**：实际 systemd timer 时间（18:05 / 18:10）比文档描述领先 25 分钟，
-> 这是因为 daily pipeline 在 2026-09 调整为"sync 18:00 → predict 18:05 → journal 18:10"
+> 这是因为 daily pipeline 调整为"sync 16:30（系统级）→ predict 18:05 → journal 18:10"（sync 原为 18:00 用户级，2026-10-28 退役）
 > 的紧凑流程（数据同步后立即预测与写 journal）。如需以文档为准，编辑 `systemd/*.timer` 后
 > `daemon-reload`。
 
 ### 11.2 启用 / 禁用
 
 ```bash
-# 启用
-systemctl --user enable tdxfeed-sync.timer
-systemctl --user start tdxfeed-sync.timer
+# 启用（预测/归档这几只；同步由系统级 tdx-sync.timer 承担）
+systemctl --user enable predict-daily.timer
+systemctl --user start predict-daily.timer
 
 # 禁用
-systemctl --user disable tdxfeed-sync.timer
+systemctl --user disable predict-daily.timer
 
 # 查看状态
 systemctl --user list-timers --all
@@ -1069,7 +1070,7 @@ systemctl --user list-timers --all
 ### 11.3 日志
 
 ```bash
-journalctl --user -u tdxfeed-sync.service -n 50 -f
+journalctl -u tdx-sync.service -n 50 -f
 tail -f logs/canary.log
 ```
 
@@ -1154,7 +1155,7 @@ curl -s http://localhost:11434/api/generate -d '{
 | Ollama 模型 | 4 个 tdx | 4 个 tdx（v5/v6/v7/fast:14b）+ 4 个其他（deepseek-r1, qwen3:32b/14b, nomic-embed）| ⚠️ |
 | data/parquet/daily | ≥ 5000 | 5,235（5,221 沪深个股 + 14 指数；v2 date32 合规率 100%）| ✓ |
 | data/adj_factor | ≥ 5000 | 5,221（v2 date32 合规率 100%）| ✓ |
-| systemd timer | 5 个 | 5 个（canary-health/tdxfeed-sync/predict-daily/plan-e-journal/plan-e-weekly）| ✓ |
+| systemd timer | 5 个 | 用户级 4 个（canary-health/predict-daily/plan-e-journal/plan-e-weekly）+ 系统级 tdx-sync | ✓ |
 | predict-daily 时间 | 18:30 | 18:05 | ⚠️ |
 | plan-e-journal 时间 | 18:35 | 18:10 | ⚠️ |
 | Docker Compose | 10 service 部署 | **未部署**（容器是 GitHub MCP 服务，与本项目无关）| ⚠️ |

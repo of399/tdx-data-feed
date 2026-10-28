@@ -1,5 +1,6 @@
 [Unit]
 Description=方案 E 盘前今日清单（08:45 开盘前生成"今日开盘入场"候选）
+OnFailure=onfailure-alert@plan-e-today.service
 
 [Service]
 Type=oneshot

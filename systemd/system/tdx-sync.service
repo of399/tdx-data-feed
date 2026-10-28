@@ -1,0 +1,13 @@
+[Unit]
+Description=TDX Data Feed Daily Incremental Sync (full_market)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jiuben
+WorkingDirectory=/home/jiuben/tdx-data-feed
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python -m tdxfeed.full_sync
+StandardOutput=append:/home/jiuben/tdx-data-feed/logs/tdx-systemd.log
+StandardError=append:/home/jiuben/tdx-data-feed/logs/tdx-systemd.log
+TimeoutStartSec=10800

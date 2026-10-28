@@ -38,29 +38,29 @@
   - `input` 为近 20 个交易日 JSON 数组，字段：`日期/开盘/收盘/最高/最低/成交量/涨跌幅`
   - `成交量` 已统一为**股单位**（v4 层治理终态，§17 物理校验 bad=0）
 
-## 3. 调度：systemd user timer
+## 3. 调度：systemd（同步在系统级，其余在用户级）
 
 ```ini
-# /home/jiuben/tdx-data-feed/systemd/tdxfeed-sync.timer
+# /etc/systemd/system/tdx-sync.timer（仓库镜像 systemd/system/tdx-sync.timer）
 [Timer]
-OnCalendar=Mon..Fri 18:00:00
+OnCalendar=Mon..Fri 16:30:00
 Persistent=true
-AccuracySec=60s
+RandomizedDelaySec=120
 ```
 
-- **状态**：`enabled / active (waiting)`
-- **下次触发**：每个交易日 18:00（CST）
-- **user linger**：`Linger=yes`（已设，开机自启）
-- **配套 service**：`tdxfeed-sync.service` 跑 `python -m tdxfeed.cli sync`，日志入 `logs/sync.log`
+- **状态**：系统级 `enabled / active (waiting)`；用户级 `tdxfeed-sync.timer`（18:00）已于 2026-10-28 退役（文件留库仅供回滚）
+- **下次触发**：每个工作日 16:30（CST）
+- **user linger**：`Linger=yes`（已设，用户级单元开机自启）
+- **配套 service**：`tdx-sync.service` 跑 `python -m tdxfeed.full_sync`，日志追加进 `logs/tdx-systemd.log`
 - **旧 cron `*/5 * * * * bash /home/jiuben/openclaw-watch.sh` 已删除**
 
 ### 手动操作命令
 ```bash
 # 看 timer
-systemctl --user status tdxfeed-sync.timer
+systemctl status tdx-sync.timer
 
-# 立即触发（不等 18:00）
-systemctl --user start tdxfeed-sync.service
+# 立即触发（不等 16:30；系统级单元要 root）
+sudo systemctl start tdx-sync.service
 
 # 跑全量（重置 manifest）
 source tdx-data-feed/venv/bin/activate
@@ -264,7 +264,7 @@ nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv -l 30
 | 🟡 核心标的清单 | ✅ 已闭环 | core_stocks.json 沪深300 全 300 只 |
 | 🟡 分钟线回补量 | ✅ 已闭环 | 全市场 64 日 ✅；核心近 1 年 ✅ ok=297；核心全历史 ⏳ 等 Eastmoney 恢复窗口 |
 | 🟡 OneQuant 读盘 | ✅ 已闭环 | 5001 兼容服务 |
-| 🟢 systemd timer | ✅ 已闭环 | tdxfeed-sync.timer 18:00 触发，已 enable + Linger |
+| 🟢 systemd timer | ✅ 已闭环 | 系统级 tdx-sync.timer 工作日 16:30（用户级 18:00 已退役）|
 | 🟢 openclaw 依赖 | ✅ 已闭环 | openclaw 进程/包/配置/cron 全部清零，RAG 切本地 |
 | 🟢 正式训练 | ⏳ 运行中 | PID 156236，§14.2 默认超参 + §14.3 显存优化（8bit AdamW + fa2 + bs1+accum16） |
 
@@ -358,7 +358,7 @@ RAG 替代：本地 Obsidian + Copilot/Smart Connections + Ollama nomic-embed-te
 ### 11.4 cron / systemd 现状
 - **cron**：`*/30 * * * * bash watch_eastmoney.sh`（Eastmoney 监测）
 - **systemd system**：`tdx-sync.{service,timer}`（工作日 16:30 全市场全量）
-- **systemd user**：`tdxfeed-sync.{service,timer}`（工作日 18:00 增量 + 完整性校验）
+- **systemd user**：`predict-daily` / `canary-health` / plan-e 链路等；同步 `tdxfeed-sync.{service,timer}`（工作日 18:00）已于 2026-10-28 退役，统一走系统级 `tdx-sync.timer`
 - **openclaw-watch.sh**：已从 cron 移除（§14.8 RAG 已切本地 Obsidian + Ollama nomic-embed-text）
 
 ### 11.5 GPU 进程历史
@@ -404,8 +404,8 @@ python /home/jiuben/tdx-data-feed/train/scripts/eval.py \
     --output /home/jiuben/tdx-data-feed/train/output/eval-report
 
 # 2. systemd 调度
-systemctl --user status tdxfeed-sync.timer
-journalctl --user -u tdxfeed-sync.service --since today
+systemctl status tdx-sync.timer
+journalctl -u tdx-sync.service --since today
 
 # 3. OneQuant 健康
 curl http://localhost:5001/health

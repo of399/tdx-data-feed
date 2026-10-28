@@ -1,0 +1,10 @@
+[Unit]
+Description=TDX Data Feed Daily Incremental Timer (工作日16:30)
+
+[Timer]
+OnCalendar=Mon..Fri 16:30:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

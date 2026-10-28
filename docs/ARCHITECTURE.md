@@ -358,8 +358,8 @@ v2 信号更紧，单笔质量更高；适合**小资金高频次**而非大资�
 | Timer | 频率 | 任务 |
 |---|---|---|
 | canary-health.timer | *:0/5（每 5min）| 健康检查 |
-| tdxfeed-sync.timer | Mon..Fri 18:00 | 拉行情 |
-| predict-daily.timer | Mon..Fri 18:05 | 方案 D 预测（`Requires=` tdxfeed-sync，挂了不跑；两者失败都走 `onfailure-alert@`）|
+| tdx-sync.timer（**系统级**）| Mon..Fri 16:30 | 拉行情（`python -m tdxfeed.full_sync`）。用户级 `tdxfeed-sync.timer`（18:00）2026-10-28 退役，文件留在仓库以便回滚 |
+| predict-daily.timer | Mon..Fri 18:05 | 方案 D 预测（不挂同步依赖；`ExecStartPre=precheck_freshness.sh` 挡陈数据，失败走 `onfailure-alert@`）|
 | plan-e-today.timer | Mon..Fri 08:45 | 盘前「今日开盘入场」清单——2026-10-24 白天 disable，当晚**重开自动调度**；产出的仍是研究口径榜单，不建仓 |
 | plan-e-journal.timer | Mon..Fri 18:10 | 方案 E 每日清单归档——2026-10-24 白天 disable，当晚**重开自动调度**：盘前那份清单重新有了生产者，18:10 复用并归档 signals_YYYYMMDD.csv |
 | plan-e-double-up.timer | Mon..Fri 18:30 | 重建翻倍样本 `data/double_up/double_up_2020_2026_detail.csv`——**2026-10-24 新增**，它是 08:45 那次「近 7 日翻倍首次触发」预筛的候选池；此前只能手工 `make analyze-double-up`，样本曾停在 `peak_date=2026-09-22`，新触发日进不了清单 |
@@ -568,9 +568,9 @@ http://localhost:11434/api/generate
 ### 实盘数据流
 
 ```
-每日 18:00 (systemd) → tdxfeed-sync → 更新 parquet/daily
-每日 18:05 (systemd) → predict-daily → LightGBM 推理 → predict_*.csv/md（daban 榜，不自动建仓）
-                          ↑ Requires=tdxfeed-sync（同步失败整轮不跑，不再拿隔夜数据出榜）
+每日 16:30 (systemd, 系统级 tdx-sync.timer) → tdxfeed-sync → 更新 parquet/daily
+每日 18:05 (systemd, 用户级) → predict-daily → LightGBM 推理 → predict_*.csv/md（daban 榜，不自动建仓）
+                          ↑ ExecStartPre=precheck_freshness.sh：同步没成/数据变陈则整轮不跑
 
 每 5 分钟 (systemd) → canary-health → canary.log + stderr 异常告警
 

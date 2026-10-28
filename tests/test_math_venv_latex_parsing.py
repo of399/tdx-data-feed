@@ -225,14 +225,6 @@ def test_no_source_line_runs_math_code_with_the_main_venv():
     )
 
 
-@pytest.mark.xfail(
-    reason=(
-        "v5/scripts/s7-mcp-servers.json 的 math-sympy.command 仍写主 venv —— 该文件当前带"
-        "另一会话未提交的改动（s7 注册名），共享工作树下不便一起提交。等那轮入库后把 command "
-        "改成数学解释器并去掉本标记转正（strict=True：改对了会红，提醒转正）。"
-    ),
-    strict=True,
-)
 def test_mcp_registration_fragment_points_math_server_at_the_math_venv():
     frag = json.loads(_read(ROOT / "v5" / "scripts" / "s7-mcp-servers.json"))
     authority = _math_interpreter()

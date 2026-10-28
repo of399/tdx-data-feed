@@ -1,0 +1,11 @@
+[Unit]
+Description=tdx-verification timer (daily at 02:00 UTC)
+Documentation=v5-implementation-plan.md §4.2 M4
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+Unit=tdx-verification.service
+
+[Install]
+WantedBy=timers.target

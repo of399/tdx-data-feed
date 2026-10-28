@@ -1,5 +1,6 @@
 [Unit]
 Description=方案 E 周报生成（每周五 20:00）
+OnFailure=onfailure-alert@plan-e-weekly.service
 
 [Service]
 Type=oneshot

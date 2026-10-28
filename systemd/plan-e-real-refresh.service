@@ -1,5 +1,6 @@
 [Unit]
 Description=方案 E 实盘样本·定期回溯调优（journal 回灌 + retune/by-year/real）
+OnFailure=onfailure-alert@plan-e-real-refresh.service
 
 [Service]
 Type=oneshot

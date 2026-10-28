@@ -2,6 +2,7 @@
 Description=Archive Obsidian reports from previous year to 08-报告/archive/YYYY.zip
 Documentation=file:///home/jiuben/tdx-data-feed/docs/obsidian_upgrade_plan_20261015.md
 After=network.target
+OnFailure=onfailure-alert@archive-obsidian-annual.service
 
 [Service]
 Type=oneshot

@@ -8,6 +8,7 @@ Description=tdx-data-feed: 同步文档到 Obsidian Vault
 # 置于 [Service] 段在 systemd 259 下会被忽略（systemd-analyze: Unknown key ... in section [Service]）。
 StartLimitIntervalSec=60
 StartLimitBurst=60
+OnFailure=onfailure-alert@obsidian-sync.service
 
 [Service]
 Type=oneshot
