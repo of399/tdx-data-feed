@@ -18,6 +18,7 @@ from .single import (
     exit_levels,
     settle_single_trade,
 )
+from .hold import HoldPlan, settle_hold_trade
 
 __all__ = [
     "LimitRule",
@@ -35,4 +36,6 @@ __all__ = [
     "entry_index",
     "exit_levels",
     "settle_single_trade",
+    "HoldPlan",
+    "settle_hold_trade",
 ]
