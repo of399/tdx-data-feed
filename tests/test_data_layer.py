@@ -102,6 +102,7 @@ def test_int64_date_roundtrip(tmp_path):
     fp = tmp_path / "x.parquet"
     df = pd.DataFrame({"date": pd.Series([20260105, 20260106], dtype="int64"), "c": [1, 2]})
     parquet_io.write_table(fp, df)
+    assert str(pq.read_schema(fp).field("date").type) == "date32[day]"
     out = pd.read_parquet(fp)
     assert out["date"].tolist() == [date(2026, 1, 5), date(2026, 1, 6)]
 
@@ -111,6 +112,7 @@ def test_nullable_int64_with_na_roundtrip(tmp_path):
     fp = tmp_path / "x.parquet"
     df = pd.DataFrame({"date": pd.Series([20260105, None], dtype="Int64"), "c": [1, 2]})
     parquet_io.write_table(fp, df)
+    assert str(pq.read_schema(fp).field("date").type) == "date32[day]"
     out = pd.read_parquet(fp)
     assert out["date"].iloc[0] == date(2026, 1, 5)
     assert pd.isna(out["date"].iloc[1])
@@ -122,6 +124,7 @@ def test_object_dtype_integer_dates(tmp_path):
     fp = tmp_path / "x.parquet"
     df = pd.DataFrame({"date": pd.Series([20260105, 20260106], dtype=object), "c": [1, 2]})
     parquet_io.write_table(fp, df)
+    assert str(pq.read_schema(fp).field("date").type) == "date32[day]"
     out = pd.read_parquet(fp)
     assert out["date"].tolist() == [date(2026, 1, 5), date(2026, 1, 6)]
 
@@ -144,8 +147,46 @@ def test_object_dtype_python_dates(tmp_path):
     df = pd.DataFrame({"date": pd.Series([date(2026, 1, 5), date(2026, 1, 6)], dtype=object),
                        "c": [1, 2]})
     parquet_io.write_table(fp, df)
+    assert str(pq.read_schema(fp).field("date").type) == "date32[day]"
     out = pd.read_parquet(fp)
     assert out["date"].tolist() == [date(2026, 1, 5), date(2026, 1, 6)]
+
+
+@pytest.mark.parametrize("series", [
+    [None, None],
+    pd.Series(pd.to_datetime([None, None])),      # 全 NaT 的 datetime64 保留 dtype，易漏
+], ids=["object", "datetime64-nat"])
+def test_all_null_date_column_stays_date32(tmp_path, series):
+    """全空列走 from_pandas 会被推断成 Arrow null（或 timestamp）类型，丢失日期口径。"""
+    fp = tmp_path / "x.parquet"
+    parquet_io.write_table(fp, pd.DataFrame({"date": series, "close": [1.0, 2.0]}))
+    assert str(pq.read_schema(fp).field("date").type) == "date32[day]"
+    assert pd.read_parquet(fp)["date"].tolist() == [None, None]
+
+
+@pytest.mark.parametrize("dtype", ["object", "datetime64[ns]"], ids=["object", "datetime64"])
+def test_zero_row_date_column_stays_date32(tmp_path, dtype):
+    fp = tmp_path / "x.parquet"
+    df = pd.DataFrame({"date": pd.Series([], dtype=dtype),
+                       "close": pd.Series([], dtype="float64")})
+    parquet_io.write_table(fp, df)
+    assert str(pq.read_schema(fp).field("date").type) == "date32[day]"
+    assert pd.read_parquet(fp)["date"].tolist() == []
+
+
+@pytest.mark.parametrize("values", [
+    [20260105, "2026-01-06"],
+    [20260105, date(2026, 1, 6)],
+    [946684800000000000, "2026-01-06"],
+    [20260105, 20260105.5],
+], ids=["int-str", "int-date", "epoch-str", "int-float"])
+def test_object_dtype_mixed_dates_rejected(tmp_path, values):
+    """混合类型是数据质量信号：猜「整数按 epoch 还是 YYYYMMDD」只能赌，必须拒绝。"""
+    df = pd.DataFrame({"date": pd.Series(values, dtype=object), "c": [1, 2]})
+    fp = tmp_path / "x.parquet"
+    with pytest.raises(ValueError, match="混合|mixed"):
+        parquet_io.write_table(fp, df)
+    assert not fp.exists()
 
 
 def test_write_table_forces_date32_and_leaves_no_tmp(tmp_path):
@@ -193,6 +234,39 @@ def test_read_minute_keeps_string_by_default(tmp_path, monkeypatch):
     assert raw["datetime"].dtype == object
     parsed = parquet_io.read_minute("600000", "60", parse_time=True)
     assert str(parsed["datetime"].dtype).startswith("datetime64")
+
+
+@pytest.mark.parametrize("raw", [
+    pd.Series(pd.to_datetime(["2026-01-05", "2026-01-06"])),          # timestamp
+    pd.Series([20260105, 20260106], dtype="int64"),                    # 存量 YYYYMMDD 整数
+    pd.Series([date(2026, 1, 5), date(2026, 1, 6)], dtype=object),     # date32 读成 object
+    pd.Series(["2026-01-05", "2026-01-06"]),                           # 字符串
+], ids=["timestamp", "int64", "object-date", "string"])
+def test_read_daily_normalizes_date_encodings(tmp_path, monkeypatch, raw):
+    """int64 若直接 to_datetime 会被当 epoch 纳秒读成 1970；其余编码都要读到同一天。"""
+    monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
+    paths.daily_dir().mkdir(parents=True)
+    pd.DataFrame({"date": raw, "close": [1.0, 2.0]}).to_parquet(
+        paths.daily_path("600000"), index=False)
+    out = parquet_io.read_daily("600000")
+    assert out["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-01-05", "2026-01-06"]
+
+
+def test_read_daily_reads_own_date32_writes(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
+    parquet_io.write_daily(_bars(2), "600000")
+    out = parquet_io.read_daily("600000")
+    assert out["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-01-05", "2026-01-06"]
+
+
+def test_read_daily_unparseable_integer_dates_raise(tmp_path, monkeypatch):
+    """epoch 纳秒整数不是 YYYYMMDD：静默变 NaT 后按 date 去重会把整片行并成一行。"""
+    monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
+    paths.daily_dir().mkdir(parents=True)
+    pd.DataFrame({"date": [1736467200000000000, 1736553600000000000],
+                  "close": [1.0, 2.0]}).to_parquet(paths.daily_path("600000"), index=False)
+    with pytest.raises(ValueError, match="YYYYMMDD"):
+        parquet_io.read_daily("600000")
 
 
 def test_read_daily_accepts_column_subset(tmp_path, monkeypatch):
