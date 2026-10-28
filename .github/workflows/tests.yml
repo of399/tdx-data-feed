@@ -32,5 +32,5 @@ jobs:
           passed=$(grep -Eo '[0-9]+ passed' /tmp/pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
           skipped=$(grep -Eo '[0-9]+ skipped' /tmp/pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
           echo "passed=${passed:-0} skipped=${skipped:-0}"
-          # CI 可达成值 = 本机 734 − 11 条本机专属 passed（v5/tests/test_ask_path_integration.py 8 + tests/test_math_unit_deployed_matches_repo.py 3，CI 无 venv-math / 无已部署单元时会 skip）= 723；再留 23 条余量给 Python 3.14 与平台差异。
+          # CI 可达成值 ≈ 718 = 本机 734 − 11 条本机专属 passed（v5/tests/test_ask_path_integration.py 8 + tests/test_math_unit_deployed_matches_repo.py 3，CI 无 venv-math / 无已部署单元时会 skip）− 5 条告警栈用例（test_alerting_pipeline.py::TestPipelineStatic，CI 无 9090/9093/8002 时 skip）；再留 18 条余量给 Python 3.14 与平台差异。
           test "${passed:-0}" -ge 700
