@@ -63,17 +63,33 @@ new（内核口径）    : 非空 9981 / 总行 13064（3083 行缺日线置空�
 本节与第 4 节所有正收益率均按 `hypothetical_pnl > 0` 计算。
 
 两行样本集仍不同（`new` 少了缺日线的 3083 行，其中 bj 正样本占多数），所以全表 66.2% → 68.0%
-**不构成升降结论**。去掉构成效应后的同集对照（新旧标签都非空的 12957 行交集）：
+**不构成升降结论**。去掉构成效应需要同集对照，按 `(code, signal_date)` 对齐，两种口径都做：
+
+**主口径：行级对齐（9981 行）。** 两份 CSV 同源同序（13064 行逐行的 `code` / `signal_date`
+已断言完全相同），取新标签非空的 9981 行，旧标签取同一批行：
 
 ```
-intersection rows=12957
-old: mean=0.1152 median=0.0709 pos=75.2%
-new: mean=0.1254 median=0.0707 pos=75.3%
-new<old 占 58.7%
+rows=9981（含 3 个键各 32 行重复，即 96 行）
+old: mean=0.1084 median=0.0709 pos=67.8%（6763/9981）
+new: mean=0.1171 median=0.0707 pos=68.0%（6785/9981）
+new<old 占 56.3%
 ```
 
-即标签口径改动基本不改分布形状（中位数、正收益率几乎不动），主要放大尾部（`min/max` 从
-`-0.1026/+0.2974` 放宽到 `-0.6278/+4.6657`）。
+**交叉核对：按键去重（9888 键）。** 两侧先 `drop_duplicates(["code", "signal_date"])` 再合并
+（各 12878 键，其中新旧标签都非空 9888 键）：
+
+```
+keys=9888
+old: mean=0.1081 median=0.0703 pos=67.5%（6670/9888）
+new: mean=0.1168 median=0.0712 pos=67.7%（6692/9888）
+new<old 占 56.2%
+```
+
+两种口径结论一致。**上一版的 12957 行是合并时未去重键造成的叉积假象，已作废**：CSV 侧有 6 个键
+各 32 行、宽表侧有 3 个键各 32 行，`9981 + 2976 = 12957`，等于把 3 个样本按 32×32 加权。
+在正确的同集对照下，标签口径改动基本不改分布形状（median 0.0709 → 0.0707、pos 67.8% → 68.0%），
+mean 0.1084 → 0.1171 的抬升来自尾部放大（`min/max` 从 `-0.1026/+0.2974` 放宽到
+`-0.6278/+4.6657`）。
 
 ## 4. 重训结果
 
@@ -201,3 +217,18 @@ cp --remove-destination -p "$BK/d_signal_5d_model_vpnl_huber.txt" data/double_up
 - 历史报告（`data/plan_e/*.md`、`docs/stage1_optuna_report.md`、`docs/COMPARE_*` 等）是旧口径产物，
   引用时须注明标签版本；旧标签/旧模型的唯一权威副本在 `data/double_up/_pre_settle_kernel_20261028/`
   （gitignored，删了就没了）。
+
+### 旧基线快照校验
+
+快照目录不进 git，删了就无法核验旧基线，故把 `MANIFEST.md` 的校验清单内联一份（2026-10-28 实测复核）：
+冻结时间 **2026-10-28T21:02:48+08:00**，冻结时 HEAD **`1c4cf69`**，阶段 1 末提交 **`d131e48`**。
+
+```
+67769de6cca10b63020e86f6b46f8e80  d_signal_5d_features_vpnl.csv        4815230 字节
+acffd29b9b8a247995b34aef853c2151  stage1_wide_table.parquet             2428962 字节
+7e1ea2bc608b60a10ee1d9a94f975292  stage1_selected_features.json            1114 字节
+bfb704b74cb71aa71646025aa2c77f97  d_signal_5d_model_vpnl_huber_stage1.txt 550595 字节
+cac1ee3d003b75db3c87f0f9c273275d  d_signal_5d_model_vpnl_huber.txt       240504 字节
+```
+
+五份文件按字节与 mtime 冻结（`cp -p`）；回滚后应逐文件 `md5sum -c` 通过。
