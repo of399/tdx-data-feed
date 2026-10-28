@@ -7,17 +7,20 @@ import numpy as np
 import pandas as pd
 
 from tdxfeed.daban.limit_price import exchange_prefix
-from tdxfeed.features_5d import get_limit, is_open_limit_up
+from tdxfeed.execution.bars import date_str
+from tdxfeed.execution.costs import CostModel
+from tdxfeed.execution.hold import HoldPlan, settle_hold_trade
+from tdxfeed.execution.limits import LimitRule
 
 
 def net_return(entry_price: float, exit_price: float, *, fee_bps: float = 2.5,
                stamp_bps: float = 5.0, slip_bps: float = 5.0) -> float:
-    fee, stamp, slip = fee_bps / 1e4, stamp_bps / 1e4, slip_bps / 1e4
-    entry_exec = entry_price * (1 + slip)
-    exit_exec = exit_price * (1 - slip)
-    if entry_exec <= 0:
+    """双边滑点 + 双边佣金 + 卖出印花税，委托 `CostModel.round_trip`（唯一费用公式）。"""
+    if entry_price <= 0:
         return float("nan")
-    return (1 - fee) * (1 - fee - stamp) * exit_exec / entry_exec - 1.0
+    cm = CostModel(commission=fee_bps / 1e4, stamp_sell=stamp_bps / 1e4,
+                   slippage=slip_bps / 1e4)
+    return cm.round_trip(entry_price, exit_price)
 
 
 def _factor(df: pd.DataFrame, idx: int) -> float:
@@ -39,48 +42,36 @@ def _skip(code: str, signal_date: str, reason: str) -> dict[str, Any]:
 def simulate_trade(df: pd.DataFrame, signal_idx: int, code: str, *,
                    exit_offset: int = 2, fee_bps: float = 2.5,
                    stamp_bps: float = 5.0, slip_bps: float = 5.0) -> dict[str, Any]:
-    """信号日 T 收盘 → T+1 开盘买入 → T+exit_offset 开盘卖出。"""
-    signal_date = str(df.at[signal_idx, "date"])[:10]
-    entry_idx = signal_idx + 1
-    if entry_idx >= len(df):
-        return _skip(code, signal_date, "no_entry")
+    """信号日 T 收盘 → T+1 开盘买入 → T+exit_offset 开盘卖出（判定委托内核 B）。"""
+    signal_date = date_str(df["date"].iloc[signal_idx])
     if exit_offset < 2:
         return _skip(code, signal_date, "t_plus_1")
-    exit_idx = signal_idx + exit_offset
-    if exit_idx >= len(df):
-        return _skip(code, signal_date, "no_exit")
-
-    entry_open = float(df.at[entry_idx, "open"])
-    entry_vol = float(df.at[entry_idx, "volume"])
-    prev_close = float(df.at[signal_idx, "close"])
-    if entry_open <= 0 or entry_vol <= 0:
-        return _skip(code, signal_date, "suspended")
-    if is_open_limit_up(entry_open, prev_close, get_limit(code)):
+    plan = HoldPlan(buy="next_open", sell="t_plus_2_open", max_defer=0,
+                    sell_offset=int(exit_offset))
+    costs = CostModel(commission=fee_bps / 1e4, stamp_sell=stamp_bps / 1e4,
+                      slippage=slip_bps / 1e4)
+    r = settle_hold_trade(df, signal_idx, plan, costs, LimitRule(code))
+    if r.status == "unbuyable_open_limit":
         return _skip(code, signal_date, "open_limit")
+    if r.status != "ok":
+        return _skip(code, signal_date, r.status)
 
-    exit_open = float(df.at[exit_idx, "open"])
-    if exit_open <= 0:
-        return _skip(code, signal_date, "no_exit")
-
-    entry_adj = entry_open * _factor(df, entry_idx)
-    exit_adj = exit_open * _factor(df, exit_idx)
-    if entry_adj <= 0:
-        return _skip(code, signal_date, "bad_price")
-    gross = exit_adj / entry_adj - 1.0
-    net = net_return(entry_adj, exit_adj, fee_bps=fee_bps,
-                     stamp_bps=stamp_bps, slip_bps=slip_bps)
+    # 净收益按复权价重算：内核按原始价结算（涨停判定必须用真实价），复权是调用方口径
+    entry_adj = r.entry_price * _factor(df, r.entry_idx)
+    exit_adj = r.exit_price * _factor(df, r.exit_idx)
     return {
         "status": "ok",
         "code": code,
         "sym": exchange_prefix(code) + code.zfill(6),
         "signal_date": signal_date,
-        "entry_date": str(df.at[entry_idx, "date"])[:10],
-        "exit_date": str(df.at[exit_idx, "date"])[:10],
-        "entry_price": round(entry_open, 4),
-        "exit_price": round(exit_open, 4),
-        "ret_gross": gross,
-        "ret_net": net,
-        "hold_days": exit_idx - entry_idx,
+        "entry_date": r.entry_date,
+        "exit_date": r.exit_date,
+        "entry_price": round(r.entry_price, 4),
+        "exit_price": round(r.exit_price, 4),
+        "ret_gross": exit_adj / entry_adj - 1.0,
+        "ret_net": net_return(entry_adj, exit_adj, fee_bps=fee_bps,
+                              stamp_bps=stamp_bps, slip_bps=slip_bps),
+        "hold_days": r.exit_idx - r.entry_idx,
     }
 
 

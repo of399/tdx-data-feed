@@ -24,6 +24,7 @@ from tdxfeed.daban.paper import (
     settle_deferred,
     upsert_rows,
 )
+from tdxfeed.execution.costs import CostModel
 
 DATES = [f"2026-09-{i:02d}" for i in range(1, 11)]
 
@@ -323,6 +324,29 @@ def test_journal_roundtrip_and_upsert():
         filled = dict(row, status="filled", sell_price=11.5)
         j3 = upsert_rows(j2, [filled])
         assert j3.iloc[0]["status"] == "pending"
+
+
+def test_net_actual_delegates_to_cost_model():
+    """shares>=100 走 CostModel.cash_pnl（costs.py 声明的「分母同定义」合同）。"""
+    from tdxfeed.daban.paper import _net_actual
+    cfg = _cfg()
+    cm = CostModel(commission=cfg.fee_bps / 1e4, min_commission=cfg.min_commission,
+                   stamp_sell=cfg.stamp_bps / 1e4, slippage=cfg.slip_bps / 1e4)
+    assert _net_actual(11.2, 11.6, 8900, cfg) == pytest.approx(
+        cm.cash_pnl(11.2, 11.6, 8900), rel=0, abs=1e-15)
+
+
+def test_net_actual_nominal_branch_stays_notional():
+    """shares<100（未入选行）按名义本金记账；换成整数股 cash_pnl 会差约 100 倍。"""
+    from tdxfeed.daban.paper import _net_actual
+    cfg = _cfg()
+    notional = cfg.position_pct * cfg.capital
+    buy, sell = notional, notional * 10.6 / 10.0
+    cost = (max(cfg.min_commission, buy * cfg.fee_bps / 1e4)
+            + max(cfg.min_commission, sell * cfg.fee_bps / 1e4)
+            + sell * cfg.stamp_bps / 1e4)
+    assert _net_actual(10.0, 10.6, 0, cfg) == pytest.approx(
+        (sell - buy - cost) / notional, rel=0, abs=1e-15)
 
 
 def test_daily_report_two_books():

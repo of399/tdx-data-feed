@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from tdxfeed.daban.topk_pnl import aggregate, net_return, simulate_trade
+from tdxfeed.execution.costs import CostModel
 
 
 def _bars(opens, closes=None, volumes=None, factors=None):
@@ -26,10 +27,9 @@ def _bars(opens, closes=None, volumes=None, factors=None):
 
 
 def test_net_return_matches_cost_formula():
-    fee, stamp, slip = 2.5 / 1e4, 5.0 / 1e4, 5.0 / 1e4
+    cm = CostModel(commission=2.5e-4, stamp_sell=5e-4, slippage=5e-4)
     got = net_return(10.0, 10.0, fee_bps=2.5, stamp_bps=5.0, slip_bps=5.0)
-    expected = (1 - fee) * (1 - fee - stamp) * (10.0 * (1 - slip)) / (10.0 * (1 + slip)) - 1
-    assert got == pytest.approx(expected, abs=1e-12)
+    assert got == pytest.approx(cm.round_trip(10.0, 10.0), abs=1e-12)
 
 
 def test_simulate_trade_buys_t1_open_and_sells_t2_open():
@@ -40,8 +40,7 @@ def test_simulate_trade_buys_t1_open_and_sells_t2_open():
     assert r["exit_date"] == "2026-10-14"
     assert r["entry_price"] == pytest.approx(10.2)
     assert r["exit_price"] == pytest.approx(10.5)
-    fee, stamp, slip = 2.5 / 1e4, 5.0 / 1e4, 5.0 / 1e4
-    expected = (1 - fee) * (1 - fee - stamp) * (10.5 * (1 - slip)) / (10.2 * (1 + slip)) - 1
+    expected = CostModel(commission=2.5e-4, stamp_sell=5e-4, slippage=5e-4).round_trip(10.2, 10.5)
     assert r["ret_net"] == pytest.approx(expected, abs=1e-12)
     assert r["ret_gross"] == pytest.approx(10.5 / 10.2 - 1, abs=1e-12)
 

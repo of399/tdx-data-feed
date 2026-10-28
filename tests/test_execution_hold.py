@@ -151,6 +151,14 @@ def test_signal_buy_with_non_positive_entry_price_is_suspended():
         assert r.status == "suspended" and r.entry_idx == 0
 
 
+def test_sell_offset_generalizes_t_plus_n_open():
+    # daban topk 的 --exit-offset 允许 >2：卖点在 signal_idx + sell_offset 的开盘
+    df = _bars([(10.0, 10.0, 10.0, 10.0), (10.0, 10.5, 9.9, 10.4),
+                (10.6, 10.8, 10.5, 10.7), (10.7, 10.9, 10.6, 10.8)])
+    r = settle_hold_trade(df, 0, HoldPlan(sell="t_plus_2_open", sell_offset=3), FREE, RULE)
+    assert r.exit_idx == 3 and r.reason == "t3_open" and r.exit_price == 10.7
+
+
 def test_net_uses_cost_model():
     df = _bars([(10.0, 10.0, 10.0, 10.0), (10.0, 10.5, 9.9, 10.4), (10.4, 10.6, 10.2, 10.5)])
     cm = CostModel(commission=0.00025, stamp_sell=0.0005, slippage=0.0005)

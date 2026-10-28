@@ -39,6 +39,7 @@ from tdxfeed.daban.limit_price import (
 )
 from tdxfeed.daban.scanner import UNIVERSE_PATH, daily_path, load_universe
 from tdxfeed.date_utils import parse_date, parse_date_series
+from tdxfeed.execution.costs import CostModel
 
 __all__ = [
     "JOURNAL_FIELDS",
@@ -336,39 +337,34 @@ def _get(bar: Any, key: str) -> Any:
     return bar.get(key)
 
 
+def _costs_for(config: PaperConfig) -> CostModel:
+    return CostModel(commission=config.fee_bps / 1e4,
+                     min_commission=config.min_commission,
+                     stamp_sell=config.stamp_bps / 1e4,
+                     slippage=config.slip_bps / 1e4)
+
+
 def _net_actual(fill: float, sell: float, shares: int, config: PaperConfig) -> float:
     """按固定 10% 名义本金估算实际成本净收益（纸盘成交价即官方价）。"""
     notional = config.position_pct * config.capital
     if fill <= 0 or sell <= 0 or notional <= 0:
         return float("nan")
+    cm = _costs_for(config)
     if shares >= 100:
-        buy_amt = fill * shares
-        sell_amt = sell * shares
-        base = buy_amt
-    else:
-        base = notional
-        buy_amt = notional
-        sell_amt = notional * sell / fill
-    fee = config.fee_bps / 1e4
-    stamp = config.stamp_bps / 1e4
-    slip = config.slip_bps / 1e4
-    commission = max(config.min_commission, buy_amt * fee) + max(
-        config.min_commission, sell_amt * fee)
-    tax = sell_amt * stamp
-    slippage = buy_amt * slip + sell_amt * slip
-    return (sell_amt - buy_amt - commission - tax - slippage) / base
+        return cm.cash_pnl(fill, sell, shares)
+    # 未入选行进不了 100 股：按名义本金记账（整数股合同表达不了 fractional shares）
+    buy_amt = notional
+    sell_amt = notional * sell / fill
+    commission = max(cm.min_commission, buy_amt * cm.commission) + max(
+        cm.min_commission, sell_amt * cm.commission)
+    tax = sell_amt * cm.stamp_sell
+    slippage = buy_amt * cm.slippage + sell_amt * cm.slippage
+    return (sell_amt - buy_amt - commission - tax - slippage) / notional
 
 
 def _actual_pnl(fill: float, sell: float, shares: int, config: PaperConfig) -> float:
-    buy_amt = fill * shares
-    sell_amt = sell * shares
-    fee = config.fee_bps / 1e4
-    stamp = config.stamp_bps / 1e4
-    slip = config.slip_bps / 1e4
-    commission = max(config.min_commission, buy_amt * fee) + max(
-        config.min_commission, sell_amt * fee)
-    return (sell_amt - buy_amt - commission - sell_amt * stamp
-            - buy_amt * slip - sell_amt * slip)
+    """book A 的绝对盈亏：同一现金合同的比率 × 买入金额。"""
+    return _costs_for(config).cash_pnl(fill, sell, shares) * (fill * shares)
 
 
 def _append_note(row: dict[str, Any], note: str) -> None:

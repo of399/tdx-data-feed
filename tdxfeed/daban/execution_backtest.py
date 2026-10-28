@@ -17,6 +17,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from tdxfeed.execution.costs import CostModel
+
 __all__ = [
     "ExecutionConfig",
     "aggregate",
@@ -44,7 +46,12 @@ class ExecutionConfig:
 
 
 def net_return(entry: float, exit_price: float, cfg: ExecutionConfig) -> float:
-    """限价买入（无买入滑点）+ 卖出滑点/双边佣金/印花税。"""
+    """限价买入（无买入滑点）+ 卖出滑点/双边佣金/印花税。
+
+    不套 `round_trip`：它把双边滑点都算上，而这里是触板价成交的限价单，
+    买入侧加 5bp 会让每笔收益凭空少 0.05%；`_exit_price` 的跌停判断读事件表
+    预计算的 `next_lim_dn` 列（数据，不是规则计算），同样不动。
+    """
     try:
         entry = float(entry)
         exit_price = float(exit_price)
@@ -52,11 +59,10 @@ def net_return(entry: float, exit_price: float, cfg: ExecutionConfig) -> float:
         return float("nan")
     if not np.isfinite(entry) or not np.isfinite(exit_price) or entry <= 0 or exit_price <= 0:
         return float("nan")
-    fee = cfg.fee_bps / 1e4
-    stamp = cfg.stamp_bps / 1e4
-    slip = cfg.slip_bps / 1e4
-    exit_exec = exit_price * (1.0 - slip)
-    return (1.0 - fee) * (1.0 - fee - stamp) * exit_exec / entry - 1.0
+    cm = CostModel(commission=cfg.fee_bps / 1e4, stamp_sell=cfg.stamp_bps / 1e4,
+                   slippage=cfg.slip_bps / 1e4)
+    sell = cm.sell(exit_price, 1)
+    return (1.0 - cm.commission) * sell.cash_in / entry - 1.0
 
 
 def select_signals(events: pd.DataFrame, cfg: ExecutionConfig) -> pd.DataFrame:

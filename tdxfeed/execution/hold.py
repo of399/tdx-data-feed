@@ -27,12 +27,14 @@ class HoldPlan:
     buy: Literal["next_open", "signal_close", "signal_limit_up"] = "next_open"
     sell: Literal["next_open", "next_close", "t_plus_2_open"] = "next_close"
     max_defer: int = DEFAULT_DEFER
+    sell_offset: int = 2   # 仅 t_plus_2_open 用：卖在 signal_idx + sell_offset 的开盘
 
 
 def _row(bars: pd.DataFrame, idx: int) -> dict:
+    """只取内核真正读的四列：开盘卖出与跌停顺延都不看 high/low。"""
     r = bars.iloc[idx]
-    return {"date": date_str(r["date"]), "open": float(r["open"]), "high": float(r["high"]),
-            "low": float(r["low"]), "close": float(r["close"]), "volume": float(r["volume"])}
+    return {"date": date_str(r["date"]), "open": float(r["open"]),
+            "close": float(r["close"]), "volume": float(r["volume"])}
 
 
 def _gap_result(entry_idx: int, bar: dict, entry_price: float, status: str) -> TradeResult:
@@ -72,8 +74,8 @@ def settle_hold_trade(bars: pd.DataFrame, signal_idx: int, plan: HoldPlan,
         return _gap_result(entry_idx, sig, 0.0, "suspended")
 
     if plan.sell == "t_plus_2_open":
-        exit_idx = signal_idx + 2
-        sell_reason = "t2_open"
+        exit_idx = signal_idx + int(plan.sell_offset)
+        sell_reason = f"t{int(plan.sell_offset)}_open"
         sell_at = "open"
     elif plan.sell == "next_open":
         exit_idx = entry_idx + 1
