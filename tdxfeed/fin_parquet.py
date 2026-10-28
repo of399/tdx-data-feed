@@ -70,8 +70,8 @@ def convert():
 
 def incremental():
     """主链路增量：核心300只 finance/xdxr，parquet 已存在则跳过（断点续传）"""
-    from corp import fetch_xdxr
-    from finance import fetch_finance
+    from tdxfeed.corp import fetch_xdxr
+    from tdxfeed.finance import fetch_finance
     with open(CORE_FILE, encoding='utf-8') as f:
         core = json.load(f)['stocks']
 
@@ -87,7 +87,7 @@ def incremental():
             skip += 1
             continue
         with contextlib.suppress(ImportError):
-            from finance import fin_to_records  # noqa: F401  # 若 finance.py 已提供
+            from tdxfeed.finance import fin_to_records  # noqa: F401  # 若 finance.py 已提供
 
         try:
             fin = fetch_finance(sym)
