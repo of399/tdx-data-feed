@@ -148,8 +148,9 @@ lint:  ## ruff check（不修改）
 	$(RUFF) check v5/ --statistics
 	@echo "$(GREEN)✓ lint 完成$(NC)"
 
-lint-all:  ## ruff check 全部代码（含 scripts）
-	$(RUFF) check . --statistics --ignore=E501 || true
+lint-all:  ## ruff 全仓：语法/未定义名阻断，其余规则只报告（存量约 200 条）
+	$(RUFF) check . --select E9,F63,F7,F82
+	@$(RUFF) check . --statistics --ignore=E501 || echo "$(YELLOW)⚠ 完整规则集仍有存量告警（不阻断）$(NC)"
 
 lint-pipeline:  ## 检查 shell 脚本中未被 pipefail 保护的管道（防 `cmd|tail` 静默吞错）
 	@echo "$(CYAN)▶ 扫描未被 pipefail 保护的 | tail/head/grep/awk/sed 管道$(NC)"
@@ -176,11 +177,15 @@ format:  ## ruff format（与 black 兼容）
 format-all:  ## format 全部
 	$(RUFF) format .
 
-typecheck:  ## mypy 类型检查
-	$(PYTHON) -m mypy v5/ --ignore-missing-imports || echo "mypy not installed"
+typecheck:  ## mypy 类型检查（存量错误不阻断；未安装才报错）
+	@$(PYTHON) -c "import mypy" >/dev/null 2>&1 || { echo "$(RED)❌ 未安装 mypy$(NC)"; exit 1; }
+	@$(PYTHON) -m mypy v5/ --ignore-missing-imports || echo "$(YELLOW)⚠ mypy 有存量错误（不阻断）$(NC)"
 
 # ============== 测试 ==============
-test:  ## 跑所有 pytest
+test:  ## 跑所有 pytest（tests/ 与 v5/tests/ 两个互不覆盖的集合）
+	cd $(ROOT) && $(PYTEST) tests/ v5/tests/ -q
+
+test-v5:  ## 只跑 v5/tests（历史入口，CI 之外）
 	cd $(ROOT) && $(PYTEST) v5/tests/ -v
 
 test-cov:  ## pytest + coverage 报告
@@ -392,11 +397,13 @@ timer-install:  ## 安装 systemd timer/path（复制到 user systemd，凡改 s
 # 名单里没有它，`make timer-disable` 就停不掉它、`make timer-status` 也看不见它。
 # 注意 `make timer-enable` 因此会一并打开试验仓产出（设计 §10 第 4 步本来就该由人显式 enable）；
 # 它只产文本不下单，真停靠 data/daban/tickets/STOP marker。
+# 每日同步已收口到系统级 tdx-sync.timer（16:30），用户级 tdxfeed-sync 不再进 enable 列表：
+# 两个都开着就是每晚跑两遍全市场同步（2026-10-28 决策）。单元文件保留在 systemd/ 以便回滚。
 timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@echo "$(CYAN)▶ 重载 systemd$(NC)"
 	systemctl --user daemon-reload
 	@echo "$(CYAN)▶ 启用 timer$(NC)"
-	@for t in tdxfeed-sync predict-daily plan-e-today plan-e-journal plan-e-double-up canary-health daban-ticket; do \
+	@for t in predict-daily plan-e-today plan-e-journal plan-e-double-up canary-health daban-ticket; do \
 		systemctl --user enable $$t.timer 2>&1 | head -1; \
 		systemctl --user start $$t.timer; \
 	done
@@ -417,10 +424,12 @@ timer-disable:  ## 禁用所有 timer 与 path 单元
 	@echo "$(GREEN)✓ 所有 timer/path 已禁用$(NC)"
 
 timer-status:  ## 查看所有 timer/path 状态
-	@echo "$(CYAN)$(BOLD)=== tdx-data-feed Timers ===$(NC)"
+	@echo "$(CYAN)$(BOLD)=== tdx-data-feed Timers (user) ===$(NC)"
 	systemctl --user list-timers --all | grep -E "tdxfeed|predict-daily|plan-e|canary|daban-ticket" || echo "  (无 timer 运行)"
 	@echo "$(CYAN)$(BOLD)--- path 单元 ---$(NC)"
 	systemctl --user list-units --all --type=path | grep -E "tdxfeed|obsidian|plan-e" || echo "  (无 path 运行)"
+	@echo "$(CYAN)$(BOLD)--- system 级 timer（/etc/systemd/system，镜像在 systemd/system/）---$(NC)"
+	systemctl list-timers --all | grep -E "tdx-|scheduler_agent|suggestion_agent|evolution_daily|audit-log|daily-fallback" || echo "  (无匹配)"
 
 timer-logs:  ## 查看 timer 日志
 	@echo "$(CYAN)$(BOLD)=== 最近日志 ===$(NC)"

@@ -1,0 +1,28 @@
+# 无数据环境的测试门禁所需的最小依赖（CI 用，本机 `make test` 仍走主 venv）。
+# 清单由 tests/ 与 v5/tests/ 的顶层 import，加上 v5 数学 server 的运行时 import 推导。
+# 训练栈（torch/transformers/llamafactory）与行情源（akshare/mootdx）不在此列：
+# 依赖它们的行为都在 tests/ 里引用了 data/ 或绝对路径，CI 由根 conftest 收集期跳过。
+pytest>=8
+# 3.x 默认 str dtype 会让 tdxfeed/daban/paper.py 的账本写入抛 TypeError
+# （tests/test_daban_paper.py::test_backfill_end_to_end 在 pandas 3.1 复现），
+# 与 requirements.lock 的 2.3.3 保持一致
+pandas>=2.2.0,<3
+numpy>=1.26.0
+pyarrow>=15.0.0
+polars>=1.0.0
+scipy>=1.13.0
+statsmodels>=0.14.0
+sympy>=1.13
+PyYAML>=6.0
+httpx>=0.27.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+# 2.x 把 Server.list_tools 换掉了，v5/mcp_servers/* 仍是 1.x 写法
+mcp>=1.2,<2
+scikit-learn>=1.5.0
+lightgbm>=4.5.0
+akshare>=1.15.50
+# ERC 组合求解（quant/multifactor/portfolio.py），tests/test_portfolio_erc.py 直接跑求解器
+cvxpy>=1.5.0
+# v5/tests/test_llm_ollama.py 是 async 用例，缺插件时 pytest 直接判失败而不是跳过
+pytest-asyncio>=0.23

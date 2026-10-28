@@ -1,0 +1,35 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: 安装测试依赖（精简集：不含训练栈与行情源）
+        run: pip install -r requirements-ci.txt
+
+      - name: 跑两个互不覆盖的测试集
+        run: |
+          set -o pipefail
+          pytest tests/ v5/tests/ -q -p no:cacheprovider 2>&1 | tee /tmp/pytest.log
+
+      - name: 通过数下限（防空跑即绿）
+        if: always()
+        run: |
+          passed=$(grep -Eo '[0-9]+ passed' /tmp/pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
+          skipped=$(grep -Eo '[0-9]+ skipped' /tmp/pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
+          echo "passed=${passed:-0} skipped=${skipped:-0}"
+          test "${passed:-0}" -ge 400
