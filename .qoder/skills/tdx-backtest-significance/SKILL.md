@@ -91,8 +91,9 @@ bootstrap 用的**跨股** σ≈20.9%/笔 窄一个数量级。这里 p 很小�
 
 新回测/模拟脚本必须委托 `tdxfeed/execution/single.py` 的 `settle_single_trade`，不要另写
 "先 TP 后 SL"的循环（2026-10-28 收编）。`plan_e_backtest._settle_from_entry` 与
-`plan_e_sim_live.simulate_trade` 现均走该内核，差异只在入场时点与 `insufficient`
-（前者 `"skip"`、后者 `"last_close"`）；闸门是 `tests/test_plan_e_backtest_exit_fills.py`
+`plan_e_sim_live.simulate_trade` 现均走该内核，差异在入场时点、`insufficient`
+（前者 `"skip"`、后者 `"last_close"`）、plan_e 另有一道 `_has_exit_window`（≥3 根判定根）预检，
+以及成本可由 CLI 覆盖；闸门是 `tests/test_plan_e_backtest_exit_fills.py`
 与 `tests/test_plan_e_sim_live_exit.py`，钉住三种情形：双触发 ⇒ SL、低开穿 SL ⇒ 开盘、
 高开穿 TP ⇒ 开盘。
 

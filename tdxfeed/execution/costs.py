@@ -67,7 +67,7 @@ class CostModel:
 
 
 # 方案 E 全链路：佣金 0.03% + 滑点 0.10%，双边，无印花税（口径见 AGENTS.md）
-PLAN_E_COSTS = CostModel(commission=0.0003, slippage=0.0010)
+PLAN_E_COSTS = CostModel(commission=0.0003, slippage=0.0010, stamp_sell=0.0)
 
 # 打板研究：佣金 2.5bp + 印花税 5bp（仅卖出）+ 滑点 5bp
 DABAN_COSTS = CostModel(commission=0.00025, stamp_sell=0.0005, slippage=0.0005)

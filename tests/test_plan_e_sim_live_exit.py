@@ -85,7 +85,10 @@ def test_no_touch_runs_to_the_clock():
 
 def test_time_exit_after_nine_bars_matches_backtest_window():
     """入场后第 9 根收盘超时（与 plan_e 的 hold_days=10 含入场根一致）。"""
-    rows = [(10.0, 10.1, 9.9, 10.0)] * 9           # rows[0] 是入场根（_bars 已前置信号日），rows[0..8] 是入场后 9 根平价
+    # _bars 会前置一根信号日：rows[0] = future[0] 入场根，rows[0..8] = 入场根 + 8 根平价；
+    # 后随第一个平价 tuple = future[9] 第 9 根判定根（TIME 出场），99.0 那根 = future[10]
+    # 只在旧手抄循环里会被读到，新内核永不访问。
+    rows = [(10.0, 10.1, 9.9, 10.0)] * 9
     df = _bars(*rows, (10.0, 10.1, 9.9, 10.0), (99.0, 99.0, 99.0, 99.0))
     res = sim.simulate_trade(df, SIGNAL_DATE, "600000")
     assert res["reason"] == "TIME"
@@ -100,7 +103,7 @@ def test_end_reason_when_window_truncated():
 
 
 def test_full_window_exactly_at_data_end_reports_time():
-    """满窗口恰好触及数据端点报 TIME（价不变）——旧实现报 END，内核按 complete 判 TIME。
+    """满窗口恰好触及数据端点报 TIME（价不变）——旧手抄循环（d5edd72 之前）报 END，内核按 complete 判 TIME。
 
     future 恰好 10 根：入场根 + 9 根判定根都齐，只是没有额外数据。END→TIME 是有意对齐
     plan_e（它同样报 TIME），价格仍是第 9 根收盘。

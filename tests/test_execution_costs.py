@@ -48,3 +48,10 @@ def test_cash_pnl_uses_fill_not_slipped_price_as_base():
 def test_presets():
     assert PLAN_E_COSTS.round_trip(10.0, 10.0) < 0
     assert DABAN_COSTS.stamp_sell == 5e-4
+
+
+def test_plan_e_costs_have_no_stamp_tax():
+    # 回测与 sim_live 共用这一个常量：印花税必须显式钉 0，别靠 dataclass 默认值隐性维持
+    assert PLAN_E_COSTS.stamp_sell == 0.0
+    assert PLAN_E_COSTS.commission == 0.0003
+    assert PLAN_E_COSTS.slippage == 0.0010
