@@ -42,8 +42,9 @@ def cmd_sync(symbol):
             inst = SourceCls()
             bars = inst.fetch_bars(symbol)
             if bars:
-                w.write_day(symbol, bars)
-                w.write_parquet(symbol, bars)
+                # merge_write 同时重建 .day，仍是双写；且按 date 合并，源端
+                # datalen=1023 不会截断已回填的全历史（见 writers.merge_write）。
+                w.merge_write(symbol, bars)
                 last = str(bars[-1][0]).replace('-', '')[:8]
                 state.update(symbol, last, len(bars))
                 print(f'sync ok [{name}]', symbol, len(bars), '根, 末日期:', last)

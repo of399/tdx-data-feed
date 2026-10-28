@@ -77,17 +77,6 @@ class Writers:
             f.write(bytes(buf))
         return p
 
-    def write_parquet(self, symbol, bars, category='daily'):
-        """bars → Parquet（通用表，v4 原料）。"""
-        d = os.path.join(self.out_root, 'parquet', category)
-        os.makedirs(d, exist_ok=True)
-        p = os.path.join(d, symbol + '.parquet')
-        df = pd.DataFrame(
-            bars, columns=['date', 'open', 'high', 'low', 'close',
-                           'volume', 'amount'])
-        df.to_parquet(p, index=False)
-        return p
-
     @staticmethod
     def _date_int(x):
         """任意日期表示 → int YYYYMMDD（统一合并键）"""
