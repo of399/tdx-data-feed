@@ -30,6 +30,15 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).parent.parent
+
+# 直跑脚本时 sys.path[0] 是 scripts/，`tdxfeed` 不在其下（与 plan_e_journal:100-106 同一处理）
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tdxfeed.execution.bars import as_bars  # noqa: E402
+from tdxfeed.execution.costs import CostModel  # noqa: E402
+from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
+
 SOURCE = ROOT / "data" / "double_up" / "d_signal_5d_features_v9.csv"
 FEATURE_BASE = [
     "limit", "prev_close", "ret_5d", "ret_3d", "max_5d_pct", "limit_up_5d",
@@ -58,10 +67,7 @@ def _load_one(code: str) -> pd.DataFrame:
 
 
 def compute_hypothetical_pnl(code: str, sig_date: pd.Timestamp) -> float | None:
-    """对单只股 sig_date 后 10 日模拟 TP/SL/HOLD 交易,返回含成本 PnL。
-
-    返回 None 表示数据不足以模拟。
-    """
+    """与 plan_e 同一结算口径的 PnL 代理标签。返回 None 表示数据不足。"""
     df = _load_one(code)
     if df.empty:
         return None
@@ -69,30 +75,17 @@ def compute_hypothetical_pnl(code: str, sig_date: pd.Timestamp) -> float | None:
     if len(sig_match) == 0:
         return None
     sig_i = int(sig_match[0])
-    future = df.iloc[sig_i + 1 : sig_i + 1 + HOLD_DAYS]
-    if len(future) < 1:
+    if sig_i + 1 >= len(df):
         return None
-    entry = float(future.iloc[0]["open"])
-    if entry <= 0 or np.isnan(entry):
+    future = df.iloc[sig_i + 1: sig_i + 1 + HOLD_DAYS].reset_index(drop=True)
+    bars = as_bars(future)
+    entry = float(bars["open"].iloc[0])
+    if not np.isfinite(entry) or entry <= 0:
         return None
-
-    exit_price = None
-    for i in range(len(future)):
-        row = future.iloc[i]
-        if row["high"] / entry - 1 >= TP:
-            exit_price = entry * (1 + TP)
-            break
-        if row["low"] / entry - 1 <= SL:
-            exit_price = entry * (1 + SL)
-            break
-    if exit_price is None:
-        if len(future) >= HOLD_DAYS:
-            exit_price = float(future.iloc[HOLD_DAYS - 1]["close"])
-        else:
-            exit_price = float(future.iloc[-1]["close"])
-
-    pnl = exit_price / entry - 1 - FEE - SLIP
-    return float(pnl)
+    plan = SingleTradePlan(judge="intrabar", tp=TP, sl=SL, hold_days=HOLD_DAYS, sl_first=True)
+    costs = CostModel(commission=FEE / 2, slippage=SLIP / 2)
+    r = settle_single_trade(bars, 0, plan, costs, insufficient="last_close")
+    return None if r is None else float(r.net_ret)
 
 
 def attach_pnl(df: pd.DataFrame, max_workers: int = 8) -> pd.DataFrame:
