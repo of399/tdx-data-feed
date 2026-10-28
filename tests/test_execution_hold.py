@@ -105,6 +105,36 @@ def test_missing_exit_bar_returns_no_exit():
     assert r.status == "no_exit"
 
 
+def test_zero_defer_forces_close_on_limit_down():
+    # max_defer=0 = 到期就走：收盘跌停也按当日收盘成交
+    df = _bars([(10.0, 10.0, 10.0, 10.0), (10.0, 10.1, 9.0, 9.0), (9.0, 9.1, 8.0, 8.9)])
+    r = settle_hold_trade(df, 0, HoldPlan(max_defer=0), FREE, RULE)
+    assert r.exit_idx == 1 and r.exit_price == 9.0
+    assert r.reason == "t1_close_forced" and r.deferred == 0
+
+
+def test_unsold_when_data_ends_during_defer():
+    df = _bars([(10.0, 10.0, 10.0, 10.0), (10.0, 10.1, 9.0, 9.0)])
+    r = settle_hold_trade(df, 0, HoldPlan(max_defer=2), FREE, RULE)
+    assert r.status == "deferred_unsold" and r.reason == "deferred_unsold"
+    assert r.deferred == 0 and r.entry_idx == 1
+
+
+def test_signal_limit_up_buy_uses_exact_ratio():
+    # 信号日收盘 10.0 → 主板涨停价 11.0（精确比例，不是阈值合同的 9.5%）
+    df = _bars([(10.0, 10.0, 10.0, 10.0), (10.0, 10.1, 9.9, 10.2), (10.3, 10.4, 10.1, 10.2)])
+    r = settle_hold_trade(df, 0, HoldPlan(buy="signal_limit_up", sell="next_open"), FREE, RULE)
+    assert r.entry_idx == 0 and r.entry_price == 11.0
+    assert r.exit_idx == 1 and r.exit_price == 10.0
+
+
+def test_next_open_sell_is_relative_to_entry_bar():
+    # buy=signal_close 时 next_open 卖在信号次根，不是 signal+2
+    df = _bars([(10.0, 10.0, 10.0, 10.0), (10.5, 10.6, 10.4, 10.5), (11.0, 11.1, 10.9, 11.0)])
+    r = settle_hold_trade(df, 0, HoldPlan(buy="signal_close", sell="next_open"), FREE, RULE)
+    assert r.entry_idx == 0 and r.exit_idx == 1 and r.exit_price == 10.5
+
+
 def test_net_uses_cost_model():
     df = _bars([(10.0, 10.0, 10.0, 10.0), (10.0, 10.5, 9.9, 10.4), (10.4, 10.6, 10.2, 10.5)])
     cm = CostModel(commission=0.00025, stamp_sell=0.0005, slippage=0.0005)
