@@ -368,16 +368,16 @@ def read_derived(code) -> pd.DataFrame
 
 | 编号 | 原文 | 实测 |
 |---|---|---|
-| C4′ | §4.2 的 47 文件统计 | 守卫口径（与 §10 的「50 个」不冲突）：**收编前**（Task 2 基线）`tests/test_no_hardcoded_data_paths.py` 的 AST 口径命中 **91 文件 / 120 行**（`scripts` 59/81、`tdxfeed` 6/7、`quant` 2/2、`mcp` 3/7、`train` 2/3、`v5` 19/20），**收编后全仓为 0**；§10 记的 50 个是「含五张表名的文件数」口径。91/120 里 tracked 部分是 89 文件 / 117 行（`train/` 在 `.gitignore:44`，CI 扫不到，那 2 个文件只在工作树改过、不入库），计划表的 90/119 是派发前预跑数，比实测少一个文件（`scripts/recompute_pnl_labels.py:30`）。另有 5 处字符串拼接型（`PK + sym`）守卫抓不到，靠 Task 3/6 的人工清单兜。 |
+| C4′ | §4.2 的 47 文件统计 | 守卫口径（与 §10 的「50 个」不冲突）：**收编前**（Task 2 基线）`tests/test_no_hardcoded_data_paths.py` 的 AST 口径命中 **91 文件 / 120 行**（`scripts` 59/81、`tdxfeed` 6/7、`quant` 2/2、`mcp` 3/7、`train` 2/3、`v5` 19/20），**收编后全仓为 0**；§10 记的 50 个是「含五张表名的文件数」口径。91/120 里 tracked 部分是 89 文件 / 117 行（`train/` 在 `.gitignore:44`，CI 扫不到，那 2 个文件只在工作树改过、不入库），计划表的 90/119 是派发前预跑数，比实测少一个文件（`scripts/recompute_pnl_labels.py:30`）。另有若干处字符串拼接型路径（如 `tdxfeed/writers.py` 的 `os.path.join(d, symbol + '.parquet')`）守卫抓不到，靠 Task 3/6 的人工清单兜。 |
 | C5 | §5.2 math 双传输工具集一致 | stdio 20 个，HTTP 23 个，HTTP 多 `math_concept_link` / `math_bilingual_translate` / `math_ontology_stats`（三个独有项在 HTTP 现序下标 9..11，不是拼在末尾，顺序按现状钉死）。parity 写成集合相等 `HTTP == stdio ∪ HTTP_ONLY`，外加长度 20/23。 |
-| C6 | §4.3 derived 是 int64 | derived 的 `date` 实为 `timestamp[ns]`（重建前快照可验）；重建目标统一到 `date32[day]`。 |
-| C7 | §4.1 第 4 个写入端是 `amount_fix.py` | `amount_fix.py` 不写盘；真正的第 4 端是 `scripts/download_universe.py`，写的是 int64 日期（收编后已改走 `write_table`）。 |
+| C6 | §4.3 derived 是 int64 | derived 的 `date` **以 `int64` 为主**（重建前快照 `data/parquet/derived_pre_settle_20261028/` 5,200 份中 5,198 份），异类只有 `sh600000` = `timestamp[ns]`、`sh600001` = `date32[day]`；重建统一到 `date32[day]`。规格 §4.3 写「int64」主体是对的，错在把单文件观测定成全表唯一类型。 |
+| C7 | §4.1 第 4 个写入端是 `amount_fix.py` | `amount_fix.py` 确实写盘（`tdxfeed/amount_fix.py:61-66`：tmp 写 + `os.replace`，`scripts/backfill_daily_amount.py --apply` 走这条），但它已委托 `Writers._write_parquet_date32` → `write_table`，不是第 4 个**独立**实现；真正独立的那一端是 `scripts/download_universe.py`，写 int64 日期（收编后已改走 `write_table`）。 |
 | C8 | §4.3 重建 5200 个 | `derived` 重建产出 **5,211** 个（canonical `daily` 5,236 中，25 只行数不足 60 个交易日，按 `compute_one` 的设计不产表）；全部 `date32[day]` / 29 列；与 daily 的行数逐只相等；无 `.v1.bak` 衍生物。重建前快照 `data/parquet/derived_pre_settle_20261028/`（`cp -al` 硬链接，5,200 文件，`MANIFEST.txt` 记 `created_at` / `git_head` / 文件数 / 体积）。 |
 | C9 | §4.1 `finance_path()` | 实际命名 `finance_parquet()`。 |
 | C10 | §4.1 分钟表写 `YYYY-MM-DD HH:MM:SS` | 时间列名是 `datetime`（`string`），`write_table` 只归一 `date` 列。 |
 | C11 | §5.1-3 第三份副本改为调用 `factors_polars` | 改调 `features_5d.compute_window_features_extended` 并取 26 键；`factors_polars` 是迁移期复刻且只接受 polars DataFrame。 |
 | C12 | §5.1-2 委托后 ST 票会变值 | 委托不带 `is_st`（无按日 ST 历史），主板阈值不变、ST 偏差仍在；实际变值的是 `689` 段，全库只有 `sh689009` 受影响（`paths.daily_files()` 里 `sh689*` 恰好 1 只）。 |
-| C13 | §5.2-1 tools.json 与注册表一致 | 名称与顺序 6/6 一致；另有 `inputSchema` 漂移 **5 个**工具、description 漂移 **9 个**工具（并集 10 个：`read_finance` / `read_xdxr` / `list_codes` / `calc_macd` / `calc_kdj` / `calc_rsi` / `calc_boll` / `calc_adj_factor` / `search` / `add_doc`，json 侧更详细），本轮只锁名称/数量/必填自洽。 |
+| C13 | §5.2-1 tools.json 与注册表一致 | 名称与顺序 6/6 一致；另有 `inputSchema` 漂移 **5 个**工具、description 漂移 **9 个**工具（并集 10 个：`read_finance` / `read_xdxr` / `list_codes` / `calc_macd` / `calc_kdj` / `calc_rsi` / `calc_boll` / `calc_adj_factor` / `search` / `add_doc`，两侧各有更详细处），本轮只锁名称/数量/必填自洽。 |
 
 C8 的口径：验收判据是「`num_rows >= 60` 的 code 全部有 derived」，不是「文件数 == daily 文件数」。
 
@@ -386,7 +386,7 @@ C12 的遗留：`quant/multifactor/factors.get_limit` 没有 ST 分支，`zt_den
 ### 遗留与观察项
 
 1. `tdxfeed/writers.py` 的 `write_day` 已是死代码（零调用），且它按整根 bar 覆写存在 1023 根截断陷阱——不要在后续任务里重新接回。
-2. `tdxfeed/full_sync.py:232` 写 manifest 时 `last_date` 落的是 bar 对象的 `repr`（实测为 `[datetime.datetime(2026, 10, 28, ...)]` 一类），5,235 条里 **5,227 条**格式坏；这是**已知债务**，读取方不得依赖该字段做新鲜度判断。
+2. `tdxfeed/full_sync.py:231` 写 manifest 时 `last_date` 落的是 bar 对象的 `repr`（实测为 `[datetime.datetime(2026, 10, 28, ...)]` 一类），5,235 条里 **5,227 条**格式坏；这是**已知债务**，读取方不得依赖该字段做新鲜度判断。（231 是 `last = str(bars[-1]).replace("-", "")` 取 repr 的那行，232 是 `state.update(sym, last, n)` 入账。）
 3. `derived` **没有调度在刷新**：2026-10-29 重建时发现它已陈旧约 17 个交易日，`sh600000 1023→6415`、`sz000001 1030→7171` 属历史截断修复。本轮只重建一次，刷新调度与新鲜度守卫未做。
 4. 下游 `train/scripts/build_v8_dataset.py`（**不入库**，`.gitignore` 的 `train/` 规则）吃 derived，derived 更新后其 dataset 需重跑；阶段 2 的对照结论内部自洽（新旧标签同源特征），不受影响。
 5. 契约措辞统一为「derived 与 daily **同集**（不足 60 个交易日除外）」。
@@ -396,3 +396,4 @@ C12 的遗留：`quant/multifactor/factors.get_limit` 没有 ST 分支，`zt_den
 9. `mcp/servers/finance_deep.py:52` 在**导入期** `mkdir`，CI 会建 `data/parquet/finance_deep/`；无害，但属副作用，记录在案。
 10. `v5/README.md` 的 math 工具数滞后（已把四处计数改为 stdio 20 / HTTP 23 并指向 `math_tool_specs.py`）；M1/M2 表格是设计期记录，未列全。
 11. 两份带日期的评审快照（`docs/WORKFLOW_REVIEW_2026-10-16.md`、`docs/WORKFLOW_REVIEW_2026-10-16-v2.md`）里「`Writers.write_day` + `write_parquet` 增量双写」的描述已在 2026-10-28 的写入口收编中失效（`Writers.write_parquet` 已删、`write_day` 成死代码）。AGENTS.md 已声明带日期 review 是一次性快照，正文不重写，只在文首各加一行提示；现状见 `AGENTS.md`「数据路径与表口径」与 `tdxfeed/parquet_io.py`。
+12. **CI 测试步在干净 runner 上原本就是红的**：`v5/tests/test_alerting_pipeline.py::TestPipelineStatic` 的 `test_01/02/03/05/06` 无跳过条件，却断言本机 prom(9090) / am(9093) / app(8002) 的 HTTP 200；根 `conftest.py` 的 `_needs_data()` 只作用于 `tests/`（`if TESTS_DIR not in path.parents: return False`），不覆盖 `v5/tests/`，所以不会被「无数据跳过」兜住。`unshare -rn`（只留 loopback）复现为 5 failed / 2 skipped。本轮给该 class 加了「三端全部不可达则 skip」的 import 期判据（skip 理由写明缺哪三端），本机栈在时行为不变；CI 阈值同期按「本机 734 减去 11 条本机专属 passed」的实测重定（见 `.github/workflows/tests.yml`）。

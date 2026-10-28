@@ -73,6 +73,22 @@ def _http_status(url, timeout=5):
         return 0, f"_err: {e}"
 
 
+def _reachable(port, timeout=0.3):
+    with socket.socket() as s:
+        s.settimeout(timeout)
+        try:
+            s.connect(("127.0.0.1", port))
+        except OSError:
+            return False
+        return True
+
+
+def _stack_absent():
+    """prom / alertmanager / app 三端全部不可达 → 本机没有可校验的告警栈。"""
+    ports = {urllib.parse.urlsplit(PM).port, urllib.parse.urlsplit(AM).port, APP_PORT}
+    return not any(_reachable(p) for p in ports)
+
+
 def _query(expr):
     return _get(f"{PM}/api/v1/query?query=" + urllib.parse.quote(expr))
 
@@ -178,6 +194,11 @@ def _stop_sink(pid):
         pass
 
 
+@pytest.mark.skipif(
+    _stack_absent(),
+    reason="本机无告警栈（127.0.0.1:9090 prom / :9093 alertmanager / :8002 app 全部不可达）；"
+           "本文件断言的是已部署栈的当前状态，无栈环境（如 CI runner）跳过",
+)
 class TestPipelineStatic:
     """非侵入式: 检查 prom / am / 5001 sink / app 当前状态"""
 

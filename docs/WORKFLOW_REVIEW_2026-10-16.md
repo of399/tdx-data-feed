@@ -1,6 +1,6 @@
 # 工作流整体审查报告 (2026-10-16 14:30)
 
-> **时效提示**：本文写于 2026-10-16；其中 `Writers.write_parquet` / `write_day` 的描述已在 2026-10-28 的写入口收编中失效，现状见 `AGENTS.md` 与 `tdxfeed/parquet_io.py`。
+> **时效提示**：本文写于 2026-10-16；其中 `Writers.write_parquet` / `write_day` 的描述已在 2026-10-28 的写入口收编中失效，现状见 `AGENTS.md` 与 `tdxfeed/parquet_io.py`。其余内容同样是 2026-10-16 的快照，不是现状规格。
 
 > 范围：`tdx-data-feed` 全栈（数据采集 → 量化策略 → 模型训练/部署 → 监控编排）
 > 方法：基于 `Makefile`、`config.yaml`、`requirements.txt`、`systemd/*`、`tdxfeed/*`、`docker-compose.yml`、`scripts/*` 实际内容的重新审查（非沿用旧 `docs/WORKFLOW.md`）
