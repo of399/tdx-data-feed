@@ -23,8 +23,8 @@ TESTS_DIR = ROOT / "tests"
 # TDX_TEST_DATA_ROOT 只给守卫测试把「数据不存在」演出来，不改真实目录。
 DATA_ROOT = Path(os.environ.get("TDX_TEST_DATA_ROOT", str(ROOT / "data")))
 _DATA_MARKERS = ("data/", "/home/jiuben")
-# 模块级显式退出：只读源码文本、不读 data/ 的模块写 `NEEDS_DATA = False`
-# （样例字符串里带 data/ 字样会被下面的分类误判）。
+# 模块级显式退出：只读源码文本、不读 data/ 的模块在**零缩进**处写 `NEEDS_DATA = False`
+# （样例字符串里带 data/ 字样会被下面的分类误判；缩进的同名行不算，避免函数内局部变量误触）。
 _OPT_OUT_LINE = "NEEDS_DATA = False"
 
 
@@ -35,7 +35,7 @@ def _needs_data(path: Path) -> bool:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return False
-    if any(line.strip() == _OPT_OUT_LINE for line in text.splitlines()):
+    if any(line.rstrip() == _OPT_OUT_LINE for line in text.splitlines()):
         return False
     return any(marker in text for marker in _DATA_MARKERS)
 
