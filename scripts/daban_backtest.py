@@ -37,6 +37,8 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
 from tdxfeed.daban.scanner import daily_path, load_universe  # noqa: E402
 from tdxfeed.daban.sector import load_industry_map  # noqa: E402
 from tdxfeed.date_utils import parse_date_series  # noqa: E402
+from tdxfeed.execution import single as _single  # noqa: E402
+from tdxfeed.execution.costs import CostModel  # noqa: E402
 
 DAILY_DIR = _ROOT / "data" / "parquet" / "daily"
 ADJ_DIR = _ROOT / "data" / "adj_factor"
@@ -57,6 +59,10 @@ class Trade:
     ret_net: float
     reason: str
     consecutive: int
+
+
+# 成交成本由调用方以 `cost`（单边合计）另扣，内核按零成本跑，避免扣两遍。
+_ZERO_COSTS = CostModel(commission=0.0, slippage=0.0)
 
 
 def load_adj(code: str) -> pd.Series | None:
@@ -236,6 +242,7 @@ def _backtest_chase(
     highs = df["high"].to_numpy()
     lows = df["low"].to_numpy()
     closes = df["close"].to_numpy()
+    vols = df["volume"].to_numpy()
     factors = _factors_of(df)
     ratio_f = _plausible_range(code, name)
     trades: list[Trade] = []
@@ -257,38 +264,50 @@ def _backtest_chase(
         ratio = limit_ratio(code, name)
         if is_sealed(entry_raw, limit_up_price(float(closes[i]), ratio)):
             continue
-        entry = entry_raw * float(factors[j])  # 复权口径买入价
+        f_j = float(factors[j])
+        entry = entry_raw * f_j  # 复权口径买入价
         if entry <= 0:
             continue
 
-        exit_price = 0.0
-        exit_date = ""
-        reason = ""
-        for k in range(j, min(j + hold, len(df))):
-            fk = float(factors[k])
-            hi_ret = float(highs[k]) * fk / entry - 1.0
-            lo_ret = float(lows[k]) * fk / entry - 1.0
-            if lo_ret <= -sl:
-                exit_price = entry * (1 - sl)
-                exit_date = dates[k]
-                reason = "止损"
-                break
-            if hi_ret >= tp:
-                exit_price = entry * (1 + tp)
-                exit_date = dates[k]
-                reason = "止盈"
-                break
-        if not reason:
-            k = min(j + hold - 1, len(df) - 1)
-            exit_price = float(closes[k]) * float(factors[k])
-            exit_date = dates[k]
-            reason = "超时"
+        n_win = min(hold, len(df) - j)
+        win = pd.DataFrame({
+            "date": dates[j:j + n_win],
+            "open": opens[j:j + n_win] * factors[j:j + n_win],
+            "high": highs[j:j + n_win] * factors[j:j + n_win],
+            "low": lows[j:j + n_win] * factors[j:j + n_win],
+            "close": closes[j:j + n_win] * factors[j:j + n_win],
+            "volume": vols[j:j + n_win],
+        })
+        plan = _single.SingleTradePlan(tp=tp, sl=-sl, hold_days=hold, sl_first=True)
+
+        # 入场当日也要判（旧实现从 k=j 起）：内核的时间窗固定从 entry+1 起（plan_e 口径），
+        # 所以这一根在调用侧用同一阶梯判。开盘价即入场价，跳空条款在这一根不会生效。
+        hit = _single.check_exit(entry, open_=entry,
+                                 high=float(win["high"].iloc[0]),
+                                 low=float(win["low"].iloc[0]),
+                                 close=float(win["close"].iloc[0]), plan=plan)
+        if hit is not None:
+            k_rel = 0
+            reason = "止损" if hit.reason == "SL" else "止盈"
+            exit_price = hit.price
+        elif n_win == 1:
+            # 数据在入场日就断了：内核窗口没有可判根会返回 None，这里按当日收盘超时
+            k_rel, reason, exit_price = 0, "超时", float(win["close"].iloc[0])
+        else:
+            r = _single.settle_single_trade(win, 0, plan, _ZERO_COSTS,
+                                            insufficient="last_close")
+            if r is None:
+                continue
+            k_rel = r.exit_idx
+            reason = {"SL": "止损", "TP": "止盈"}.get(r.reason, "超时")
+            exit_price = r.exit_price
+        exit_date = dates[j + k_rel]
         if exit_price <= 0:
             continue
         gross = exit_price / entry - 1.0
-        # 合理性闸门：买入价 = T+1 开盘，持有期内最大涨幅约 2*limit（跌停买→涨停卖），
-        # 最小约 -limit；超出即除权未补偿 / 数据异常
-        if gross < -ratio_f - 0.01 or gross > 2 * ratio_f + 0.01:
+        # 合理性闸门：买入价 = T+1 开盘（可能高于前收），此后连跌两根可超过一个 limit；
+        # 下界跟随跳空放开，否则真跳空亏损笔会被当「除权未补偿」删掉。
+        if gross < -2 * ratio_f - 0.01 or gross > 2 * ratio_f + 0.01:
             skipped += 1
             continue
         trades.append(
