@@ -136,6 +136,9 @@ def test_cmd_sync_merges_into_existing_history(tmp_path, monkeypatch, capsys):
 
     fp = _seed_daily(tmp_path / "parquet" / "daily")
     monkeypatch.setenv("TDX_OUT", str(tmp_path))
+    # get_out_root 先读 TDX_OUT，但 cfg = load_config() 是无条件的，而 CONFIG_PATH
+    # 写死成本机绝对路径——CI 的 checkout 不在那儿，不钉死就会 FileNotFoundError。
+    monkeypatch.setattr(cli, "load_config", lambda: {})
     for name in ("SinaSource", "AkshareSource", "TencentSource"):
         monkeypatch.setattr(cli, name, _StubSource)
 
