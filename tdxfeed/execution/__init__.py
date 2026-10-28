@@ -10,6 +10,14 @@ from .limits import (
     market_of,
     open_is_limit_up,
 )
+from .single import (
+    ExitHit,
+    SingleTradePlan,
+    check_exit,
+    entry_index,
+    exit_levels,
+    settle_single_trade,
+)
 
 __all__ = [
     "LimitRule",
@@ -21,4 +29,10 @@ __all__ = [
     "limit_up_price",
     "market_of",
     "open_is_limit_up",
+    "ExitHit",
+    "SingleTradePlan",
+    "check_exit",
+    "entry_index",
+    "exit_levels",
+    "settle_single_trade",
 ]
