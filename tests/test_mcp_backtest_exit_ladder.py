@@ -97,3 +97,20 @@ def test_signal_exit_and_end_exit_reasons_unchanged():
     exits[2] = True
     assert _run(mod, _frame(), exits=exits)["trades"][0]["exit_reason"] == "signal"
     assert _run(mod, _frame())["trades"][0]["exit_reason"] == "end"
+
+
+def test_gap_up_beyond_take_profit_plus_intraday_stop_settles_loss_side():
+    """开盘已在止盈线之上、日内又跌破止损线的宽幅 K 线。
+
+    迁移前的 MCP 实现先判「开盘越线」→ take_profit_gap@开盘（+40%），内核按
+    sl_first 记亏损侧（-10%）。这是本任务接受的唯一口径变化：方向是保守
+    （盈利笔记成亏损笔），与 AGENTS.md「同一根 K 线双触发时结算亏损侧」一致。
+    不要为了对齐旧行为在内核之上再加一层「开盘越线优先」的分叉。
+    """
+    mod = _load()
+    df = _frame(opens=[10, 10, 14.0, 10, 10, 10],
+                highs=[10.1, 10.1, 14.2, 10.1, 10.1, 10.1],
+                lows=[9.9, 9.9, 8.5, 9.9, 9.9, 9.9])
+    t = _run(mod, df)["trades"][0]
+    assert t["exit_reason"] == "stop_loss"
+    assert t["exit_price"] == 9.0
