@@ -38,7 +38,6 @@ import pandas as pd
 # === 路径 =================================================================
 from tdxfeed.paths import daily_dir, derived_dir  # noqa: E402
 
-ROOT = Path("/home/jiuben/tdx-data-feed")
 DAILY_DIR = daily_dir()
 DERIVED_DIR = derived_dir()
 

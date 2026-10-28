@@ -39,7 +39,6 @@ from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.writers import Writers
 from tdxfeed.paths import daily_dir  # noqa: E402
 
-ROOT = Path(__file__).parent.parent
 DAILY_DIR = daily_dir()
 
 log = logging.getLogger("incremental")
