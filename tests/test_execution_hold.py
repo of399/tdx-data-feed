@@ -159,6 +159,16 @@ def test_sell_offset_generalizes_t_plus_n_open():
     assert r.exit_idx == 3 and r.reason == "t3_open" and r.exit_price == 10.7
 
 
+def test_sell_offset_below_2_is_rejected():
+    """sell_offset<=1 会让出场落在入场当根（零收益却 ok）——必须显式拒绝，不能静默成交。"""
+    df = _bars([(10.0, 10.0, 10.0, 10.0), (10.0, 10.5, 9.9, 10.4),
+                (10.6, 10.8, 10.5, 10.7)])
+    with pytest.raises(ValueError,
+                       match=r"t_plus_2_open 至少卖在 signal_idx\+2，收到 sell_offset=1"):
+        settle_hold_trade(df, 0, HoldPlan(sell="t_plus_2_open", sell_offset=1),
+                          FREE, RULE)
+
+
 def test_net_uses_cost_model():
     df = _bars([(10.0, 10.0, 10.0, 10.0), (10.0, 10.5, 9.9, 10.4), (10.4, 10.6, 10.2, 10.5)])
     cm = CostModel(commission=0.00025, stamp_sell=0.0005, slippage=0.0005)

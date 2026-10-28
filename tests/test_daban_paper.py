@@ -327,9 +327,15 @@ def test_journal_roundtrip_and_upsert():
 
 
 def test_net_actual_delegates_to_cost_model():
-    """shares>=100 走 CostModel.cash_pnl（costs.py 声明的「分母同定义」合同）。"""
+    """shares>=100 走 CostModel.cash_pnl：成本算术只有 CostModel 一套。
+
+    鉴别力来自 slip_bps>0——此时 cash_pnl 的佣金基数是含滑点的名义额，
+    迁移前的内联公式按原始名义额算佣金：slip_bps=0 时两者只差浮点结合顺序
+    （8.3e-17，低于 abs=1e-15 的容差，钉不住回退），slip_bps=5 时差 2.6e-7，
+    把 `_net_actual` 回退成内联版本这条断言必红。
+    """
     from tdxfeed.daban.paper import _net_actual
-    cfg = _cfg()
+    cfg = _cfg(slip_bps=5.0)
     cm = CostModel(commission=cfg.fee_bps / 1e4, min_commission=cfg.min_commission,
                    stamp_sell=cfg.stamp_bps / 1e4, slippage=cfg.slip_bps / 1e4)
     assert _net_actual(11.2, 11.6, 8900, cfg) == pytest.approx(

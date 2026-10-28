@@ -74,8 +74,13 @@ def settle_hold_trade(bars: pd.DataFrame, signal_idx: int, plan: HoldPlan,
         return _gap_result(entry_idx, sig, 0.0, "suspended")
 
     if plan.sell == "t_plus_2_open":
-        exit_idx = signal_idx + int(plan.sell_offset)
-        sell_reason = f"t{int(plan.sell_offset)}_open"
+        offset = int(plan.sell_offset)
+        # sell_offset<=1 会让出场落在入场当根：零收益却 status="ok"，是静默腐化
+        if offset < 2:
+            raise ValueError(
+                f"t_plus_2_open 至少卖在 signal_idx+2，收到 sell_offset={offset}")
+        exit_idx = signal_idx + offset
+        sell_reason = f"t{offset}_open"
         sell_at = "open"
     elif plan.sell == "next_open":
         exit_idx = entry_idx + 1

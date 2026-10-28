@@ -8,6 +8,8 @@ from tdxfeed.daban import topk_pnl
 from tdxfeed.daban.execution_backtest import ExecutionConfig
 from tdxfeed.daban.execution_backtest import net_return as eb_net_return
 from tdxfeed.execution.costs import CostModel
+from tdxfeed.execution.hold import HoldPlan, settle_hold_trade
+from tdxfeed.execution.limits import LimitRule
 
 
 def _bars(n: int = 5) -> pd.DataFrame:
@@ -51,6 +53,24 @@ def test_topk_delegates_to_hold_kernel(monkeypatch):
     assert seen["plan"].buy == "next_open"
     assert seen["plan"].sell == "t_plus_2_open"
     assert seen["plan"].sell_offset == 3
+
+
+def test_suspended_entry_takes_priority_over_missing_exit_bar():
+    """锚定判定顺序：先判入场根停牌、再判出场根缺失（旧实现先判 no_exit）。
+
+    signal_idx=1 时入场根是末根（open=0、volume=0 ⇒ 停牌），而
+    t_plus_2_open/sell_offset=2 的 exit_idx=3 已越界——两条状态同时成立时
+    内核必须报 suspended。
+    """
+    df = pd.DataFrame({
+        "date": pd.date_range("2026-01-01", periods=3),
+        "open": [10.0, 10.0, 0.0], "close": [10.0, 10.4, 0.0],
+        "volume": [1e6, 1e6, 0.0],
+    })
+    costs = CostModel(commission=0.0, slippage=0.0)
+    r = settle_hold_trade(df, 1, HoldPlan(buy="next_open", sell="t_plus_2_open",
+                                          sell_offset=2), costs, LimitRule("600000"))
+    assert r.status == "suspended"
 
 
 def test_execution_backtest_keeps_limit_buy_contract():
