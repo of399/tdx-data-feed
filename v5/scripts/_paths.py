@@ -73,6 +73,7 @@ def derived_path(code: str) -> Path:
 
 
 def daily_files() -> list[Path]:
+    """active daily 文件，排除 .v1.bak 迁移备份；按文件名排序。"""
     return sorted(p for p in daily_dir().glob("*.parquet")
                   if not p.name.endswith(DAILY_BAK_SUFFIX))
 

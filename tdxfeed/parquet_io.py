@@ -15,13 +15,27 @@ import pyarrow.parquet as pq
 from .paths import daily_path, derived_path, minute_path, read_path
 
 
-def _as_date32(df: pd.DataFrame) -> pd.Series:
-    s = df["date"]
+def _as_date32(s: pd.Series) -> pd.Series:
+    if pd.api.types.is_float_dtype(s):
+        raise ValueError(
+            f"date 列 {s.name!r} 是浮点 dtype：float 会被当作 epoch 纳秒解析，"
+            "把所有值写成 1970-01-01；请先转成 YYYYMMDD 整数或字符串"
+        )
     if pd.api.types.is_datetime64_any_dtype(s):
-        return s.dt.date
-    if pd.api.types.is_integer_dtype(s):
-        return pd.to_datetime(s.astype("int64").astype(str), format="%Y%m%d").dt.date
-    return pd.to_datetime(s, errors="coerce").dt.date
+        out = s.dt.date
+    elif pd.api.types.is_integer_dtype(s):
+        out = pd.to_datetime(s.astype("Int64").astype(str), format="%Y%m%d",
+                             errors="coerce").dt.date
+    else:
+        out = pd.to_datetime(s, errors="coerce").dt.date
+    nulls_before = int(s.isna().sum())
+    newly_null = int(pd.isna(out).sum()) - nulls_before
+    if newly_null > 0:
+        raise ValueError(
+            f"date 列 {s.name!r} 有 {newly_null} 个值无法解析为日期；拒绝写盘："
+            "静默变 NaT 会让读回时按 date 去重把整片行合并掉"
+        )
+    return out
 
 
 def write_table(path: Path, df: pd.DataFrame, date_col: str = "date") -> Path:
@@ -31,7 +45,8 @@ def write_table(path: Path, df: pd.DataFrame, date_col: str = "date") -> Path:
     table = pa.Table.from_pandas(df, preserve_index=False)
     if date_col in df.columns:
         idx = table.schema.get_field_index(date_col)
-        table = table.set_column(idx, date_col, pa.array(_as_date32(df), type=pa.date32()))
+        table = table.set_column(idx, date_col,
+                                 pa.array(_as_date32(df[date_col]), type=pa.date32()))
     tmp = path.with_name(path.name + ".tmp")
     pq.write_table(table, tmp, compression="snappy")
     os.replace(tmp, path)
@@ -42,8 +57,9 @@ def read_daily(src: str | Path, columns=None) -> pd.DataFrame:
     """src 传代码（sh600519 / 600519）或 .parquet 路径；date→datetime64，升序去重。"""
     fp = Path(src) if str(src).endswith(".parquet") else daily_path(src)
     df = pd.read_parquet(read_path(fp), columns=columns)
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date", kind="mergesort").drop_duplicates("date", keep="last")
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date", kind="mergesort").drop_duplicates("date", keep="last")
     return df.reset_index(drop=True)
 
 

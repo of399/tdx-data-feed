@@ -1,8 +1,10 @@
 """路径访问器只定位不 fallback；写入口是 date32 + 原子写；v5 孪生与主包同解。"""
 from __future__ import annotations
 
+import ast
 import importlib.util
 import os
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -62,6 +64,40 @@ def _bars(n: int = 6) -> pd.DataFrame:
     })
 
 
+def test_write_table_rejects_float_date(tmp_path):
+    """float 日期被 pandas 当 epoch 纳秒，会静默全部写成 1970-01-01。"""
+    df = pd.DataFrame({"date": [20260105.0, 20260106.0], "close": [10.1, 10.2]})
+    with pytest.raises(ValueError, match="1970-01-01"):
+        parquet_io.write_table(tmp_path / "x.parquet", df)
+
+
+def test_write_table_honors_date_col(tmp_path):
+    """date_col 指定别列时，date32 只作用在那一列，不能被 date 列顶替。"""
+    fp = tmp_path / "x.parquet"
+    df = pd.DataFrame({"date": ["2026-01-05"], "td": ["2026-02-02"], "close": [10.0]})
+    parquet_io.write_table(fp, df, date_col="td")
+    out = pd.read_parquet(fp)
+    assert out["td"].iloc[0] == date(2026, 2, 2)
+    assert out["date"].iloc[0] == "2026-01-05"
+
+
+def test_write_table_rejects_unparseable_dates(tmp_path):
+    """无法解析的日期不能静默变 NaT 写盘（会在读回去重时被当成同一行）。"""
+    df = pd.DataFrame({"date": ["2026-01-05", "not-a-date"], "close": [10.0, 10.1]})
+    with pytest.raises(ValueError, match="无法解析"):
+        parquet_io.write_table(tmp_path / "x.parquet", df)
+
+
+def test_write_table_allows_preexisting_nat(tmp_path):
+    """输入本来就为空的行允许保留为空。"""
+    fp = tmp_path / "x.parquet"
+    df = pd.DataFrame({"date": ["2026-01-05", pd.NaT], "close": [10.0, 10.1]})
+    parquet_io.write_table(fp, df)
+    out = pd.read_parquet(fp)
+    assert out["date"].iloc[0] == date(2026, 1, 5)
+    assert pd.isna(out["date"].iloc[1])
+
+
 def test_write_table_forces_date32_and_leaves_no_tmp(tmp_path):
     fp = tmp_path / "x.parquet"
     parquet_io.write_table(fp, _bars())
@@ -109,6 +145,15 @@ def test_read_minute_keeps_string_by_default(tmp_path, monkeypatch):
     assert str(parsed["datetime"].dtype).startswith("datetime64")
 
 
+def test_read_daily_accepts_column_subset(tmp_path, monkeypatch):
+    """columns 里没有 date 时不做归一/排序/去重，原样返回。"""
+    monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
+    parquet_io.write_daily(_bars(), "600000")
+    out = parquet_io.read_daily("600000", columns=["close"])
+    assert list(out.columns) == ["close"]
+    assert len(out) == 6
+
+
 def test_missing_table_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
     with pytest.raises(FileNotFoundError):
@@ -134,9 +179,29 @@ def test_v5_twin_agrees_with_main_package(tmp_path, monkeypatch):
         assert v5.minute_dir(period) == paths.minute_dir(period), period
     assert v5.derived_path("sh600519") == paths.derived_path("sh600519")
     assert v5.DAILY_BAK_SUFFIX == paths.DAILY_BAK_SUFFIX
+    daily = paths.daily_dir()
+    daily.mkdir(parents=True)
+    for name in ("sh600000.parquet", "sh600000.v1.bak.parquet", "sz000001.parquet"):
+        (daily / name).write_bytes(b"")
+    adj = paths.adj_factor_dir()
+    adj.mkdir(parents=True)
+    for name in ("000001.parquet", "600000.parquet"):
+        (adj / name).write_bytes(b"")
+    assert ([p.name for p in v5.daily_files()]
+            == [p.name for p in paths.daily_files()]
+            == ["sh600000.parquet", "sz000001.parquet"])
+    assert ([p.name for p in v5.adj_factor_files()]
+            == [p.name for p in paths.adj_factor_files()]
+            == ["000001.parquet", "600000.parquet"])
 
 
 def test_v5_twin_does_not_import_main_package():
-    src = (ROOT / "v5/scripts/_paths.py").read_text(encoding="utf-8")
-    assert "import tdxfeed" not in src
-    assert "from tdxfeed" not in src
+    """只认导入语句：docstring 里提到 tdxfeed 不算耦合。"""
+    tree = ast.parse((ROOT / "v5/scripts/_paths.py").read_text(encoding="utf-8"))
+    imported: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.append(node.module or "")
+    assert [m for m in imported if m == "tdxfeed" or m.startswith("tdxfeed.")] == []
