@@ -1,0 +1,20 @@
+[Unit]
+Description=Alertmanager (W4 Prometheus 告警路由)
+Documentation=https://github.com/prometheus/alertmanager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alertmanager
+Group=alertmanager
+WorkingDirectory=/var/lib/alertmanager
+EnvironmentFile=-/etc/default/alertmanager
+ExecStart=/usr/local/bin/alertmanager $ARGS
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

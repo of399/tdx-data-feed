@@ -38,6 +38,14 @@ SCRIPTS := $(ROOT)/scripts
 V5_SCRIPTS := $(ROOT)/v5/scripts
 SYSTEMD_DIR := $(ROOT)/systemd
 USER_SYSTEMD := $(HOME)/.config/systemd/user
+
+# 白名单：make timer-install 只复制这些 unit。
+# 明确排除 pushplus-bridge.service（系统级 pushplus_bridge.service 已在跑，
+# user 级那个是历史遗留，复制过去会跟系统级抢 :5002）。
+# 新增 timer 时同时改这里和 timer-enable 循环列表。
+USER_TIMERS := predict-daily plan-e-today plan-e-journal plan-e-double-up \
+               canary-health daban-ticket tdx-clean-logs
+USER_UNIT_TEMPLATES := onfailure-alert@.service
 LOGS := $(ROOT)/logs
 DATA := $(ROOT)/data
 MODELS := /home/jiuben/models
@@ -380,12 +388,19 @@ simulate:  ## 模拟交易（START=2026-08-27 END=2026-09-25 CAPITAL=100000）
 #    再 `systemctl --user daemon-reload`；对 *.path 还需 `restart <单元>.path` 重建 inotify 监视，
 #    对处于 start-limit-hit 的单元还需 `reset-failed`。否则 systemd 加载的仍是旧文件。
 #    漂移与限流会被 `make status` / `make canary` 的 obsidian 监控持续检测并告警。
-timer-install:  ## 安装 systemd timer/path（复制到 user systemd，凡改 systemd/ 必跑）
-	@echo "$(CYAN)▶ 复制 timer/service/path 到 user systemd$(NC)"
+timer-install:  ## 安装白名单 systemd unit 到 user systemd（凡改 systemd/ 必跑）
+	@echo "$(CYAN)▶ 复制白名单 unit 到 user systemd$(NC)"
 	@mkdir -p $(USER_SYSTEMD)
-	@cp --remove-destination $(SYSTEMD_DIR)/*.service $(SYSTEMD_DIR)/*.timer $(SYSTEMD_DIR)/*.path $(USER_SYSTEMD)/
-	@echo "$(GREEN)✓ timer/path 已复制（记得 daemon-reload + 必要时 restart/reset-failed）$(NC)"
-
+	@for t in $(USER_TIMERS); do \
+	  cp --remove-destination $(SYSTEMD_DIR)/$$t.service $(USER_SYSTEMD)/; \
+	  cp --remove-destination $(SYSTEMD_DIR)/$$t.timer   $(USER_SYSTEMD)/; \
+	done
+	@for f in $(USER_UNIT_TEMPLATES); do \
+	  cp --remove-destination $(SYSTEMD_DIR)/$$f $(USER_SYSTEMD)/; \
+	done
+	@echo "$(GREEN)✓ 已安装以下 timer：$(NC)"
+	@ls -1 $(USER_SYSTEMD)/*.timer 2>/dev/null | xargs -n1 basename
+	@echo "$(CYAN)提示：改 systemd/ 后记得 systemctl --user daemon-reload$(NC)"
 # 方案 E 六只 timer 里的三只在启用列表里：2026-10-24 晚 plan-e-today（工作日 08:45 出盘前清单）
 # 与 plan-e-journal（18:10 复用那份清单归档 signals_YYYYMMDD.csv）重开，同日补上
 # plan-e-double-up（18:30 重建翻倍样本——08:45 那次的 7 日预筛只看得见 CSV 里已有的触发日，
