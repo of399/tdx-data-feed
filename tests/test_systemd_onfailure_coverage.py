@@ -1,8 +1,8 @@
 """用户级单元失败必须有人知道：每个 .service 都要挂 OnFailure。
 
-例外只有两个，理由写在下面：
-- `onfailure-alert@.service` 自己就是投递器，自指会成环；
-- `pushplus-bridge.service` 是被调用的桥，桥挂了只能靠日志与 canary。
+例外只有 `onfailure-alert@.service`：它自己就是投递器，自指会成环。
+（旧的双份告警桥里那个 user 级 `pushplus-bridge.service` 已于 2026-10-28 删除，
+现在只有系统级 `pushplus_bridge`，不在本测试的扫描范围内。）
 
 系统级单元（`systemd/system/`）不适用：模板实例只能在同一 manager 里解析，
 把 user 单元的 OnFailure 写进 /etc 下的单元等于永远不生效。
@@ -14,7 +14,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SYSTEMD = ROOT / "systemd"
-EXEMPT = {"onfailure-alert@.service", "pushplus-bridge.service"}
+EXEMPT = {"onfailure-alert@.service"}
 
 
 def _units():

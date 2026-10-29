@@ -111,7 +111,7 @@
 
 **监控栈（系统级，2026-10-22 20:40 起 active+enabled）**：`prometheus` / `alertmanager` / `grafana-server`(:3000) / `pushplus_bridge`(:5002)；Prometheus 5 个抓取目标全 up（prometheus / alertmanager / node / canary / math-sympy-http），当前 0 条 firing 规则。
 
-> 仓库里的 `systemd/pushplus-bridge.service`（user 级）**仍是 disabled**；在用的是 `/etc/systemd/system/pushplus_bridge.service`（system 级，以 jiuben 身份跑 `v5/scripts/pushplus_bridge.py`）。`onfailure-alert@` 和 Alertmanager 都往 :5002 投。
+> 告警桥只有一份单元：系统级 `/etc/systemd/system/pushplus_bridge.service`（以 jiuben 身份跑 `v5/scripts/pushplus_bridge.py`），仓库镜像 `systemd/system/pushplus_bridge.service` 由 `tests/test_systemd_system_units_mirror.py` 做字节对照。旧的名字相近的 user 级 `systemd/pushplus-bridge.service` 已于 2026-10-28 删除（`94c8f66`）。`onfailure-alert@` 和 Alertmanager 都往 :5002 投。
 
 ### 1.7 数据转换 / 辅助（5+ 个）
 
@@ -633,7 +633,7 @@ tdx-data-feed/
 - **数学服务是例外**：独立 `venv-math`（antlr4 4.11 ↔ omegaconf 4.9.* 死锁），`make verify-math` 校验，**不要在主 venv 跑**。
 - **`docker-compose.yml` 是目标架构（未实际部署）**：仓库里的 compose 栈（Ollama/PostgreSQL/Redis/Prometheus/Grafana + exporters）当前**未启用**；实际跑的监控栈见下条，是宿主机上的系统级 systemd 单元，不是容器。
 - **监控栈已在跑（2026-10-24 实测，推翻 2026-10-16 的「维持未部署」）**：`prometheus` / `alertmanager` / `grafana-server` / `pushplus_bridge` 四个**系统级**单元均 active+enabled，2026-10-22 20:40~20:41 起；Prometheus 5 个抓取目标全 up（`prometheus`/`alertmanager`/`node`/`canary`/`math-sympy-http`），当前 0 条 firing 规则；Grafana 在 :3000。当时「不部署」的理由（GPU 被 Ollama 占满、内存紧）没有复查记录。
-- **告警桥有两个同名东西，别搞混（2026-10-24 核实）**：在用的是系统级 `/etc/systemd/system/pushplus_bridge.service`（以 jiuben 身份跑 `v5/scripts/pushplus_bridge.py`，:5002，`/health` 返回 token 已配置）；2026-10-16 那次「停用」的是仓库里 `systemd/pushplus-bridge.service` 这个 **user 级**单元，至今 disabled——`docs/pushplus_bridge_status_2026-10-16.md` 里「端口 :5002 关闭」只对那次操作负责，现在 :5002 是通的。`onfailure-alert@` 和 Alertmanager 都往这个 :5002 投。
+- **告警桥的旧双单元已收口（2026-10-28）**：2026-10-16 停用的是仓库里 `systemd/pushplus-bridge.service` 这个 user 级单元，线上一直在用的是系统级 `/etc/systemd/system/pushplus_bridge.service`（以 jiuben 身份跑 `v5/scripts/pushplus_bridge.py`，:5002，`/health` 返回 token 已配置）；`94c8f66` 删掉了那个 user 级副本，现在仓库映射是 `systemd/system/pushplus_bridge.service`，与 /etc 字节一致由漂移守卫比对。`docs/pushplus_bridge_status_2026-10-16.md` 里「端口 :5002 关闭」只对那次 user 级操作负责。`onfailure-alert@` 和 Alertmanager 都往这个 :5002 投。
 - **Makefile ≠ 生产口径（已对齐）**：`make data-sync` 实为单标的 `tdxfeed.cli sync`（无参默认 `sh600000`，**不会拉全市场**）；全市场增量同步由 `make full-sync`（`tdxfeed.full_sync`，即系统级 `tdx-sync.timer` 工作日 16:30 调用的生产入口）负责。现已在 Makefile 新增 `full-sync` 目标并加注释澄清分工；改调度须同步两边，避免行为漂移。
 - **systemd 漂移铁律**：凡改 `systemd/` 下文件，提交后必须 `make timer-install` + `daemon-reload`，否则加载旧文件（被 canary 持续检测告警）。
 
