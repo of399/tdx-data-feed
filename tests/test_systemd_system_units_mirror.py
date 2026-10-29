@@ -8,6 +8,8 @@
 1. 凡是引用本仓库路径的 system 单元，仓库 `systemd/system/` 下都要有一份副本
    （`math-sympy-http.service` 例外：它在 `v5/systemd/`，由
    `tests/test_math_unit_deployed_matches_repo.py` 分层守）。本机没部署时跳过反向扫描。
+   不跑仓库代码的外部二进制服务（`EXTERNAL_SERVICES`）也登记在 `MIRRORED`：
+   反向扫描找不到它们，登记只为让第 2 条继续做字节对照。
 2. 副本与 `/etc/systemd/system/` 下的部署文件内容一致（本机无部署则跳过）。
 3. 每日同步只有一个调度源：16:30 的系统级 `tdx-sync.timer`；用户级
    `tdxfeed-sync.timer` 不再被 `make timer-enable` 启用（文件保留以便回滚）。
@@ -27,7 +29,11 @@ REPO_MARK = "/home/jiuben/tdx-data-feed"
 # math-sympy-http 有自己的一套（v5/systemd/ + 三层漂移守卫），不重复镜像。
 EXEMPT = {"math-sympy-http.service"}
 
+# 跑外部二进制、不跑仓库代码的服务：它们的 ExecStart 本来就不该出现仓库 venv。
+EXTERNAL_SERVICES = {"alertmanager.service"}
+
 MIRRORED = {
+    "alertmanager.service",
     "audit-log-rotate.service",
     "audit-log-rotate.timer",
     "daily-fallback-report.service",
@@ -96,7 +102,7 @@ def test_every_repo_referencing_system_unit_is_mirrored():
         pytest.skip("本机没有部署引用本仓库的 system 单元（CI/干净环境）")
     missing = set(deployed) - MIRRORED - EXEMPT
     assert not missing, f"运行态有单元但仓库没镜像：{sorted(missing)}"
-    stale = MIRRORED - set(deployed)
+    stale = MIRRORED - set(deployed) - EXTERNAL_SERVICES
     assert not stale, f"仓库镜像了但本机已不存在（删掉副本或补部署）：{sorted(stale)}"
 
 
@@ -121,7 +127,7 @@ def test_mirrored_services_use_the_repo_venv():
     """每条 ExecStart 都要显式指向仓库 venv —— 系统单元的 PATH 里没有它。"""
     problems = []
     for name in sorted(MIRRORED):
-        if not name.endswith(".service"):
+        if not name.endswith(".service") or name in EXTERNAL_SERVICES:
             continue
         body = _text(MIRROR / name)
         execs = re.findall(r"^ExecStart=(.+)$", body, re.M)

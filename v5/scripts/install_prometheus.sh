@@ -120,7 +120,7 @@ echo
 
 # 3. 复制 systemd unit + 配置
 echo "[3/5] 复制 systemd unit + 监控配置..."
-sudo cp "$SYSTEMD_DIR/alertmanager.service" /etc/systemd/system/alertmanager.service
+sudo cp "$ROOT_DIR/systemd/system/alertmanager.service" /etc/systemd/system/alertmanager.service
 sudo cp "$SYSTEMD_DIR/alertmanager.default" /etc/default/alertmanager
 sudo cp "$MONITOR_DIR/prometheus.yml" /etc/prometheus/prometheus.yml
 sudo cp "$MONITOR_DIR/prometheus-alerts.yml" /etc/prometheus/prometheus-alerts.yml
