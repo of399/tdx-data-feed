@@ -1,8 +1,9 @@
 """后复权因子增量更新（baostock adjustflag=1 后复权 / 3 不复权两条序列）。
 
 口径：hfq_factor = hfq_close / raw_close，raw_close 是真不复权价（adjustflag=3）。
-历史由 scripts/download_hfq_factor.py 一次性回填；那个脚本命中已存在文件即
-return 'cached'，不负责更新，所以每日维护必须走这里。
+日常增量与缺失文件补建都走这里：文件不存在（或空表）时从模块常量 BOOTSTRAP_START
+起拉全历史建表，返回 rebase:+N。旧的 scripts/download_hfq_factor.py 口径错误
+（把 adjustflag=3 当后复权），已改成拒绝运行，别再拿它补文件。
 
 旧表（2026-10-29 之前）不是后复权：那个脚本把 adjustflag=3（不复权）当成后复权，
 又用 adjustflag=2（前复权）做分母，存的实际是 1/前复权因子。本轮起按真后复权
@@ -34,6 +35,10 @@ from tdxfeed.paths import hfq_factor_dir
 socket.setdefaulttimeout(30)
 
 COLUMNS = ["code", "date", "hfq_factor", "raw_close", "hfq_close"]
+
+# 缺失文件（新上市 / 新纳入池 / 空表）从零建表的起点。与旧脚本的 START_DATE 一致，
+# 保证同一只票无论走哪条路径，历史段起点相同；已有文件的整表重拉仍取旧表首行日期。
+BOOTSTRAP_START = "2020-01-01"
 
 # 连续这么多只失败就中止整轮：登录失效时每只还要退避 3 次，不能一路拖下去。
 FAIL_ABORT = 20
@@ -149,21 +154,32 @@ def _query_retry(bs, code: str, start: str, end: str, adjustflag: str,
 
 
 def update_one(bs, code: str, out_dir: Path, today: str) -> str:
-    """单只更新。返回 ok:+N / rebase:+N / skip / empty / fail:<原因>。"""
+    """单只更新。返回 ok:+N / rebase:+N / skip / empty / fail:<原因>。
+
+    文件不存在（或空表）时从 BOOTSTRAP_START 起拉全历史建表，记 rebase:+N：
+    旧脚本已废弃，这是补缺失文件的唯一入口。只有源也回空才记 empty。
+    """
     path = Path(out_dir) / f"{code}.parquet"
     try:
         start = last_date(path)
         if start is None:
-            return "empty"
-        if start >= today:
-            return "skip"
-        old = pd.read_parquet(path)
+            bootstrap = True
+            start = BOOTSTRAP_START
+            old = pd.DataFrame(columns=COLUMNS)
+        else:
+            bootstrap = False
+            if start >= today:
+                return "skip"
+            old = pd.read_parquet(path)
         n_old = len(old)
-        old_first = str(old["date"].iloc[0])
-        old_last = str(old["date"].iloc[-1])
+        old_first = str(old["date"].iloc[0]) if n_old else start
+        old_last = str(old["date"].iloc[-1]) if n_old else ""
         hfq = _query_retry(bs, bs_code(code), start, today, "1")
         raw = _query_retry(bs, bs_code(code), start, today, "3")
         if not hfq and not raw:
+            if bootstrap:
+                # 补建的文件源里没有任何历史（未上市/已退市）：没东西可写，也不是失败。
+                return "empty"
             # 只有窗口 (start, today] 全是休市日才算 skip。窗口里本应有交易日却
             # 两条都空 = 源整体异常，记 skip 会让 5221 只全 skip 仍退 0。
             expected = last_trading_day(date.fromisoformat(today),
@@ -173,18 +189,20 @@ def update_one(bs, code: str, out_dir: Path, today: str) -> str:
             return "skip"
         if not hfq or not raw:
             return "fail:partial-empty"          # 源只回一条序列 = 数据异常，不是没行情
-        rebased = _legacy_schema(old) or _rebase_needed(old, hfq)
+        rebased = bootstrap or _legacy_schema(old) or _rebase_needed(old, hfq)
         if rebased:
-            # 起点取文件自身首行日期：源只回部分历史时下面会拦住，不能靠常量猜。
-            hfq = _query_retry(bs, bs_code(code), old_first, today, "1")
-            raw = _query_retry(bs, bs_code(code), old_first, today, "3")
+            if not bootstrap:
+                # 起点取文件自身首行日期：源只回部分历史时下面会拦住，不能靠常量猜。
+                hfq = _query_retry(bs, bs_code(code), old_first, today, "1")
+                raw = _query_retry(bs, bs_code(code), old_first, today, "3")
             old = old.iloc[0:0]                  # 整表替换
         merged = merge_rows(old, hfq, raw, code=code)
         if merged is None:
             return "fail:no-valid-rows"
         # 缩表守卫：写盘前比行数与末日期。源少回了历史就放弃本轮，原文件不动，
-        # 否则整表替换会静默把历史截断。
-        if len(merged) < n_old or str(merged["date"].iloc[-1]) < old_last:
+        # 否则整表替换会静默把历史截断。旧表为空（补建）时没有历史可比，跳过。
+        if n_old and (len(merged) < n_old
+                      or str(merged["date"].iloc[-1]) < old_last):
             return "fail:shrink"
         write_atomic(path, merged)
     except Exception as e:  # 单只失败不应中断整轮

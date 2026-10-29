@@ -1184,3 +1184,71 @@ def _query_retry(bs, code: str, start: str, end: str, adjustflag: str,
 - 既有 `test_update_one_writes_atomically` 的 `calls[0][1]` 期望从 `"2026-09-25"` 改为 `"2026-09-24"`（窗口现在含重叠日）。
 
 修完后必须重跑全量（约 35 分钟）：会再次查询所有 5221 只，其中除权的（复审按窗口内 `adj_factor<1` 扫出 ≥335 只）触发整表重拉。验收：`000513` 的 09-24 与 09-28 的 `adj_factor` 必须一致；备份仍在 `data/_archive/adj_factor_pre_batch_a_20261029`。
+
+---
+
+### Task 7: hfq_factor 纠正为真后复权并接入每日增量（执行中追加，2026-10-29）
+
+**为什么追加：** 用户要求「顺手把 hfq_factor 的问题也一并解决」。原计划把 hfq 留到后续批次，
+但实测发现它不是「陈旧」而是**内容错**，留着错误数据比停更更危险。
+
+**实测事实（2026-10-29，控制器亲测）**
+- 5221 个文件末日期全部停在 `2026-09-24`（落后 17 个交易日），无任何调度，
+  `scripts/download_hfq_factor.py` 命中已存在文件即 `return "cached"`。
+- **表名与内容不符**：该脚本用 adjustflag=2（前复权）与 3（不复权）算
+  `hfq_factor = hfq_close / qfq_close`，而 baostock 的 3 是**不复权**（实测该列与
+  `data/parquet/daily/sh600000.parquet` 的 `close` 逐日相等）。所以现有表存的是
+  `1/adj_factor`（实测首行 1.366817 = 1/0.731627），**不是后复权因子**。
+- 真后复权是 adjustflag=**1**（实测 600000 2026-09-24：flag1=120.303117、flag3=9.00，
+  因子 13.367）。
+- 仓库内零生产消费者：只有 `scripts/verify_v2.py` 数文件、`tdxfeed/adj_factor_history.py`
+  的 docstring 提到它；`adj_factor_ext` 至今 0 文件、0 调用方。
+
+**新 schema（5 列，可复算）**
+`code, date, hfq_factor, raw_close, hfq_close`，`date` 是 `date32[day]`，
+`hfq_factor = hfq_close / raw_close`。去掉原 `qfq_close`（前复权价在 `adj_factor` 表里已有）。
+
+**Interfaces（与 `tdxfeed/adj_factor.py` 同形，便于对照维护）**
+- `COLUMNS`、`bs_code(code) -> str`、`last_date(path) -> str | None`
+- `merge_rows(old, hfq, raw, code=None) -> DataFrame | None`
+- `write_atomic(path, df)`、`update_one(bs, code, out_dir, today) -> str`（`ok:+N` / `rebase:+N` / `skip` / `empty` / `fail:<原因>`）
+- `exit_code(ok, skip, fail) -> int`（与 `adj_factor.exit_code` 同判据）
+- `main(argv=None) -> int`
+
+**与 adj 的差异**
+- 后复权历史段不随新除权平移，正常只追加；重叠 1 日的用途只剩「源修订检测」：
+  若旧表 `last_date` 那天的 `hfq_close` 与新查询不一致 → 整表重拉（`rebase`）。
+- 不需要 `_stale_base`（内部单调下降是后复权的常态，不能当信号）。
+
+**Steps**
+1. 写失败测试 `tests/test_hfq_factor_update.py`（纯逻辑 + tmp_path，不联网）：
+   `bs_code`、`merge_rows` 追加去重、重叠值变化触发重拉、单边空响应记 fail、
+   缩表守卫、`exit_code` 小样本语义、`write_atomic` 不留 tmp。
+2. `venv/bin/pytest tests/test_hfq_factor_update.py -q` 确认 FAIL（模块不存在）。
+3. 实现 `tdxfeed/hfq_factor.py`（照 `adj_factor.py` 结构；`socket.setdefaulttimeout(30)`、
+   3 次退避、连续 20 只熔断）。
+4. 测试转绿；`--limit 20` 真实联网验证（期望 20 只 `rebase:+N`，因旧表内容全错）。
+5. 备份 `cp -al data/hfq_factor data/_archive/hfq_factor_pre_batch_a_20261029`，
+   再全量重建 5221 只（约 35–60 分钟），末日期应到最近交易日。
+6. `systemd/system/tdx-sync.service` 追加第三条 `ExecStartPost=-… -m tdxfeed.hfq_factor`，
+   并把 `TimeoutStartSec` 从 10800 提到 **21600**（full_sync + adj 60 分钟 + hfq 60 分钟
+   + 余量）。部署需 root（`systemd-run --user` + zenity askpass），部署后镜像守卫转绿。
+7. canary `check_data_files` 的 `tables` 增加 `hfq_factor`（同一 `allowed_trading_days=1`）。
+8. 文档：改写 `AGENTS.md` 的「hfq 陈旧陷阱」那条为「已改为真后复权 + 每日增量」；
+   `docs/WORKFLOW.md` 对应行；`tdxfeed/adj_factor_history.py` 的 docstring 里
+   「两套口径不可换算」改为「旧表是 1/前复权因子，已于 2026-10-29 重建，两套仍可能因
+   锚点不同相差常数倍，不可混用」。
+9. 提交：代码 + 测试一次；数据不入库；单元 + 部署 + canary + 文档各自带显式路径。
+
+**验收**
+- 抽查 `data/hfq_factor/600000.parquet`：2026-09-24 的 `hfq_close` ≈ 120.303117，
+  `hfq_factor` ≈ 13.367，且 `hfq_factor == hfq_close/raw_close` 全表成立。
+- 向量化核对：同一只股票在重叠区间内 `hfq_factor / adj_factor` 逐日相等（常数锚点系数）。
+  两者都是 `复权收盘 / 不复权收盘`，只是锚点不同，所以比值是常数而不是 1；实测 600000 在
+  2026-09-24 为 13.367013（该日 `adj_factor=1.0`，即锚点落在最近交易日）。
+- canary `data_files` 新增 `hfq_factor_latest` 字段且 status=ok。
+- `systemctl cat tdx-sync` 三条 `ExecStartPost`；镜像守卫绿。
+
+**明确不做**
+- 不重建 `data/adj_factor_ext`（仍 0 文件、0 消费者；等它的权威口径定了再说）。
+- 不把 hfq 与 adj 合并成一次抓取（会重写已通过复审的 `adj_factor.py`，风险大于省下的 25% 查询量）。

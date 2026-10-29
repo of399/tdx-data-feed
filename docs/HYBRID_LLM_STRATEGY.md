@@ -54,7 +54,7 @@ python -m tdxfeed.full_sync
 python -m tdxfeed.incremental --limit 100
 # 复权因子 / 后复权（ETF/北交所已于 2026-10-21 下线）
 python scripts/download_adj_factor_b.py
-python scripts/download_hfq_factor.py
+python -m tdxfeed.hfq_factor
 # 翻倍样本
 python scripts/find_double_up_c_v2.py
 ```

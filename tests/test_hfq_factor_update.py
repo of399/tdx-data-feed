@@ -11,6 +11,7 @@ from datetime import date
 import pandas as pd
 
 from tdxfeed.hfq_factor import (
+    BOOTSTRAP_START,
     COLUMNS,
     bs_code,
     exit_code,
@@ -207,6 +208,70 @@ def test_update_one_rebases_when_overlap_hfq_changed(tmp_path, monkeypatch):
     assert row["hfq_close"] == 121.50, "旧段 09-24 也按新口径"
     assert abs(row["hfq_factor"] - round(121.50 / 9.00, 6)) < 1e-9
     assert out[out["date"].astype(str) == "2026-09-23"].iloc[0]["hfq_close"] == 120.80
+
+
+def test_update_one_bootstraps_missing_file(tmp_path, monkeypatch):
+    """文件不存在：从 BOOTSTRAP_START 起拉全历史建表，返回 rebase:+N。
+
+    旧脚本已废弃，缺失文件只能靠这里补；返回 empty 会让补文件的人回去用旧脚本，
+    写出 adjustflag=3 当后复权的错表。
+    """
+    import pyarrow.parquet as pq
+
+    import tdxfeed.hfq_factor as m
+
+    calls = []
+
+    def fake_query(bs, code, start, end, flag):
+        calls.append((code, start, end, flag))
+        if flag == "1":
+            return [["2020-01-02", "121.95241008"], ["2026-09-24", "120.303117"],
+                    ["2026-09-25", "121.0"]]
+        return [["2020-01-02", "12.47"], ["2026-09-24", "9.00"],
+                ["2026-09-25", "9.05"]]
+
+    monkeypatch.setattr(m, "_query", fake_query)
+    assert update_one(object(), "600000", tmp_path, "2026-09-25") == "rebase:+3"
+    assert BOOTSTRAP_START == "2020-01-01"
+    # 补建只查一轮：起点是常量，不需要像整表重拉那样再按旧首行查一次
+    assert calls == [
+        ("sh.600000", "2020-01-01", "2026-09-25", "1"),
+        ("sh.600000", "2020-01-01", "2026-09-25", "3"),
+    ]
+    p = tmp_path / "600000.parquet"
+    out = pd.read_parquet(p)
+    assert list(out.columns) == COLUMNS
+    assert len(out) == 3, "缩表守卫在旧表为空时不能把新表判成缩表"
+    assert str(out["date"].iloc[0]) == "2020-01-02"
+    assert out.iloc[-1]["hfq_factor"] == round(121.0 / 9.05, 6)
+    assert str(pq.read_schema(p).field("date").type) == "date32[day]"
+    assert not list(tmp_path.glob("*.tmp*"))
+
+
+def test_update_one_bootstraps_empty_table(tmp_path, monkeypatch):
+    """文件在但空表（last_date 返回 None）同样走补建，不是返回 empty。"""
+    import tdxfeed.hfq_factor as m
+
+    p = tmp_path / "600000.parquet"
+    pd.DataFrame(columns=COLUMNS).to_parquet(p, index=False)
+    assert last_date(p) is None
+
+    monkeypatch.setattr(
+        m, "_query",
+        lambda bs, code, start, end, flag: (
+            [["2026-09-24", "120.303117"]] if flag == "1"
+            else [["2026-09-24", "9.00"]]))
+    assert update_one(object(), "600000", tmp_path, "2026-09-24") == "rebase:+1"
+    assert len(pd.read_parquet(p)) == 1
+
+
+def test_update_one_bootstrap_empty_source_is_empty(tmp_path, monkeypatch):
+    """文件不存在且源也回空：记 empty（没东西可写），不是 fail。"""
+    import tdxfeed.hfq_factor as m
+
+    monkeypatch.setattr(m, "_query", lambda *a, **k: [])
+    assert update_one(object(), "600000", tmp_path, "2026-09-25") == "empty"
+    assert not (tmp_path / "600000.parquet").exists()
 
 
 def test_rebase_query_starts_from_file_first_date(tmp_path, monkeypatch):

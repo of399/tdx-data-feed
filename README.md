@@ -298,8 +298,8 @@ python -m tdxfeed.full_sync                  # 主力（Sina → akshare → Ten
 # 复权因子（沪深）
 python scripts/download_adj_factor_b.py      # baostock, 2020-01-01 起
 
-# 后复权因子（hfq，2026-09 新增）
-python scripts/download_hfq_factor.py        # → data/hfq_factor/
+# 后复权因子（hfq；2026-10-29 起为真后复权 + 每日增量，缺失文件自动从 2020-01-01 建表）
+python -m tdxfeed.hfq_factor                 # → data/hfq_factor/
 
 # 北交所 / ETF 数据已于 2026-10-21 下线，相关脚本仅保留弃用提示
 
@@ -419,7 +419,7 @@ systemctl --user list-timers --all
 | `scripts/verify_v2.py` | 端到端验证（schema + predict 抽样 + canary）| `venv/bin/python scripts/verify_v2.py` |
 | `tdxfeed/incremental.py` | 增量更新（Tencent 主源 + Akshare + Sina 兜底，写 v2 schema）| `venv/bin/python -m tdxfeed.incremental` |
 | `scripts/download_etf_bond.py` | **已下线**（ETF 数据 2026-10-21 移除；脚本仅保留弃用提示）| — |
-| `scripts/download_hfq_factor.py` | 后复权因子下载 | `venv/bin/python scripts/download_hfq_factor.py` |
+| `scripts/download_hfq_factor.py` | **已废弃**（2026-10-29：把 adjustflag=3 当后复权，写出的表是错的；脚本改为拒绝运行）| 改用 `venv/bin/python -m tdxfeed.hfq_factor` |
 | `tdxfeed/symbols.py` | 扩展 `group()` / `sym_of_sina()` / `market_of()`（含 bj 类别与 ETF/可转债前缀）| （库）|
 
 #### 3.8.3 关键工程发现（2026-09-27）
@@ -1120,7 +1120,7 @@ tail -f logs/canary.log
 |---|---|---|
 | 数据采集（主力）| `python -m tdxfeed.full_sync` | Sina → akshare → Tencent 多源兜底 |
 | 沪深复权因子 | `python scripts/download_adj_factor_b.py` | baostock 2020-01-01 起 |
-| 后复权因子 | `python scripts/download_hfq_factor.py` | → `data/hfq_factor/`（v2 新增）|
+| 后复权因子 | `python -m tdxfeed.hfq_factor` | → `data/hfq_factor/`；2026-10-29 起真后复权（adjustflag=1/3）+ 每日增量 |
 | 北交所 / ETF 日 K | — | **已下线（2026-10-21）**，脚本仅保留弃用提示 |
 | **增量更新** | `python -m tdxfeed.incremental` | **v2 新增**：Tencent 主源，写 date32 |
 | **schema 合规扫描** | `python scripts/check_schema.py` | **v2 新增** |

@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
-"""下载后复权因子（hfq）到 data/hfq_factor/{code}.parquet。
+"""**已废弃**（2026-10-29）：口径错误，勿调用；替代入口 `python -m tdxfeed.hfq_factor`。
 
-【一次性回填脚本 · 不要用它刷新数据】
-- 命中已存在文件即 `return "cached"`，不负责更新——拿它当更新器用不会刷新任何数据。
-  日常增量走 `venv/bin/python -m tdxfeed.hfq_factor`（`tdx-sync.service` 的第三条
-  `ExecStartPost=-`）。
-- **旧逻辑把 baostock adjustflag=3 当后复权是错的**：3 是**不复权**（实测与
+下载后复权因子（hfq）到 data/hfq_factor/{code}.parquet —— 旧实现，只作历史留档。
+- 旧逻辑把 baostock adjustflag=3 当后复权是错的：3 是**不复权**（实测与
   data/parquet/daily 的 close 逐日相等），2 才是前复权。所以本脚本算出的
   `hfq_factor = hfq_close / qfq_close` 实际是 **1/前复权因子**，不是后复权因子。
+- 它命中已存在文件即 `return "cached"`，不负责更新；缺失文件也不该拿它补——
+  `main()` 现在直接拒绝运行（退出码 1，在任何参数解析与写盘之前）。
 - 2026-10-29 起 data/hfq_factor/ 已按真后复权重建：adjustflag=1（后复权）与
   adjustflag=3（不复权），`hfq_factor = hfq_close / raw_close`，schema 为
-  code/date/hfq_factor/raw_close/hfq_close（`date` 是 date32[day]）。
-- 本文件保留旧列名与旧算法只是历史留档；不要据本文档重跑覆盖新表。
-
-用法（仅历史参考；新入口见上）:
-    venv/bin/python scripts/download_hfq_factor.py --limit 100
-    venv/bin/python scripts/download_hfq_factor.py --codes-file scripts/missing_adj.txt
+  code/date/hfq_factor/raw_close/hfq_close（`date` 是 date32[day]）。增量与补建
+  都走 `venv/bin/python -m tdxfeed.hfq_factor`（缺失文件从 2020-01-01 起建表）。
+- 函数体保留不删是仓库约定（退役脚本留文件便于回滚）；要回滚得连同 `main()`
+  开头的拒绝一起删掉，并清楚它写出的表是错口径。
 """
 from __future__ import annotations
 
@@ -34,13 +31,14 @@ socket.setdefaulttimeout(30)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pandas as pd
+import pandas as pd  # noqa: E402
 from _common import hfq_factor_dir  # noqa: E402
 
 from tdxfeed.parquet_io import write_table  # noqa: E402
 
 OUT_DIR = hfq_factor_dir()
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+# OUT_DIR.mkdir() 随废弃一并移除：import 阶段不许有任何写盘动作（main() 在参数解析前
+# 就退出，`--limit 1` 之类必须连目录都不碰）。回滚本脚本时在 fetch_one 开头自行补建。
 ALL_STOCKS = Path("/home/jiuben/tdx-data-feed/data/all_a_stocks.json")
 LOG = Path("/tmp/hfq_factor.log")
 
@@ -125,6 +123,11 @@ def fetch_one(bs, code: str, max_retries: int = 3) -> str:
 
 
 def main() -> None:
+    # 拒绝运行放在第一行：参数解析、baostock 登录、任何写盘都在它之后，全部不可达。
+    print("已废弃：该脚本把 adjustflag=3（不复权）当作后复权，写出的表是错的。\n"
+          "请改用: venv/bin/python -m tdxfeed.hfq_factor", file=sys.stderr)
+    sys.exit(1)
+
     ap = argparse.ArgumentParser(description="下载后复权因子")
     ap.add_argument("--limit", type=int, default=0, help="最多处理 N 只")
     ap.add_argument("--codes-file", help="代码列表文件")
