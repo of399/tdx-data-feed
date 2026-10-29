@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import sys
 from datetime import datetime
@@ -31,6 +32,7 @@ sys.path.insert(0, str(ROOT / "tdxfeed"))
 
 from _common import daily_dir  # noqa: E402
 
+from tdxfeed import adjusted  # noqa: E402
 from tdxfeed.daban.sector import load_industry_map  # noqa: E402
 from tdxfeed.daban.sector_features import (  # noqa: E402
     EXTRA_FEATURE_COLS,
@@ -82,6 +84,9 @@ def build_dataset(
     extra_lookup=None,
     industry_map: dict | None = None,
     sample_space: str = "all",
+    price_basis: str = "raw",
+    exclude_symbols: set[str] | None = None,
+    hfq_skipped_out: Path | None = None,
 ) -> pd.DataFrame:
     files = iter_stock_files(limit)
     print(f"遍历 {len(files)} 只股票 ...")
@@ -89,9 +94,13 @@ def build_dataset(
         print("  [开关] exclude_open_limit=True -> 剔除 T 日开盘即涨停(不可买入)样本")
     rng = random.Random(RANDOM_SEED)
     rows = []
+    hfq_skipped: list[str] = []
     n_pos = n_neg = 0
     n_excluded = 0
     for i, (code, fp) in enumerate(files):
+        symbol = fp.stem                     # sh600000：排除与跳过都按它记账
+        if exclude_symbols and symbol in exclude_symbols:
+            continue
         try:
             df = pd.read_parquet(fp)
         except Exception:
@@ -99,6 +108,19 @@ def build_dataset(
         if len(df) < 30:
             continue
         df = df.sort_values("date").reset_index(drop=True)
+        frame_hfq = None
+        if price_basis == "hfq":
+            f_hfq = adjusted.frame(symbol, kind="hfq", strict=False)
+            if f_hfq.attrs.get("factor_cov", 0.0) < adjusted.MIN_FACTOR_COV:
+                hfq_skipped.append(symbol)       # 缺因子 / 同码错配 → 整只跳过
+                continue
+            f_hfq = f_hfq.sort_values("date").reset_index(drop=True)
+            if len(f_hfq) != len(df) or not (
+                    pd.to_datetime(f_hfq["date"]).reset_index(drop=True)
+                    .equals(pd.to_datetime(df["date"]))):
+                hfq_skipped.append(symbol)       # 两帧不同日就不能用同一 sig_idx
+                continue
+            frame_hfq = f_hfq
         limit_val = get_limit(code)
         close = df["close"].values
         openp = df["open"].values
@@ -137,7 +159,8 @@ def build_dataset(
             neg_idx = rng.sample(neg_idx, n_neg_pick)
 
         for sig_idx in pos_idx + neg_idx:
-            feat = compute_window_features_extended(df, code, sig_idx=sig_idx)
+            feat = compute_window_features_extended(df, code, sig_idx=sig_idx,
+                                                    frame_hfq=frame_hfq)
             if feat is None:
                 continue
             label = 1 if sig_idx in pos_idx else 0
@@ -159,6 +182,10 @@ def build_dataset(
     print(f"完成: 正样本 {n_pos}, 负样本 {n_neg}")
     if exclude_open_limit:
         print(f"       (剔除 T 日开盘即涨停样本 {n_excluded} 条)")
+    if hfq_skipped_out is not None:
+        hfq_skipped_out.write_text(
+            json.dumps({"symbols": sorted(set(hfq_skipped))}), encoding="utf-8")
+        print(f"       (hfq 覆盖不足跳过 {len(set(hfq_skipped))} 只 -> {hfq_skipped_out})")
     return pd.DataFrame(rows)
 
 
@@ -205,10 +232,11 @@ def train(df: pd.DataFrame, model_out: Path | None = None) -> dict:
             "best_iter": model.best_iteration}
 
 
-def write_report(r: dict, report_out: Path | None = None) -> None:
+def write_report(r: dict, report_out: Path | None = None, basis: str = "raw") -> None:
     report_out = REPORT_OUT if report_out is None else report_out
     lines = [f"# 打板专用模型训练报告 ({datetime.now():%Y-%m-%d %H:%M})", "",
              f"- 样本: train {r['train_n']} / test {r['test_n']} (切分 {SPLIT_DATE})",
+             f"- 价格口径: {basis}",
              f"- scale_pos_weight: {r['scale']:.1f}",
              f"- best_iter: {r['best_iter']}",
              f"- **OOS AUC: {r['auc']:.4f}**", "",
@@ -239,6 +267,11 @@ def main() -> int:
     ap.add_argument("--tag", default="",
                     help="输出文件后缀, 如 'tradable' -> d_signal_5d_model_daban_tradable.txt "
                          "(留空=覆盖现役模型, 仅在确认切换时才应使用)")
+    ap.add_argument("--price-basis", choices=["raw", "hfq"], default="raw")
+    ap.add_argument("--exclude-symbols-file", default="",
+                    help='JSON {"symbols": [...]}；这些 symbol 在抽样前整只跳过（双跑对齐）')
+    ap.add_argument("--hfq-skipped-out", default="",
+                    help='hfq 模式下覆盖率不足被跳过的 symbol 写到 {"symbols": [...]}')
     args = ap.parse_args()
 
     # 输出路径：默认走现役路径(保持可复现)；带 --tag 则独立输出，保护对照组
@@ -255,18 +288,25 @@ def main() -> int:
             return 1
         print(f"[开关] extra_features=sec_lag1 → 追加 {len(EXTRA_FEATURE_COLS)} 维板块特征（lag=1）")
 
+    exclude_symbols = set()
+    if args.exclude_symbols_file:
+        exclude_symbols = set(json.loads(
+            Path(args.exclude_symbols_file).read_text(encoding="utf-8"))["symbols"])
     df = build_dataset(
         args.limit,
         exclude_open_limit=args.exclude_open_limit,
         extra_lookup=extra_lookup,
         industry_map=industry_map,
         sample_space=args.sample_space,
+        price_basis=args.price_basis,
+        exclude_symbols=exclude_symbols,
+        hfq_skipped_out=(Path(args.hfq_skipped_out) if args.hfq_skipped_out else None),
     )
     if df.empty:
         print("❌ 无样本", file=sys.stderr)
         return 1
     r = train(df, model_out=model_out)
-    write_report(r, report_out=report_out)
+    write_report(r, report_out=report_out, basis=args.price_basis)
     print(f"\n=== ✅ 完成 === OOS AUC={r['auc']:.4f}")
     print("  验收: AUC > 0.60 才考虑切换实盘(替代 vpnl_huber_stage1)")
     return 0
