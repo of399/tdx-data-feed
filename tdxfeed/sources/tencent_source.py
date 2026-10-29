@@ -6,8 +6,9 @@
 
 注意：腾讯接口不含成交额(amount)字段，amount 列填 0 并在写盘时标记 source=tencent。
 这台每行末尾还多几列（{},'换手','成交额(万元)'…），列 0-5 与 gtimg 相同，本适配器只取 0-5。
-源列序 [date, open, close, high, low, volume(手)]，volume 单位=手，直取不 ÷100
-（÷100 只对 Sina 成立，Sina 吐的是股：sina_source.py:45 两源单位不同，抄混过一次）。
+源列序 [date, open, close, high, low, volume]。主板/创业板 volume 是手，直取；
+科创板（sh688/sh689）三台入口都回股，按代码折算（tdxfeed/volume_units.py）。
+Sina 吐股是另一回事（sina_source.py:45），别把两条规则混在一起。
 【v2 修复】OHLC 解析改为按列索引取值（原版本误用 float(row) 整行）。
 """
 import json
@@ -15,6 +16,7 @@ import time
 import urllib.request
 
 from tdxfeed.sources.base import DataSource
+from tdxfeed.volume_units import to_hands
 
 
 class TencentSource(DataSource):
@@ -41,15 +43,14 @@ class TencentSource(DataSource):
                     raise RuntimeError('腾讯返回空数据')
                 bars = []
                 for row in rows:
-                    # 腾讯日K 列序: [date, open, close, high, low, volume(手)]
-                    # 单位=手，与库里 daily parquet 同口径，不能再 ÷100
+                    # 腾讯日K 列序: [date, open, close, high, low, volume]
                     bars.append([
                         self.normalize_date(str(row[0]).replace('-', '')),
                         float(row[1]),   # open
                         float(row[3]),   # high
                         float(row[4]),   # low
                         float(row[2]),   # close
-                        float(row[5]),   # 手
+                        to_hands(symbol, float(row[5])),   # 科创板源=股，其余=手
                         0.0,             # 腾讯无成交额，本适配器一律填 0，不猜
                     ])
                 return bars

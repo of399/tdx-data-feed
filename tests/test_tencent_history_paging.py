@@ -200,6 +200,19 @@ def test_newfqkline_extra_columns_do_not_shift_the_bar():
     assert _to_bar(row) == [19991110, 29.50, 29.80, 27.00, 27.75, 1740850.55, 0.0]
 
 
+def test_star_volume_shares_converted_to_hands():
+    """2026-10-30 实测：腾讯对科创板（sh688/sh689）volume 回的是股（688981 当日
+    24829754，本地档案 248298 手），主板/创业板回手（600000 当日 753949 两边一致）。
+    深取段直接落盘会在同一只票里造出 100 倍单位断层，转换必须收在适配器里。"""
+    from tdxfeed.history_paging import _to_bar
+
+    row = ["2026-10-29", "10.00", "10.50", "10.60", "9.90", "24829754"]
+    assert _to_bar(row, "sh688981")[5] == pytest.approx(248297.54)
+    assert _to_bar(row, "sh689009")[5] == pytest.approx(248297.54)
+    assert _to_bar(row, "sh600000")[5] == pytest.approx(24829754.0)
+    assert _to_bar(row, "sz300339")[5] == pytest.approx(24829754.0)
+
+
 def test_waf_rejection_backs_off_instead_of_hammering(monkeypatch):
     """全部域都被拒时，重试间隔必须整体上移到分钟级：秒级砸 IP 只会延长封禁。"""
     import tdxfeed.history_paging as hp

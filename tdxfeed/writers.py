@@ -116,7 +116,7 @@ class Writers:
                 om = float(old['volume'].median())
                 nm = float(new['volume'].median())
                 if om > 0 and nm > 0:
-                    ratio = nm / om if om > nm else om / nm
+                    ratio = max(nm, om) / min(nm, om)
                     if ratio > 50:
                         print(f'[单位告警] {symbol}: 新vol中位={nm:,.0f} vs 旧={om:,.0f} '
                               f'相差{ratio:.0f}倍，疑似 volume 单位不一致，请核对')

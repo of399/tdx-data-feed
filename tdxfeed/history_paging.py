@@ -18,6 +18,8 @@ import json
 import time
 import urllib.request
 
+from tdxfeed.volume_units import to_hands
+
 # 上限由服务端参数校验决定，不是区间里的自然日数：2000 可用、2100 被拒，
 # 取 1024 留一半余量（服务端哪天收紧阈值也不至于立刻变成静默空返回）。
 PAGE_CAP = 1024
@@ -92,16 +94,19 @@ def http_page(sym: str, end: str, count: int, adjust: str = "") -> list:
     raise RuntimeError(f"腾讯页请求失败 {sym} end={end}: {last!s}")
 
 
-def _to_bar(row: list) -> list:
-    """源行 [date, open, close, high, low, volume(手)] → bar 契约（date 为 int YYYYMMDD）。"""
+def _to_bar(row: list, sym: str = "") -> list:
+    """源行 [date, open, close, high, low, volume] → bar 契约（date 为 int YYYYMMDD, volume 手）。
+
+    科创板源 volume 是股（见 tdxfeed/volume_units.py），必须按代码折算。
+    """
     return [int(str(row[0]).replace("-", "")),
             float(row[1]), float(row[3]), float(row[4]), float(row[2]),
-            float(row[5]), 0.0]
+            to_hands(sym, float(row[5])), 0.0]
 
 
 def _default_page(sym: str, end: str, count: int, adjust: str = ""):
     raw = http_page(sym, end, count, adjust)
-    return [_to_bar(r) for r in raw], raw
+    return [_to_bar(r, sym) for r in raw], raw
 
 
 def fetch_history(symbol: str, want_from: str, *, fetch_page=None,
