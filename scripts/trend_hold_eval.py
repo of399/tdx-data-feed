@@ -8,11 +8,11 @@
 - **复权**：raw OHLC × `data/adj_factor/{code}.parquet` 的 `adj_factor`（前复权）。
   实测 `qfq_close == raw_close × adj_factor`（误差 ~1e-15），除权跳空被吸收
   （601088 在 2025-07-07 原始 −8.16% → 复权 −2.81%）。
-  **不能用 `data/hfq_factor/` 的 `hfq_close`**：那份文件的 hfq_close 与未复权价逐日相等
-  （factor 恒 1，实测 5 只票全样本如此），乘上去等于没复权。
+  **不用 `data/hfq_factor/`**：该目录 2026-10-29 已重建为真后复权（此前的内容是
+  1/前复权因子，乘上去等于没复权）；本脚本口径是前复权，两套锚点不同，不可混用。
   `data/parquet/daily/` 本身是未复权（`_audit_adjust_convention.csv` 判 raw/raw），
   用未复权价算 MA(C,250)/HHV(C,250) 会把除权缺口当成破位，趋势条件必然失真。
-  因子表覆盖 2020-01-02~2026-09-24，之后按 1.0 顺延；若 9-24 后又除权，尾部收益略有偏差。
+  因子表由每日增量维护（末日期 T-1）；缺失日期按前值填充，无前值才取 1.0。
 - **成本**：复用 `execution_backtest.net_return` + `ExecutionConfig` 缺省
   （双边佣金 2.5bp + 印花税 5bp + 卖出滑点 5bp ≈ 15bp 一个来回）。
 - **可买性**：T 日收盘涨停视为买不进，信号与基线**同样剔除**。
@@ -298,7 +298,7 @@ def main() -> int:
     out.write_text(json.dumps({
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "window": [args.start, args.end],
-        "adjust": "raw × data/adj_factor.adj_factor（前复权）；hfq_factor 目录的 hfq_close 未复权，不可用",
+        "adjust": "raw × data/adj_factor.adj_factor（前复权）；hfq_factor 目录是真后复权（2026-10-29 重建），锚点不同不可混用",
         "execution": ExecutionConfig().to_dict(),
         "gates": {"min_bars": MIN_BARS, "amt20_floor": AMT_FLOOR, "exclude_st": True,
                   "exclude_sealed_close": True, "near_high_ratio": NEAR_HIGH,

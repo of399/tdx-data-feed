@@ -8,9 +8,9 @@
 |---|---|
 | `download_universe.py` | 全市场日 K 同步（**仅沪深股票**；ETF/北交所/债券均已下线） |
 | `download_etf_bond.py` | **已下线**（ETF 数据 2026-10-21 移除，脚本仅保留弃用提示） |
-| `download_adj_factor_b.py` / `_watch.py` | 沪深复权因子下载 + 监控（`_bj.py` 已下线） |
+| `download_adj_factor_b.py` / `_watch.py` | 沪深复权因子**一次性回填** + 监控（命中已存在文件即跳过；日常更新走 `python -m tdxfeed.adj_factor`；`_bj.py` 已下线） |
 | `download_bj_daily.py` | **已下线**（北交所数据 2026-10-21 移除，脚本仅保留弃用提示） |
-| `download_hfq_factor.py` | 后复权因子 |
+| `download_hfq_factor.py` | **已废弃**（口径错误，入口拒跑；后复权改由 `python -m tdxfeed.hfq_factor` 增量维护） |
 | `backfill_adj_etf.py` | **已下线**（ETF 数据 2026-10-21 移除，脚本仅保留弃用提示） |
 | `backfill_minutes.py` | 分钟线补算 |
 | `min_sync.py` | 分钟线全量同步（core-full / market-60d） |
