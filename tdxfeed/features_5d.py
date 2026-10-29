@@ -1,9 +1,12 @@
 """方案 D 18 维特征：训练（find_d_signal_5d）与预测（predict）共用单一数据源。
 
-⚠ 关键：所有价格类特征必须使用 **raw close（非前复权）**，
-原因：v7 LightGBM 模型是在 raw close 特征上训练的，
-预测侧若使用 qfq_close（前复权 × adj_factor）会引入分布漂移，
-这是历史 OOS 退化（v7r 续训未提升）的根因之一。
+⚠ 价格类特征分两口径（2026-10-30 起）：
+  hfq（13 维）：ret_5d/ret_3d/max_5d_pct/pct_t1/volatility_5d/close_pos_5d/
+    max_drawdown_5d/acceleration/range_efficiency/vol_norm_ret/up_down_ratio/
+    dist_to_5d_high/dist_to_5d_low —— 除权日必须连续，取 frame_hfq；
+  raw（8 维）：limit/prev_close/limit_up_5d/limit_up_t1/is_limit_up_today/
+    consecutive_boards/board_position/amt_per_price —— 交易所绝对价规则。
+  frame_hfq=None 时两口径都取 df，即历史 raw 行为。
 
 历史口径差异（本模块统一为训练侧口径，作为权威）：
 
@@ -91,10 +94,24 @@ def is_yizi(open_: float, high: float, low: float, close: float) -> bool:
     return open_ == high == low == close
 
 
+def _px_frame(df: pd.DataFrame, frame_hfq: pd.DataFrame | None) -> pd.DataFrame:
+    """价格口径帧：None 时就是 raw 帧。两帧必须同日同长，错位直接 raise。"""
+    if frame_hfq is None:
+        return df
+    if len(frame_hfq) != len(df):
+        raise ValueError(f"hfq 帧 {len(frame_hfq)} 行 != raw 帧 {len(df)} 行")
+    a = pd.to_datetime(df["date"]).reset_index(drop=True)
+    b = pd.to_datetime(frame_hfq["date"]).reset_index(drop=True)
+    if not a.equals(b):
+        raise ValueError("hfq 帧与 raw 帧的 date 列不逐值相同")
+    return frame_hfq
+
+
 def compute_window_features(
     df: pd.DataFrame,
     code: str,
     sig_idx: int = -1,
+    frame_hfq: pd.DataFrame | None = None,
 ) -> "dict | None":
     """对 df 中 sig_idx 行作为 T-1，计算 18 维特征。
 
@@ -102,6 +119,7 @@ def compute_window_features(
       df:     含 open/high/low/close/volume/amount 列的日 K DataFrame，按 date 升序，至少 5 行。
       code:   股票代码（可带或不带 bj/sh/sz 前缀）。
       sig_idx: T-1 在 df 中的索引，默认 -1（最后一行）。
+      frame_hfq: 同日的后复权帧；价格比率维取它，涨停/成交额仍取 df。
 
     返回：
       18 维特征 dict；数据不足时返回 None。
@@ -114,41 +132,42 @@ def compute_window_features(
         sig_idx = len(df) + sig_idx
     if sig_idx < 4 or sig_idx >= len(df):
         return None
+    px = _px_frame(df, frame_hfq)
 
     # 取末尾 5 行（T-5 ~ T-1）+ T-1 当日
-    prev_5 = df.iloc[sig_idx - 4 : sig_idx + 1]
+    prev_5 = df.iloc[sig_idx - 4 : sig_idx + 1]        # raw：涨停 / 成交额
+    px_5 = px.iloc[sig_idx - 4 : sig_idx + 1]          # 价格口径：比率 / 位置
     sig_day = df.iloc[sig_idx]
+    px_day = px.iloc[sig_idx]
 
     limit = get_limit(code)
-    pct = prev_5["close"].pct_change().fillna(0)
+    pct_raw = prev_5["close"].pct_change().fillna(0)
+    pct_px = px_5["close"].pct_change().fillna(0)
+    hi_max, lo_min = px_5["high"].max(), px_5["low"].min()
 
     feats = {
         # 1. 涨停限制
         "limit": limit,
-        # 2. T-1 收盘价（raw close，非前复权）
+        # 2. T-1 收盘价（raw：交易所绝对价）
         "prev_close": float(sig_day["close"]),
         # 3-4. 累计涨幅
-        "ret_5d": float(prev_5["close"].iloc[-1] / prev_5["close"].iloc[0] - 1),
-        "ret_3d": float(prev_5["close"].iloc[-1] / prev_5["close"].iloc[-4] - 1) if len(prev_5) >= 4 else 0,
+        "ret_5d": float(px_5["close"].iloc[-1] / px_5["close"].iloc[0] - 1),
+        "ret_3d": float(px_5["close"].iloc[-1] / px_5["close"].iloc[-4] - 1) if len(px_5) >= 4 else 0,
         # 5-6. 5 日内单日最大涨幅 / 涨停次数
-        "max_5d_pct": float(pct.max()),
-        "limit_up_5d": int((pct >= limit - 0.001).sum()),
+        "max_5d_pct": float(pct_px.max()),
+        "limit_up_5d": int((pct_raw >= limit - 0.001).sum()),
         # 7-8. T-1 当日是否涨停 / 当日涨幅（open→close）
         "limit_up_t1": int(sig_day["close"] / sig_day["open"] - 1 >= limit - 0.001) if sig_day["open"] > 0 else 0,
-        "pct_t1": float(sig_day["close"] / sig_day["open"] - 1) if sig_day["open"] > 0 else 0,
+        "pct_t1": float(px_day["close"] / px_day["open"] - 1) if px_day["open"] > 0 else 0,
         # 9-10. 5 日均成交额 / T-1 量比（amount-based）
         "avg_amount_5d": float(prev_5["amount"].mean()),
         "vol_ratio_t1": float(sig_day["amount"] / prev_5["amount"].mean()) if prev_5["amount"].mean() > 0 else 1.0,
         # 11. 5 日价格波动率（pct_change 标准差）
-        "volatility_5d": float(pct.std()),
+        "volatility_5d": float(pct_px.std()),
         # 12. T-1 收盘价在 5 日 K 线中的位置
-        "close_pos_5d": float(
-            (sig_day["close"] - prev_5["low"].min()) / (prev_5["high"].max() - prev_5["low"].min())
-        )
-        if prev_5["high"].max() > prev_5["low"].min()
-        else 0.5,
+        "close_pos_5d": float((px_day["close"] - lo_min) / (hi_max - lo_min)) if hi_max > lo_min else 0.5,
         # 13. 5 日最大单日跌幅（pct_change 最小值，区别于 running max drawdown）
-        "max_drawdown_5d": float(pct.min()),
+        "max_drawdown_5d": float(pct_px.min()),
         # 14. T-1 换手代理（amount / volume）
         "turnover_proxy": float(sig_day["amount"] / sig_day["volume"]) if sig_day["volume"] > 0 else 0,
         # 15. 是否 ST（默认 0，由调用方按需通过 name 覆盖）
@@ -173,6 +192,7 @@ def compute_window_features_extended(
     df: pd.DataFrame,
     code: str,
     sig_idx: int = -1,
+    frame_hfq: pd.DataFrame | None = None,
 ) -> "dict | None":
     """扩展 26 维：18 维基础 + 8 维工程化新特征（v9 模型使用）。
 
@@ -186,20 +206,22 @@ def compute_window_features_extended(
       - dist_to_5d_low     距 5 日低点: (close-low.min())/close
       - amt_per_price      单位价格成交额: avg_amount_5d/prev_close
     """
-    base = compute_window_features(df, code, sig_idx=sig_idx)
+    base = compute_window_features(df, code, sig_idx=sig_idx, frame_hfq=frame_hfq)
     if base is None:
         return None
 
     # 规范化 sig_idx (与 compute_window_features 内部一致)
     if sig_idx < 0:
         sig_idx = len(df) + sig_idx
-    prev_5 = df.iloc[sig_idx - 4 : sig_idx + 1]
-    close = prev_5["close"]
+    px = _px_frame(df, frame_hfq)
+    px_5 = px.iloc[sig_idx - 4 : sig_idx + 1]
+    raw_5 = df.iloc[sig_idx - 4 : sig_idx + 1]
+    close = px_5["close"]
     pct = close.pct_change().fillna(0)
-    amount = prev_5["amount"]
-    high = prev_5["high"]
-    low = prev_5["low"]
-    open_ = prev_5["open"]
+    amount = raw_5["amount"]
+    high = px_5["high"]
+    low = px_5["low"]
+    open_ = px_5["open"]
 
     accel = float(base["ret_5d"] - base["ret_3d"])
     daily_range = (high - low).replace(0, np.nan)
@@ -218,15 +240,11 @@ def compute_window_features_extended(
     dist_low = float((close.iloc[-1] - low_min) / close.iloc[-1]) if close.iloc[-1] > 0 else 0.0
     amt_per_price = float(base["avg_amount_5d"] / base["prev_close"]) if base["prev_close"] > 0 else 0.0
 
-    # P0-2 涨停/连板特征 (2026-10-18, 打板策略升级分析):
-    # 现有 limit_up_t1 用 open→close 判日内涨幅, 会漏判"一字板"(开盘即涨停 open=close→0)。
-    # 打板核心是连板接力, 故补收盘封板判定 + 连板高度。
+    # 封板 / 连板只认 raw：涨停是交易所绝对价规则，复权序列上的涨幅没有意义。
     close_full = df["close"]
     if sig_idx >= 1:
-        # 收盘封板: 当日 close 相对前日 close >= limit（含一字板）
         limit_up_mask = (close_full.pct_change() >= base["limit"] - 0.001)
         is_limit_today = int(limit_up_mask.iloc[sig_idx])
-        # 连板数: 从 sig_idx 往前数连续封板天数
         consec = 0
         i = sig_idx
         while i >= 1 and limit_up_mask.iloc[i]:

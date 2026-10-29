@@ -1,8 +1,8 @@
 """阶段 1 — Polars 因子引擎（复刻 tdxfeed/features_5d.py 语义，保逐位一致）。
 
 设计约束（见 docs/stage1_feature_migration_plan.md）：
-  - 现有 18 维 / 扩展 8 维（共 26 维）必须与 features_5d.py 数值一致（容差 1e-9），
-    切换前不得改变任何语义（尤其 raw close 口径）。
+  - 现有 18 维 / 扩展 8 维（共 26 维）必须与 features_5d.py 数值一致（容差 1e-9）；
+    价格口径分派与 features_5d 同源（13 hfq / 8 raw），frame_hfq=None 时两者都取 df。
   - Polars 负责：数据加载、逐股窗口装配、现有特征算术复刻、宽表装配。
   - akquant 负责：新增候选因子（Alpha101 / talib），见后续 Step 2。
 
@@ -47,8 +47,20 @@ def _window_scalars(df: pl.DataFrame, sig_idx: int) -> dict | None:
     }
 
 
+def _px_frame_polars(df: pl.DataFrame, frame_hfq: pl.DataFrame | None) -> pl.DataFrame:
+    """价格口径帧：None 时就是 raw 帧。两帧必须同日同长，错位直接 raise。"""
+    if frame_hfq is None:
+        return df
+    if frame_hfq.height != df.height:
+        raise ValueError(f"hfq 帧 {frame_hfq.height} 行 != raw 帧 {df.height} 行")
+    if not df["date"].equals(frame_hfq["date"]):
+        raise ValueError("hfq 帧与 raw 帧的 date 列不逐值相同")
+    return frame_hfq
+
+
 def compute_window_features_polars(
-    df: pl.DataFrame, code: str, sig_idx: int = -1
+    df: pl.DataFrame, code: str, sig_idx: int = -1,
+    frame_hfq: pl.DataFrame | None = None,
 ) -> dict | None:
     """Polars 版 18 维特征，语义与 features_5d.compute_window_features 一致。"""
     n = df.height
@@ -58,34 +70,41 @@ def compute_window_features_polars(
         sig_idx = n + sig_idx
     if sig_idx < 4 or sig_idx >= n:
         return None
+    px = _px_frame_polars(df, frame_hfq)
     w = _window_scalars(df, sig_idx)
-    if w is None:
+    wx = _window_scalars(px, sig_idx) if frame_hfq is not None else w
+    if w is None or wx is None:
         return None
-    c, h, l, a = w["c"], w["h"], w["l"], w["a"]
+    c, a = w["c"], w["a"]
+    cx, hx, lx = wx["c"], wx["h"], wx["l"]
     sig_close, sig_open = w["sig_close"], w["sig_open"]
     sig_vol, sig_amt = w["sig_vol"], w["sig_amt"]
 
-    # pct_change：首元素 0（对齐 pandas .fillna(0)）；ddof=1 对齐 pandas .std()
-    pct = [0.0] + [(c[i] / c[i - 1] - 1.0) if c[i - 1] else 0.0 for i in range(1, 5)]
+    def _pct(xs):
+        # 首元素 0（对齐 pandas .fillna(0)）；ddof=1 对齐 pandas .std()
+        return [0.0] + [(xs[i] / xs[i - 1] - 1.0) if xs[i - 1] else 0.0 for i in range(1, 5)]
+
+    pct_raw = _pct(c)
+    pct_px = _pct(cx)
     limit = float(get_limit(code))
     amt_mean = sum(a) / len(a)
-    hi_max, lo_min = max(h), min(l)
+    hi_max, lo_min = max(hx), min(lx)
 
     feats = {
         "limit": limit,
         "prev_close": float(sig_close),
-        "ret_5d": float(c[-1] / c[0] - 1.0),
-        "ret_3d": float(c[-1] / c[-4] - 1.0) if len(c) >= 4 else 0.0,
-        "max_5d_pct": float(max(pct)),
-        "limit_up_5d": int(sum(1 for x in pct if is_limit_up_ret(x, limit))),
+        "ret_5d": float(cx[-1] / cx[0] - 1.0),
+        "ret_3d": float(cx[-1] / cx[-4] - 1.0) if len(cx) >= 4 else 0.0,
+        "max_5d_pct": float(max(pct_px)),
+        "limit_up_5d": int(sum(1 for x in pct_raw if is_limit_up_ret(x, limit))),
         "limit_up_t1": (int(is_limit_up_ret(sig_close / sig_open - 1.0, limit))
                         if sig_open > 0 else 0),
-        "pct_t1": float(sig_close / sig_open - 1.0) if sig_open > 0 else 0.0,
+        "pct_t1": float(wx["sig_close"] / wx["sig_open"] - 1.0) if wx["sig_open"] > 0 else 0.0,
         "avg_amount_5d": float(amt_mean),
         "vol_ratio_t1": float(a[-1] / amt_mean) if amt_mean > 0 else 1.0,
-        "volatility_5d": float(np.std(pct, ddof=1)) if len(pct) > 1 else 0.0,
-        "close_pos_5d": float((sig_close - lo_min) / (hi_max - lo_min)) if hi_max > lo_min else 0.5,
-        "max_drawdown_5d": float(min(pct)),
+        "volatility_5d": float(np.std(pct_px, ddof=1)) if len(pct_px) > 1 else 0.0,
+        "close_pos_5d": float((wx["sig_close"] - lo_min) / (hi_max - lo_min)) if hi_max > lo_min else 0.5,
+        "max_drawdown_5d": float(min(pct_px)),
         "turnover_proxy": float(sig_amt / sig_vol) if sig_vol > 0 else 0.0,
         "is_st": 0,
         "is_new": int(sig_idx < 250),
@@ -100,21 +119,23 @@ def compute_window_features_polars(
 
 
 def compute_window_features_extended_polars(
-    df: pl.DataFrame, code: str, sig_idx: int = -1
+    df: pl.DataFrame, code: str, sig_idx: int = -1,
+    frame_hfq: pl.DataFrame | None = None,
 ) -> dict | None:
     """Polars 版 26 维（18 基础 + 8 扩展），语义与 features_5d 扩展版一致。"""
-    base = compute_window_features_polars(df, code, sig_idx=sig_idx)
+    base = compute_window_features_polars(df, code, sig_idx=sig_idx, frame_hfq=frame_hfq)
     if base is None:
         return None
     n = df.height
     if sig_idx < 0:
         sig_idx = n + sig_idx
-    p5 = df.slice(sig_idx - 4, 5)
+    px = _px_frame_polars(df, frame_hfq)
+    p5 = px.slice(sig_idx - 4, 5)
+    a = df.slice(sig_idx - 4, 5)["amount"].to_list()
     c = p5["close"].to_list()
     o = p5["open"].to_list()
     h = p5["high"].to_list()
     l = p5["low"].to_list()
-    a = p5["amount"].to_list()
     close = c
     pct = [0.0] + [(c[i] / c[i - 1] - 1.0) if c[i - 1] else 0.0 for i in range(1, 5)]
     open_ = o
@@ -137,6 +158,7 @@ def compute_window_features_extended_polars(
 
     # P0-2 涨停/连板特征 (2026-10-18, 与 features_5d 扩展版语义一致):
     # 补"收盘封板"(含一字板) + 连板高度, 修正 limit_up_t1 一字板漏判。
+    # 封板 / 连板只认 raw（与 features_5d 同一条判据）。
     close_full = df["close"].to_list()
     limit_val = float(base["limit"])
     if sig_idx >= 1:
