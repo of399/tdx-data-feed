@@ -116,6 +116,37 @@ def _is_a_share_stock(filename: str) -> bool:
     return stem.startswith(_A_SHARE_STOCK_PREFIXES)
 
 
+def sample_latest_date(files, sample_size: int = 30, seed: int = 42) -> date | None:
+    """抽样读 parquet 的末日期，返回中位数日期（None 表示没有可读文件）。
+
+    用中位数而不是「最旧/最新」：表停更时几乎所有文件都停在同一天，中位数能反映
+    整体状态；个别文件坏掉或本就滞后的标的不会把整张表误判为陈旧。
+    """
+    files = [Path(f) for f in files]
+    if not files:
+        return None
+    rng = np.random.default_rng(seed)
+    # 先转 object 数组再 choice：直接对 Path 列表 choice 会被 numpy 当成字符串/对象
+    # 推断，长度不同的路径会造出奇怪的定长 dtype。
+    pool = np.array(files, dtype=object)
+    sample = rng.choice(pool, min(sample_size, len(pool)), replace=False)
+    dates = [d.date() for d in (_last_date_from_parquet(Path(f)) for f in sample) if d is not None]
+    if not dates:
+        return None
+    dates.sort()
+    return dates[len(dates) // 2]
+
+
+def stale_threshold(ref: date, allowed_trading_days: int = 3,
+                    holidays: set[str] | None = None) -> date:
+    """晚于（<）该日期即视为陈旧：最近已收盘交易日再往前回退 N 个交易日。
+
+    真陈旧判据是 `latest < limit`；末日期正好等于 limit 不算陈旧。
+    """
+    hol = holidays if holidays is not None else CN_HOLIDAYS
+    return _subtract_trading_days(last_trading_day(ref, hol), allowed_trading_days, hol)
+
+
 def require_fresh(parquet_dir: Path = DEFAULT_PARQUET_DIR, max_age_days: int = 2,
                   sample_size: int = 50, allowed_stale_trading_days: int | None = None,
                   holidays: set[str] | None = None) -> None:
@@ -178,4 +209,4 @@ def require_fresh(parquet_dir: Path = DEFAULT_PARQUET_DIR, max_age_days: int = 2
     )
 
 
-__all__ = ["last_trading_day", "require_fresh"]
+__all__ = ["last_trading_day", "require_fresh", "sample_latest_date", "stale_threshold"]

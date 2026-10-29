@@ -27,7 +27,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -37,7 +37,9 @@ LOG_FILE = ROOT / 'logs' / 'canary.log'
 HISTORY_FILE = ROOT / 'logs' / 'canary_history.jsonl'
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import adj_factor_dir, daily_dir  # noqa: E402
+from _common import adj_factor_dir, daily_dir, derived_dir  # noqa: E402
+
+from tdxfeed.freshness import sample_latest_date, stale_threshold  # noqa: E402
 
 # 阈值
 OLLAMA_TIMEOUT = 5           # 秒
@@ -48,6 +50,11 @@ DISK_MIN_FREE_GB = 20        # 最小剩余磁盘 GB
 # 这些检查出问题（error 或 warn）才退出非零 → systemd OnFailure → 微信。
 # GPU/磁盘这类长期 warn 不在此列：每 5 分钟推一次就是刷屏，留 journal 与 canary 历史即可。
 PAGING_CHECKS = frozenset({'tdxfeed_sync', 'data_files', 'timers'})
+
+
+def _today() -> date:
+    """「今天」的唯一入口——测试 monkeypatch 它，避免用例随真实日期腐烂。"""
+    return date.today()
 
 
 def check_ollama() -> dict:
@@ -141,7 +148,11 @@ def check_tdxfeed_sync() -> dict:
 
 
 def check_data_files() -> dict:
-    """检查关键数据文件数量"""
+    """检查关键数据文件数量与表级新鲜度（adj_factor / derived 的末日期）。
+
+    只数文件个数发现不了停更：adj 停在 09-24 时文件一个不少，旧实现照样报 ok。
+    表级新鲜度取抽样末日期中位数，阈值是「最近已收盘交易日往前 3 个交易日」。
+    """
     result = {'name': 'data_files', 'status': 'ok', 'details': {}}
 
     pq_dir = daily_dir()
@@ -155,12 +166,32 @@ def check_data_files() -> dict:
         'adj_factor': n_adj,
     }
 
+    # 所有原因都进 problems 再一次性拼接：逐个覆盖 result['message'] 会让先发现的问题静默。
+    problems = []
     if n_pq < PARQUET_MIN_COUNT:
-        result['status'] = 'warn'
-        result['message'] = f'parquet/daily only {n_pq} (< {PARQUET_MIN_COUNT})'
+        problems.append(f'parquet/daily only {n_pq} (< {PARQUET_MIN_COUNT})')
     if n_adj < ADJ_MIN_COUNT:
+        problems.append(f'adj_factor only {n_adj} (< {ADJ_MIN_COUNT})')
+
+    limit = stale_threshold(_today())
+    tables = {
+        'adj_factor': (adj_dir, ['*.parquet']),
+        'derived': (derived_dir(), ['*_indicators.parquet']),
+    }
+    for name, (d, patterns) in tables.items():
+        files = [p for pat in patterns for p in d.glob(pat)] if d.exists() else []
+        latest = sample_latest_date(files)
+        result['details'][f'{name}_latest'] = latest.isoformat() if latest else None
+        if latest is None:
+            problems.append(f'{name}: 无文件')
+        elif latest < limit:
+            problems.append(f'{name} 陈旧: 末日期中位数 {latest} < {limit}')
+
+    result['details']['stale_before'] = limit.isoformat()
+    if problems:
         result['status'] = 'warn'
-        result['message'] = f'adj_factor only {n_adj} (< {ADJ_MIN_COUNT})'
+        prev = result.get('message')
+        result['message'] = '; '.join(([prev] if prev else []) + problems)
 
     return result
 
