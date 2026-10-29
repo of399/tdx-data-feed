@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from tdxfeed.execution.limits import normalize_code
+
 __all__ = [
     "SealRatio",
     "SealRatioSource",
@@ -172,12 +174,7 @@ def load_tdx_export(path: Path | str) -> dict[str, dict]:
             code = _pick(row, "code")
             if not code:
                 continue
-            c = code.lower()
-            for prefix in ("sh", "sz", "bj"):
-                if c.startswith(prefix):
-                    c = c[2:]
-                    break
-            c = c.zfill(6)
+            c = normalize_code(code)
             out[c] = {
                 "name": _pick(row, "name"),
                 "seal_shares": _num(_pick(row, "seal_shares")),

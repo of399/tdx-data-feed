@@ -21,6 +21,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from tdxfeed.execution.limits import normalize_code
+
 __all__ = [
     "SectorStat",
     "compute_sector_strength",
@@ -76,12 +78,7 @@ def load_industry_map(path: Path | str = INDUSTRY_MAP_PATH) -> dict[str, str]:
             ind = str(row.get("industry_code", "")).strip()
             if not code or not ind:
                 continue
-            c = code.lower()
-            for prefix in ("sh", "sz", "bj"):
-                if c.startswith(prefix):
-                    c = c[2:]
-                    break
-            out[c.zfill(6)] = ind
+            out[normalize_code(code)] = ind
     return out
 
 
@@ -96,23 +93,13 @@ def load_sector_names(path: Path | str = SECTOR_NAME_PATH) -> dict[str, str]:
             code = str(row.get("code", "")).strip()
             name = str(row.get("name", "")).strip()
             if code and name:
-                c = code.lower()
-                for prefix in ("sh", "sz", "bj"):
-                    if c.startswith(prefix):
-                        c = c[2:]
-                        break
-                out[c.zfill(6)] = name
+                out[normalize_code(code)] = name
     return out
 
 
 def _bare_code(code: str) -> str:
     """去交易所前缀 → 6 位代码。"""
-    c = str(code).strip().lower()
-    for prefix in ("sh", "sz", "bj"):
-        if c.startswith(prefix):
-            c = c[2:]
-            break
-    return c.zfill(6)
+    return normalize_code(code)
 
 
 def load_industry_names(path: Path | str = INDUSTRY_NAME_PATH) -> dict[str, str]:

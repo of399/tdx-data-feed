@@ -24,6 +24,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from tdxfeed.execution.limits import normalize_code
+
 from tdxfeed.paths import daily_dir
 
 DEFAULT_PARQUET_DIR = daily_dir()
@@ -105,11 +107,7 @@ def _is_a_share_stock(filename: str) -> bool:
     """判定文件名（形如 sh600000.parquet / 600000.parquet / bj920026.parquet）
     是否属于 full_sync 覆盖的 A 股个股 universe。"""
     stem = filename.rsplit("/", 1)[-1].rsplit(".", 1)[0]  # 去除路径与后缀
-    # 去除可能的市场前缀
-    for prefix in ("sh", "sz", "bj"):
-        if stem.lower().startswith(prefix):
-            stem = stem[2:]
-            break
+    stem = normalize_code(stem)
     # 北交所 bj920xxx / 8xxxxx 不属于 A 股个股（流动性差、30% 涨跌停）
     if stem.startswith(("920", "8")):
         return False

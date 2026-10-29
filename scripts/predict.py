@@ -168,7 +168,7 @@ FEATURE_COLS = [
 import polars as pl  # noqa: E402
 from _common import compute_window_features_extended  # noqa: E402
 
-from tdxfeed.daban.limit_price import exchange_prefix  # noqa: E402
+from tdxfeed.daban.limit_price import exchange_prefix, normalize_code  # noqa: E402
 from tdxfeed.daban.sector_features import (  # noqa: E402
     EXTRA_FEATURE_COLS,
     build_lookup,
@@ -532,11 +532,7 @@ def load_universe() -> list:
         name = fp.stem
         if '.bak' in name:  # 跳过 v2 迁移备份 (.v1.bak), 非活数据
             continue
-        for prefix in ['sh', 'sz', 'bj']:
-            if name.startswith(prefix):
-                name = name[len(prefix):]
-                break
-        codes.add(name)
+        codes.add(normalize_code(name))
     return sorted(codes)
 
 
