@@ -53,3 +53,24 @@ def test_incremental_returns_0_when_all_ok(monkeypatch):
         lambda sym: {"status": "ok", "added": 1},
     )
     assert incremental.main() == 0
+
+
+def test_incremental_counts_fetch_failed_as_failure(monkeypatch):
+    """fetch_failed 是行情源全挂，不是「无需更新」——必须退 1。"""
+    _patch_argv(monkeypatch, ["incremental", "--limit", "1"])
+    monkeypatch.setattr(incremental, "daily_files", lambda: [Path("sh600000.parquet")])
+    monkeypatch.setattr(
+        incremental, "incremental_update",
+        lambda sym: {"symbol": sym, "status": "fetch_failed", "rows": 0, "added": 0},
+    )
+    assert incremental.main() == 1
+
+
+def test_incremental_up_to_date_is_not_failure(monkeypatch):
+    _patch_argv(monkeypatch, ["incremental", "--limit", "1"])
+    monkeypatch.setattr(incremental, "daily_files", lambda: [Path("sh600000.parquet")])
+    monkeypatch.setattr(
+        incremental, "incremental_update",
+        lambda sym: {"symbol": sym, "status": "up_to_date", "rows": 10, "added": 0},
+    )
+    assert incremental.main() == 0

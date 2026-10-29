@@ -188,6 +188,8 @@ def main() -> int:
         if st == "ok":
             ok += 1
             added_total += r["added"]
+        elif st == "fetch_failed":
+            fail += 1
         else:
             skip += 1
         if i % 100 == 0 or i == len(syms):
