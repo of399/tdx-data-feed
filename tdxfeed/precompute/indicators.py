@@ -29,6 +29,7 @@ tdxfeed/precompute/indicators.py — 离线技术指标 / 形态 / 相似 K线 �
 
 import argparse
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -215,7 +216,7 @@ def process_one(code: str, force: bool = False) -> Path | None:
     return dst
 
 
-def main():
+def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--all", action="store_true", help="全市场 7,688 标的")
     ap.add_argument("--code", type=str, help="单标的代码（如 sh600000）")
@@ -227,9 +228,13 @@ def main():
     t0 = datetime.now()
 
     if args.code:
-        out = process_one(args.code, force=args.force)
+        try:
+            out = process_one(args.code, force=args.force)
+        except Exception as e:
+            print(f"  ✗ {args.code}: {e}", file=sys.stderr)
+            return 1
         print(f"[{args.code}] → {out}")
-        return
+        return 0
 
     # 全市场 / 增量
     files = daily_files()
@@ -258,7 +263,8 @@ def main():
     elapsed = (datetime.now() - t0).total_seconds()
     print(f"\n完成：ok={ok} skip={skip} fail={fail}  耗时 {elapsed/60:.1f}min")
     print(f"输出目录：{DERIVED_DIR}")
+    return 1 if fail else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

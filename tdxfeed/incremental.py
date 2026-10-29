@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import time
 from datetime import date, timedelta
 from pathlib import Path
@@ -150,7 +151,7 @@ def incremental_update(symbol: str) -> dict:
     }
 
 
-def main() -> None:
+def main() -> int:
     ap = argparse.ArgumentParser(description="增量更新日 K (v2 schema)")
     ap.add_argument("--symbol", help="单只代码 (e.g. sh600000 / sz000001 / bj920000)")
     ap.add_argument("--codes-file", help="代码列表文件 (每行一个 symbol)")
@@ -196,7 +197,8 @@ def main() -> None:
                 i, len(syms), ok, skip, fail, added_total, el,
             )
     log.warning("完成 ok=%d skip=%d fail=%d added=%d", ok, skip, fail, added_total)
+    return 1 if fail else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
