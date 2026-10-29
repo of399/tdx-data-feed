@@ -429,3 +429,44 @@ def test_exit_code():
     assert exit_code(5210, 11, 0) == 0
     assert exit_code(5100, 0, 100) == 0
     assert exit_code(5100, 0, 121) == 1
+
+
+def test_needs_build_selects_missing_and_legacy(tmp_path):
+    """--missing 只挑需要从零建的文件：不存在、空表、旧 qfq_close 口径。"""
+    from tdxfeed.hfq_factor import needs_build
+
+    assert needs_build(tmp_path / "nofile.parquet") is True
+    _old_df().to_parquet(tmp_path / "new.parquet", index=False)
+    assert needs_build(tmp_path / "new.parquet") is False
+    pd.DataFrame(
+        [["600000", date(2026, 9, 24), 1.0, 9.00, 9.00]],
+        columns=["code", "date", "hfq_factor", "qfq_close", "hfq_close"],
+    ).to_parquet(tmp_path / "legacy.parquet", index=False)
+    assert needs_build(tmp_path / "legacy.parquet") is True
+    _old_df().iloc[0:0].to_parquet(tmp_path / "empty.parquet", index=False)
+    assert needs_build(tmp_path / "empty.parquet") is True
+
+
+def test_legacy_schema_queries_full_history_directly(tmp_path, monkeypatch):
+    """旧口径文件没有可用历史：第一次查询就取文件首行日期，别先查 1 天窗口再重拉。"""
+    p = tmp_path / "600000.parquet"
+    pd.DataFrame(
+        [
+            ["600000", date(2026, 9, 23), 1.0, 8.98, 8.98],
+            ["600000", date(2026, 9, 24), 1.0, 9.00, 9.00],
+        ],
+        columns=["code", "date", "hfq_factor", "qfq_close", "hfq_close"],
+    ).to_parquet(p, index=False)
+    import tdxfeed.hfq_factor as m
+
+    starts = []
+
+    def fake_query(bs, code, start, end, flag):
+        starts.append(start)
+        if flag == "1":
+            return [["2026-09-23", "120.0"], ["2026-09-24", "120.303117"]]
+        return [["2026-09-23", "8.98"], ["2026-09-24", "9.00"]]
+
+    monkeypatch.setattr(m, "_query", fake_query)
+    assert update_one(object(), "600000", tmp_path, "2026-09-25").startswith("rebase:+")
+    assert starts == ["2026-09-23", "2026-09-23"], starts

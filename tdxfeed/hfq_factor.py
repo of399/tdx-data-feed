@@ -28,6 +28,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 from tdxfeed.freshness import CN_HOLIDAYS, last_trading_day
 from tdxfeed.paths import hfq_factor_dir
@@ -86,6 +87,24 @@ def _legacy_schema(old: pd.DataFrame) -> bool:
     重拉，否则会把两套口径拼进同一张表。
     """
     return not old.empty and any(c not in old.columns for c in COLUMNS)
+
+
+def needs_build(path: Path) -> bool:
+    """文件不存在、空表、或仍是旧 qfq_close 口径 → 需要用全历史从零建。
+
+    全量跑中途断链（baostock 掉线熔断）后，用它只补没建成的那些，
+    不必把已建好的 5000 多只再拿 1 天窗口过一遍。
+    """
+    p = Path(path)
+    if not p.exists():
+        return True
+    try:
+        schema = pq.read_schema(p)
+        if pq.read_metadata(p).num_rows == 0:
+            return True
+    except Exception:  # 坏文件按需要重建处理
+        return True
+    return any(c not in schema.names for c in COLUMNS)
 
 
 def merge_rows(old: pd.DataFrame, hfq: list[list], raw: list[list],
@@ -167,10 +186,14 @@ def update_one(bs, code: str, out_dir: Path, today: str) -> str:
             start = BOOTSTRAP_START
             old = pd.DataFrame(columns=COLUMNS)
         else:
-            bootstrap = False
-            if start >= today:
-                return "skip"
             old = pd.read_parquet(path)
+            # 旧口径没有可用历史：直接按文件首行日期整表建，别先花两次请求
+            # 查一遍 1 天窗口再重拉。
+            bootstrap = _legacy_schema(old)
+            if bootstrap:
+                start = str(old["date"].iloc[0])
+            elif start >= today:
+                return "skip"
         n_old = len(old)
         old_first = str(old["date"].iloc[0]) if n_old else start
         old_last = str(old["date"].iloc[-1]) if n_old else ""
@@ -189,7 +212,7 @@ def update_one(bs, code: str, out_dir: Path, today: str) -> str:
             return "skip"
         if not hfq or not raw:
             return "fail:partial-empty"          # 源只回一条序列 = 数据异常，不是没行情
-        rebased = bootstrap or _legacy_schema(old) or _rebase_needed(old, hfq)
+        rebased = bootstrap or _rebase_needed(old, hfq)
         if rebased:
             if not bootstrap:
                 # 起点取文件自身首行日期：源只回部分历史时下面会拦住，不能靠常量猜。
@@ -227,6 +250,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="后复权因子增量更新（baostock）")
     ap.add_argument("--code", help="只更新一只，如 600000")
     ap.add_argument("--limit", type=int, help="只处理前 N 只（试跑用）")
+    ap.add_argument("--missing", action="store_true",
+                    help="只处理没有文件 / 空表 / 仍是旧 qfq_close 口径的标的")
     ap.add_argument("--today", default=datetime.now().strftime("%Y-%m-%d"),
                     help="截止日期，默认今天（测试可覆盖）")
     args = ap.parse_args(argv)
@@ -245,6 +270,8 @@ def main(argv=None) -> int:
                  if len(p.stem) == 6 and p.stem.isdigit()]
     if args.limit:
         codes = codes[: args.limit]
+    if args.missing:
+        codes = [c for c in codes if needs_build(out_dir / f"{c}.parquet")]
     if not codes:
         print("❌ 没有可更新的后复权因子文件", file=sys.stderr)
         return 1
