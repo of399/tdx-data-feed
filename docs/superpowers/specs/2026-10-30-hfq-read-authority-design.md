@@ -24,7 +24,7 @@
 | baostock 覆盖 | `query_stock_basic()` 5564 只，**仅 sh/sz**；北交所无源，但北交所本来就不在日线表里 | 一次调用（0.3s） |
 | 回填可行 | sh600000 全历史 **6534 根 / 4.2 秒**；与在役 hfq 重叠 **1651 行**，`raw_close` 最大相对误差 **0.0** | 一次性探针 |
 | 回填成本 | 5221 × 4.2s ≈ 6.1 小时单线程；**3 并发约 2 小时**（本轮选定） | 同上外推 |
-| hfq 质量 | **11 只 / 12 次**因子下跳（7 次 >0.5%），其中 6 次落在 **2020-11-25** 同一天 | 全表逐日比值扫描 |
+| hfq 质量 | **11 只 / 12 次**因子下跳（8 次 >0.5%），其中 6 次落在 **2020-11-25** 同一天 | 全表逐日比值扫描 |
 | qfq 质量 | **49 个**与 hfq 不一致的事件，**27 个**造成 ≥3% 假跌幅 | 同一扫描 + 裁判实验 |
 | 影响面 | 12 次下跳 × 5 日窗口 ≈ 数百条 / daban 1.07M 样本（<0.1%） | 由事件数与窗口宽度估 |
 
@@ -79,7 +79,7 @@ old  = data/hfq_factor/{code}.parquet
 
 - **单实例**：`flock` 锁 `data/.state/hfq_backfill.json.lock`（照 `history_backfill.json.lock` 先例）。
 - **单权威进度**：`data/.state/hfq_backfill.json`，字段 `done / rejected / not_in_source / rebased`，不新建第二份进度文件。
-- **熔断**：连续 `10` 只失败即停轮（`FAIL_ABORT` 口径与 `tdxfeed/hfq_factor.py:45` 一致）；进程退出码非 0。
+- **熔断**：连续 `20` 只失败即停轮（`FAIL_ABORT` 口径与 `tdxfeed/hfq_factor.py:45` 一致）；进程退出码非 0。
 - **并发**：默认 `--workers 3`（本轮定），每 worker 独立 login。
 - **可续跑**：`done` 集命中即跳过；`--limit / --dry-run / --symbols / --force`。
 - **时窗**：**18:00 之后**跑。16:30 的 `tdx-sync.service` 第三条 `ExecStartPost=-` 就是 `tdxfeed.hfq_factor` 增量，同一批文件不能有两个写者。
@@ -114,15 +114,18 @@ def frame(symbol: str, *, kind: str = "raw", strict: bool = False) -> pd.DataFra
 
 | 场景 | strict=True（训练/建表） | strict=False（预测） |
 |---|---|---|
+| 因子表 `raw_close` 与日线 `close` 重叠区中位相对偏差 > **1%**（`FACTOR_RAW_TOL`） | **raise** | `factor=1.0`，`attrs["factor_mismatch"]=True`，打一行日志，**不乘因子** |
 | 缺因子文件 / 缺当日行 | `factor=1.0`，但 `factor_cov < 0.999` → **raise** | `factor=1.0`，`attrs["factor_missing"]=True`，打一行日志 |
 | 因子首行晚于日线首行（>5 个交易日缓冲） | **raise** | 日志 + `attrs` 留痕 |
 | 因子末日 < 日线末日 − 1 个交易日 | **raise**（这正是 10-26 spec §7 那条新鲜度守卫，改为对在役表生效） | 日志 + `attrs` 留痕 |
+
+`raw_close` 一致性门禁专治 **6 位码冲突**：`paths.hfq_factor_path` 只认裸 6 位，`sh000001`（上证指数）会读到 `000001`（平安银行）的因子文件。实测这类错配的重叠中位偏差 **99.65%**，正常个股为 **0.0**，阈值 1% 把两者分得很开。daily 里同码双文件共 5 组（`000001/000016/000688/000852/000905`），全部由这条门禁兜住，不额外维护指数名单。
 
 预测侧不 raise 的理由：新股或缺因子的票不能让整轮预测打挂；但它必须可见（`attrs` + 日志），而不是静默变成 raw。
 
 ### 3.4 单一权威
 
-守卫扫源码：`features_5d.py` / `factors_candidates.py` / `train_daban_model.py` / `find_d_signal_5d.py` / `feature_engineering.py` / `train_pnl_proxy.py` / `tdxfeed/stage1_wide_table.py` 里**不得出现** `adj_factor` / `hfq_factor` 字面量，价格派生只能经 `adjusted.frame`。`find_double_up_c_v2.py` / `predict.py` 的 meta 展示不在此列（它们不产出特征/标签）。
+守卫扫源码：`features_5d.py` / `factors_candidates.py` / `factors_polars.py` / `train_daban_model.py` / `find_d_signal_5d.py` / `feature_engineering.py` / `train_pnl_proxy.py` / `tdxfeed/stage1_wide_table.py` 八个模块里**不得出现** `adj_factor` / `hfq_factor` 字面量，价格派生只能经 `adjusted.frame`。`find_double_up_c_v2.py` / `predict.py` 的 meta 展示不在此列（它们不产出特征/标签）。
 
 ---
 
@@ -202,7 +205,7 @@ def frame(symbol: str, *, kind: str = "raw", strict: bool = False) -> pd.DataFra
 
 ### 6.3 predict 注册表
 
-`scripts/predict.py:100` 的 `MODEL_REGISTRY` 由二元组 `(path, "cls"|"reg")` 改为三元组 `(path, "cls"|"reg", "raw"|"hfq")`，同步 5 处解包（`ACTIVE_MODEL_PATH` / `ACTIVE_IS_REG` / 两处回退 / 主流程）；**现有 9 条全部 `raw`**（行为零变化），新增两条 `daban_hfq` / `vpnl_huber_stage1_hfq`，**`DEFAULT_MODEL` / `FALLBACK_MODEL` / `POSITION_MODE_MODEL` 不动**。`compute_features` 只在当前模型 `price_basis=="hfq"` 时多建一帧。
+`scripts/predict.py:100` 的 `MODEL_REGISTRY` 由二元组 `(path, "cls"|"reg")` 改为三元组 `(path, "cls"|"reg", "raw"|"hfq")`，同步 5 处解包（`ACTIVE_MODEL_PATH` / `ACTIVE_IS_REG` / 两处回退 / 主流程）；**现有 10 条全部 `raw`**（行为零变化），新增两条 `daban_hfq` / `vpnl_huber_stage1_hfq`，**`DEFAULT_MODEL` / `FALLBACK_MODEL` / `POSITION_MODE_MODEL` 不动**。`compute_features` 只在当前模型 `price_basis=="hfq"` 时多建一帧。
 
 ### 6.4 报告口径
 
@@ -220,11 +223,11 @@ def frame(symbol: str, *, kind: str = "raw", strict: bool = False) -> pd.DataFra
 | 文件 | 锁住什么 |
 |---|---|
 | `tests/test_hfq_backfill_gate.py` | 重叠 raw 超差 → 整只拒绝且零写入；hfq 超差 → 记 `rebased` 并采用新段；行数只增不减；done 集命中即跳过（幂等）；熔断计数 |
-| `tests/test_hfq_factor_monotone.py` | 全表下跳事件恰好 11 只 / 12 次且命中白名单（含日期与幅度）；新增一个即红。**这是源漂移的绊线，不是修复器** |
-| `tests/test_adjusted_frame.py` | `raw` 与盘上逐值一致；`hfq = close × 当日因子`；缺因子 = 1.0 且 `attrs` 留痕；strict 三条门禁各自 raise；不读 `adj_factor` |
+| `tests/test_hfq_factor_monotone.py` | 全表下跳事件恰好 11 只 / 12 次且命中白名单（含日期与幅度）；新增一个即红。断言只覆盖 `>= 2020-01-01` 段（回填范围内、与训练相关），2020 前若新出现只打印记录、不阻断。**这是源漂移的绊线，不是修复器** |
+| `tests/test_adjusted_frame.py` | `raw` 与盘上逐值一致；`hfq = close × 当日因子`；缺因子 = 1.0 且 `attrs` 留痕；strict 四条门禁（raw_close 偏差 / 覆盖率 / 首行滞后 / 末日滞后）各自 raise；不读 `adj_factor` |
 | `tests/test_features_5d_price_basis.py` | 合成除权（raw 跳 −30%、hfq 平）：13 维与「无除权序列」逐值相同，8 维随 raw 变；`is_limit_up_today` / `consecutive_boards` 在除权日仍按 raw 判定 |
 | `tests/test_label_price_basis.py` | 同一除权窗口：hfq 标签收益连续、raw 标签出现假止损；`--price-basis` 产物分离 |
-| `tests/test_predict_price_basis.py` | 现有 9 条注册项特征值零变化（raw 帧不多读）；hfq 条目在缺因子时走告警路径而非 raise |
+| `tests/test_predict_price_basis.py` | 现有 10 条注册项特征值零变化（raw 帧不多读）；hfq 条目在缺因子时走告警路径而非 raise |
 | `tests/test_single_factor_authority.py` | §3.4 的源码扫描 |
 
 ---
