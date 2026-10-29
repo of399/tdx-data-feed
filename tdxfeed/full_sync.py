@@ -131,7 +131,7 @@ def download_indices(w: Writers, state: State, src: SinaSource):
                 print(f"[index] sina {name}({sym}) 失败: {e!s}", flush=True)
         if bars:
             n = w.merge_write(sym, bars, category="daily")
-            last = str(Writers._date_int(bars[-1][0]))
+            last = manifest_last(bars)
             state.update(sym, last, n)
             print(f"[index] {name}({sym}) ← {channel} {n} 行 末日 {last}", flush=True)
             ok += 1
@@ -183,10 +183,11 @@ SYNC_BAD_RATIO_MAX = 0.2
 
 
 def manifest_last(bars) -> str:
-    """manifest 的 last_date：int YYYYMMDD。
+    """manifest 的 last_date：8 位 YYYYMMDD 字符串。
 
     bars 是 list-of-list（SinaSource.fetch_bars 的结构），首元素是 normalize_date
-    返回的 datetime。不要写 str(bars[-1])——那是整行 repr，5235 条里会坏 5227 条。
+    返回的 datetime。不要把整根 bar（bars[-1]）交给 str——那是整行 repr，
+    5235 条里会坏 5227 条。
     """
     if not bars:
         raise ValueError("manifest_last 需要非空 bars")
