@@ -1243,9 +1243,11 @@ def _query_retry(bs, code: str, start: str, end: str, adjustflag: str,
 **验收**
 - 抽查 `data/hfq_factor/600000.parquet`：2026-09-24 的 `hfq_close` ≈ 120.303117，
   `hfq_factor` ≈ 13.367，且 `hfq_factor == hfq_close/raw_close` 全表成立。
-- 向量化核对：同一只股票在重叠区间内 `hfq_factor / adj_factor` 逐日相等（常数锚点系数）。
-  两者都是 `复权收盘 / 不复权收盘`，只是锚点不同，所以比值是常数而不是 1；实测 600000 在
-  2026-09-24 为 13.367013（该日 `adj_factor=1.0`，即锚点落在最近交易日）。
+- 向量化核对：`hfq_factor == hfq_close / raw_close` 逐行成立（可复算），`raw_close` 与
+  `data/parquet/daily` 的 `close` 在重叠日相等。
+  **不要**拿 `hfq_factor / adj_factor` 当判据：抽样 500 只里 492 只该比值恒定
+  （600000 为 13.367013），其余 8 只（1.6%）有台阶——那是 baostock `flag=1` 与 `flag=2`
+  两条序列自身不一致（例：301489 的 flag=1 全程等于未复权价），表按源原样保存，不做推算。
 - canary `data_files` 新增 `hfq_factor_latest` 字段且 status=ok。
 - `systemctl cat tdx-sync` 三条 `ExecStartPost`；镜像守卫绿。
 
