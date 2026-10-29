@@ -225,9 +225,9 @@ full-sync:  ## 全市场日K增量同步(生产入口, =tdxfeed-sync.timer)
 data-sync-symbol:  ## 同步单股日 K（参数 SYM=sh600000）
 	$(PYTHON) -m tdxfeed.cli sync $(SYM)
 
-data-adj:  ## 下载沪深复权因子
-	$(PYTHON) $(SCRIPTS)/download_adj_factor_b.py
-	@echo "$(GREEN)✓ 复权因子下载完成$(NC)"
+data-adj:  ## 增量更新复权因子（baostock；首次全量用 scripts/download_adj_factor_b.py）
+	$(PYTHON) -m tdxfeed.adj_factor
+	@echo "$(GREEN)✓ 复权因子增量完成$(NC)"
 
 data-watch:  ## 启动 watchdog 自动重启挂死进程
 	$(PYTHON) $(SCRIPTS)/download_adj_factor_watch.py &
