@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
-NEEDS_DATA = False  # 只用 tmp_path 造表，不读真实 data/
+# 本模块只用 tmp_path 造表，不读真实行情目录，无数据环境（CI）照常收集。
+NEEDS_DATA = False
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -96,12 +97,24 @@ def test_stale_threshold_skips_holidays():
 
 
 def test_sample_latest_date_returns_median(tmp_path):
+    """中位数必须挡住离群末日期——真实 derived 表里就有 2009-12-15 这类落单文件。
+
+    样本故意做成「均值 ≠ 中位数」：换成均值实现时 09-25 那条会红，不必靠下面
+    那条「均值不等于中位数」单独兜底（它只钉住样本本身有区分力）。
+    """
     from tdxfeed.freshness import sample_latest_date
 
+    dates = ["2026-09-14", "2026-09-24", "2026-09-25", "2026-09-26", "2026-10-28"]
     files = []
-    for i, d in enumerate(["2026-09-24", "2026-09-25", "2026-09-26"]):
+    for i, d in enumerate(dates):
         p = tmp_path / f"{i}.parquet"
         _write(p, d)
         files.append(p)
-    assert sample_latest_date(files) == date(2026, 9, 25)
+    assert sample_latest_date(files, sample_size=5) == date(2026, 9, 25)
+
+    # 同一批日期的均值不是 09-25（均值会被 10-28 / 09-14 拉偏），样本因此有区分力。
+    days = sorted(date.fromisoformat(d).toordinal() for d in dates)
+    mean_day = date.fromordinal(sum(days) // len(days))
+    assert mean_day != date(2026, 9, 25), mean_day
+
     assert sample_latest_date([]) is None
