@@ -29,20 +29,24 @@ def _write(path: Path, last: str) -> None:
 
 
 def _dirs(tmp_path):
-    daily, adj, derived = tmp_path / "daily", tmp_path / "adj", tmp_path / "derived"
+    daily, adj, derived, hfq = (tmp_path / "daily", tmp_path / "adj",
+                                tmp_path / "derived", tmp_path / "hfq")
     _write(daily / "sh600000.parquet", "2026-10-28")
     _write(derived / "sh600000_indicators.parquet", "2026-10-28")
     _write(adj / "600000.parquet", "2026-10-28")
-    return daily, adj, derived
+    _write(hfq / "600000.parquet", "2026-10-28")
+    return daily, adj, derived, hfq
 
 
-def _wire(m, monkeypatch, daily, adj, derived):
+def _wire(m, monkeypatch, daily, adj, derived, hfq):
     monkeypatch.setattr(m, "_today", lambda: date(2026, 10, 29))
     monkeypatch.setattr(m, "daily_dir", lambda: daily)
     monkeypatch.setattr(m, "adj_factor_dir", lambda: adj)
     monkeypatch.setattr(m, "derived_dir", lambda: derived)
+    monkeypatch.setattr(m, "hfq_factor_dir", lambda: hfq)
     monkeypatch.setattr(m, "PARQUET_MIN_COUNT", 1)
     monkeypatch.setattr(m, "ADJ_MIN_COUNT", 1)
+    monkeypatch.setattr(m, "HFQ_MIN_COUNT", 1)
 
 
 def test_data_files_ok_when_all_fresh(tmp_path, monkeypatch):
@@ -54,40 +58,54 @@ def test_data_files_ok_when_all_fresh(tmp_path, monkeypatch):
 
 def test_data_files_warns_when_adj_stale(tmp_path, monkeypatch):
     m = _canary()
-    daily, adj, derived = _dirs(tmp_path)
+    daily, adj, derived, hfq = _dirs(tmp_path)
     for i in range(5):
         _write(adj / f"60000{i}.parquet", "2026-09-24")
-    _wire(m, monkeypatch, daily, adj, derived)
+    _wire(m, monkeypatch, daily, adj, derived, hfq)
     r = m.check_data_files()
     assert r["status"] == "warn"
     assert "adj_factor" in r["message"]
 
 
+def test_data_files_warns_when_hfq_stale(tmp_path, monkeypatch):
+    """hfq 停在 09-24（旧表就是停在这里）：文件一个不少，只有表级新鲜度能发现。"""
+    m = _canary()
+    daily, adj, derived, hfq = _dirs(tmp_path)
+    for i in range(5):
+        _write(hfq / f"60000{i}.parquet", "2026-09-24")
+    _wire(m, monkeypatch, daily, adj, derived, hfq)
+    r = m.check_data_files()
+    assert r["status"] == "warn"
+    assert "hfq_factor 陈旧" in r["message"], r
+    assert r["details"]["hfq_factor_latest"] == "2026-09-24"
+
+
 def test_data_files_warns_when_derived_stale(tmp_path, monkeypatch):
     m = _canary()
-    daily, adj, derived = _dirs(tmp_path)
+    daily, adj, derived, hfq = _dirs(tmp_path)
     for i in range(5):
         _write(derived / f"sh60000{i}_indicators.parquet", "2026-09-28")
-    _wire(m, monkeypatch, daily, adj, derived)
+    _wire(m, monkeypatch, daily, adj, derived, hfq)
     r = m.check_data_files()
     assert r["status"] == "warn"
     assert "derived" in r["message"]
 
 
 def test_data_files_tolerates_one_trading_day_lag(tmp_path, monkeypatch):
-    """adj/derived 结构性只能追到 T-1（baostock 当日 EOD 晚间才发布），T-2 才算停更。
+    """adj/hfq/derived 结构性只能追到 T-1（baostock 当日 EOD 晚间才发布），T-2 才算停更。
 
     _today()=2026-10-29 → 最近已收盘交易日 10-28，再回退 1 个交易日 = 10-27
     （10-24/25 是周末）。末日期 == limit 为 ok；比 limit 早一个交易日（10-26）
     才 warn——这条钉住「容忍 1 天、不容忍 2 天」。
     """
     m = _canary()
-    daily, adj, derived = _dirs(tmp_path)
-    _wire(m, monkeypatch, daily, adj, derived)
+    daily, adj, derived, hfq = _dirs(tmp_path)
+    _wire(m, monkeypatch, daily, adj, derived, hfq)
 
     # 10-27 == stale_threshold(_today(), allowed_trading_days=1)：T-1 滞后是正常态。
     _write(adj / "600000.parquet", "2026-10-27")
     _write(derived / "sh600000_indicators.parquet", "2026-10-27")
+    _write(hfq / "600000.parquet", "2026-10-27")
     r = m.check_data_files()
     assert r["status"] == "ok", r
     assert r["details"]["stale_before"] == "2026-10-27"
@@ -95,19 +113,21 @@ def test_data_files_tolerates_one_trading_day_lag(tmp_path, monkeypatch):
     # 10-26 比 limit 早一个交易日：后置任务连着两天没成功，必须报警。
     _write(adj / "600000.parquet", "2026-10-26")
     _write(derived / "sh600000_indicators.parquet", "2026-10-26")
+    _write(hfq / "600000.parquet", "2026-10-26")
     r = m.check_data_files()
     assert r["status"] == "warn", r
     assert "adj_factor 陈旧" in r["message"], r
+    assert "hfq_factor 陈旧" in r["message"], r
     assert "derived 陈旧" in r["message"], r
 
 
 def test_data_files_reports_both_count_and_freshness(tmp_path, monkeypatch):
     """计数不足与表陈旧是两个原因，不能互相覆盖——只剩一条就等于另一个静默了。"""
     m = _canary()
-    daily, adj, derived = _dirs(tmp_path)
+    daily, adj, derived, hfq = _dirs(tmp_path)
     for i in range(5):
         _write(adj / f"60000{i}.parquet", "2026-09-24")
-    _wire(m, monkeypatch, daily, adj, derived)
+    _wire(m, monkeypatch, daily, adj, derived, hfq)
     monkeypatch.setattr(m, "PARQUET_MIN_COUNT", 999)
     r = m.check_data_files()
     assert r["status"] == "warn"

@@ -37,7 +37,7 @@ LOG_FILE = ROOT / 'logs' / 'canary.log'
 HISTORY_FILE = ROOT / 'logs' / 'canary_history.jsonl'
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import adj_factor_dir, daily_dir, derived_dir  # noqa: E402
+from _common import adj_factor_dir, daily_dir, derived_dir, hfq_factor_dir  # noqa: E402
 
 from tdxfeed.freshness import sample_latest_date, stale_threshold  # noqa: E402
 
@@ -45,6 +45,7 @@ from tdxfeed.freshness import sample_latest_date, stale_threshold  # noqa: E402
 OLLAMA_TIMEOUT = 5           # 秒
 PARQUET_MIN_COUNT = 5000     # 最少日 K 文件数
 ADJ_MIN_COUNT = 5000         # 最少复权因子文件数
+HFQ_MIN_COUNT = 5000         # 最少后复权因子文件数
 DISK_MIN_FREE_GB = 20        # 最小剩余磁盘 GB
 
 # 这些检查出问题（error 或 warn）才退出非零 → systemd OnFailure → 微信。
@@ -148,7 +149,7 @@ def check_tdxfeed_sync() -> dict:
 
 
 def check_data_files() -> dict:
-    """检查关键数据文件数量与表级新鲜度（adj_factor / derived 的末日期）。
+    """检查关键数据文件数量与表级新鲜度（adj_factor / hfq_factor / derived 的末日期）。
 
     只数文件个数发现不了停更：adj 停在 09-24 时文件一个不少，旧实现照样报 ok。
     表级新鲜度取抽样末日期中位数，阈值是「最近已收盘交易日往前 1 个交易日」。
@@ -157,13 +158,16 @@ def check_data_files() -> dict:
 
     pq_dir = daily_dir()
     adj_dir = adj_factor_dir()
+    hfq_dir = hfq_factor_dir()
 
     n_pq = len([p for p in pq_dir.glob('*.parquet') if '.bak' not in p.name]) if pq_dir.exists() else 0
     n_adj = len([p for p in adj_dir.glob('*.parquet') if '.bak' not in p.name]) if adj_dir.exists() else 0
+    n_hfq = len([p for p in hfq_dir.glob('*.parquet') if '.bak' not in p.name]) if hfq_dir.exists() else 0
 
     result['details'] = {
         'parquet_daily': n_pq,
         'adj_factor': n_adj,
+        'hfq_factor': n_hfq,
     }
 
     # 所有原因都进 problems 再一次性拼接：逐个覆盖 result['message'] 会让先发现的问题静默。
@@ -172,13 +176,16 @@ def check_data_files() -> dict:
         problems.append(f'parquet/daily only {n_pq} (< {PARQUET_MIN_COUNT})')
     if n_adj < ADJ_MIN_COUNT:
         problems.append(f'adj_factor only {n_adj} (< {ADJ_MIN_COUNT})')
+    if n_hfq < HFQ_MIN_COUNT:
+        problems.append(f'hfq_factor only {n_hfq} (< {HFQ_MIN_COUNT})')
 
     # 容忍 T-1 是有意的：后置任务在 16:30 同步后立即跑，而 baostock 当日 EOD
-    # 晚间才发布，所以复权因子增量结构性只能追到 T-1——这是正常态，不是故障。
-    # 再晚一个交易日（T-2）就说明后置任务连着两天没成功，这才该报警。
+    # 晚间才发布，所以复权因子/后复权因子的增量结构性只能追到 T-1——这是正常态，
+    # 不是故障。再晚一个交易日（T-2）就说明后置任务连着两天没成功，这才该报警。
     limit = stale_threshold(_today(), allowed_trading_days=1)
     tables = {
         'adj_factor': (adj_dir, ['*.parquet']),
+        'hfq_factor': (hfq_dir, ['*.parquet']),
         'derived': (derived_dir(), ['*_indicators.parquet']),
     }
     for name, (d, patterns) in tables.items():

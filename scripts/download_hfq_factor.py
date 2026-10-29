@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """下载后复权因子（hfq）到 data/hfq_factor/{code}.parquet。
 
-【背景】
-- data/adj_factor/{code}.parquet 当前 5 列：code, date, adj_factor, qfq_close, raw_close
-- 实际：`raw_close` 来自 baostock adjustflag=3 = **后复权**，并非真 raw（真 raw 需 adjustflag=1）
-- 本脚本输出 data/hfq_factor/，列：code, date, hfq_factor (= hfq_close / qfq_close)
-- 保留 adj_factor 现状；本脚本**只新增**，不破坏 v2
+【一次性回填脚本 · 不要用它刷新数据】
+- 命中已存在文件即 `return "cached"`，不负责更新——拿它当更新器用不会刷新任何数据。
+  日常增量走 `venv/bin/python -m tdxfeed.hfq_factor`（`tdx-sync.service` 的第三条
+  `ExecStartPost=-`）。
+- **旧逻辑把 baostock adjustflag=3 当后复权是错的**：3 是**不复权**（实测与
+  data/parquet/daily 的 close 逐日相等），2 才是前复权。所以本脚本算出的
+  `hfq_factor = hfq_close / qfq_close` 实际是 **1/前复权因子**，不是后复权因子。
+- 2026-10-29 起 data/hfq_factor/ 已按真后复权重建：adjustflag=1（后复权）与
+  adjustflag=3（不复权），`hfq_factor = hfq_close / raw_close`，schema 为
+  code/date/hfq_factor/raw_close/hfq_close（`date` 是 date32[day]）。
+- 本文件保留旧列名与旧算法只是历史留档；不要据本文档重跑覆盖新表。
 
-数据源：baostock（adjustflag=2 qfq / adjustflag=3 hfq）
-
-用法:
+用法（仅历史参考；新入口见上）:
     venv/bin/python scripts/download_hfq_factor.py --limit 100
     venv/bin/python scripts/download_hfq_factor.py --codes-file scripts/missing_adj.txt
 """
