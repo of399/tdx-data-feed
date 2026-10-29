@@ -34,9 +34,20 @@ def test_manifest_last_takes_latest_bar():
 
 
 def test_full_sync_call_sites_route_through_manifest_last():
-    """源码级守卫：调用点回退成内联旧写法（整行 repr）会红。"""
+    """源码级守卫：任一处调用点回退成内联旧写法都会红。
+
+    按调用点计数，不能用 `in src`：指数分支（:134）回退成旧内联时，个股分支
+    那处 `last = manifest_last(bars)` 仍能让 `in` 为真。旧内联写法是
+    `last = str(Writers._date_int(bars[-1][0]))`，不是 `str(bars[-1])`，
+    所以负向断言必须带 `last = ` 前缀按调用点形态匹配——不带前缀会误伤
+    manifest_last 体内那行 `return str(Writers._date_int(bars[-1][0]))`。
+    """
     src = (Path(__file__).resolve().parents[1] / "tdxfeed" / "full_sync.py").read_text(
         encoding="utf-8"
     )
-    assert "last = manifest_last(bars)" in src
-    assert "str(bars[-1])" not in src
+    # 指数分支与个股分支各一处，少一处就说明有人改回了内联写法
+    assert src.count("last = manifest_last(bars)") == 2
+    assert "last = str(Writers._date_int(bars[-1][0]))" not in src
+    # 兜底：_date_int(bars[-1][0]) 只许出现在 manifest_last 体内（至多 1 处），
+    # 换了变量名的内联回退也会被这里抓住。
+    assert src.count("_date_int(bars[-1][0])") <= 1
