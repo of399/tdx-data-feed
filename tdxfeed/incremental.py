@@ -30,9 +30,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from tdxfeed.amount_fix import fill_missing_amount
+from tdxfeed.amount_fix import fill_missing_amount_marked, merge_estimated
 from tdxfeed.parquet_io import write_table
-from tdxfeed.paths import daily_dir, daily_files
+from tdxfeed.paths import amount_ledger_path, daily_dir, daily_files
 from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.sources.tencent_source import TencentSource
@@ -140,9 +140,16 @@ def incremental_update(symbol: str) -> dict:
     merged = merged.drop_duplicates(subset=["date"], keep="last").sort_values("date").reset_index(drop=True)
     # amount 同日 max（防 Sina amount=0 覆盖）
     merged["amount"] = merged.groupby("date")["amount"].transform("max")
-    merged, _ = fill_missing_amount(merged)
+    merged, _, est = fill_missing_amount_marked(merged)
+    est_days = {Writers._date_int(d) for d in merged.loc[est, "date"]}
+    # 本次拿到真实成交额的日期：曾标成估算的标记要撤销
+    real_days = {
+        Writers._date_int(d) for d, a in zip(new["date"], new["amount"])
+        if pd.notna(a) and float(a) > 0
+    }
 
     _write_v2(fp, merged)
+    merge_estimated(symbol, est_days, real_days, amount_ledger_path())
     return {
         "symbol": symbol,
         "status": "ok",

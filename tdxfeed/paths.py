@@ -124,6 +124,15 @@ def universe_path() -> Path:
     return DATA_ROOT / "all_a_stocks.json"
 
 
+def state_dir() -> Path:
+    return DATA_ROOT / ".state"
+
+
+def amount_ledger_path() -> Path:
+    """估算成交额的旁路清单（不改 daily 表 schema）。"""
+    return state_dir() / "amount_estimated.json"
+
+
 def read_path(path: Path) -> Path:
     """存在性守卫：把「路径算错」变成立刻可见的异常，而不是空表。"""
     if not Path(path).exists():

@@ -6,11 +6,12 @@
 """
 import os
 import struct
+import threading
 from pathlib import Path
 
 import pandas as pd
 
-from tdxfeed.amount_fix import fill_missing_amount
+from tdxfeed.amount_fix import fill_missing_amount_marked, ledger_path_for, merge_estimated
 from tdxfeed.parquet_io import write_table
 
 
@@ -28,42 +29,13 @@ class Writers:
         s = str(d).replace('-', '').replace(' ', '').replace(':', '')
         return int(s[:8])
 
-    def write_day(self, symbol, bars):
-        market = symbol[:2]
-        code = symbol
-        d = os.path.join(self.out_root, market, 'lday')
-        os.makedirs(d, exist_ok=True)
-        p = os.path.join(d, code + '.day')
+    def _day_bytes(self, bars, saturate=False, int32_max=2147483647):
         buf = bytearray()
         for b in bars:
             date = self._norm_date(b[0])
             o, h, l, c = float(b[1]), float(b[2]), float(b[3]), float(b[4])
             vol = round(float(b[5]))
-            amt = float(b[6]) if len(b) > 6 else 0.0
-            buf += struct.pack(
-                '<iiiiifii',
-                date,
-                round(o * 100), round(h * 100),
-                round(l * 100), round(c * 100),
-                amt, vol, 0,
-            )
-        with open(p, 'wb') as f:
-            f.write(bytes(buf))
-        return p
-
-    def write_day_safe(self, symbol, bars, int32_max=2147483647):
-        """write_day 的容量安全版：volume 超 int32 上限时饱和截断，避免 struct 溢出。"""
-        market = symbol[:2]
-        code = symbol
-        d = os.path.join(self.out_root, market, 'lday')
-        os.makedirs(d, exist_ok=True)
-        p = os.path.join(d, code + '.day')
-        buf = bytearray()
-        for b in bars:
-            date = self._norm_date(b[0])
-            o, h, l, c = float(b[1]), float(b[2]), float(b[3]), float(b[4])
-            vol = round(float(b[5]))
-            if vol > int32_max:
+            if saturate and vol > int32_max:
                 vol = int32_max
             amt = float(b[6]) if len(b) > 6 else 0.0
             buf += struct.pack(
@@ -73,9 +45,31 @@ class Writers:
                 round(l * 100), round(c * 100),
                 amt, vol, 0,
             )
-        with open(p, 'wb') as f:
-            f.write(bytes(buf))
+        return bytes(buf)
+
+    def _write_day_atomic(self, symbol, buf):
+        """tmp→rename：就地截断会让同期读 .day 的进程读到半截文件。"""
+        d = os.path.join(self.out_root, symbol[:2], 'lday')
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, symbol + '.day')
+        tmp = f"{p}.{os.getpid()}.{threading.get_ident()}.tmp"
+        try:
+            with open(tmp, 'wb') as f:
+                f.write(buf)
+            os.replace(tmp, p)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
         return p
+
+    def write_day(self, symbol, bars):
+        return self._write_day_atomic(symbol, self._day_bytes(bars))
+
+    def write_day_safe(self, symbol, bars, int32_max=2147483647):
+        """write_day 的容量安全版：volume 超 int32 上限时饱和截断，避免 struct 溢出。"""
+        return self._write_day_atomic(
+            symbol, self._day_bytes(bars, saturate=True, int32_max=int32_max))
 
     @staticmethod
     def _date_int(x):
@@ -106,6 +100,13 @@ class Writers:
         new['date'] = new['date'].apply(self._date_int)
         new = new.dropna(subset=['date', 'close'])
 
+        # 本次拿到真实成交额的日期：它们若曾被标成估算，标记要撤销
+        real_days = {
+            int(d) for d, a in zip(new['date'], new['amount'])
+            if pd.notna(a) and float(a) > 0
+        }
+        est_days: set[int] = set()
+
         if os.path.exists(p):
             old = pd.read_parquet(p)
             old['date'] = old['date'].apply(self._date_int)
@@ -128,13 +129,17 @@ class Writers:
             # amount 保护：同日取 max（旧 akshare 全历史有 amount，
             # 新 Sina 日K amount=0，避免 0 覆盖真值）
             merged['amount'] = merged.groupby('date')['amount'].transform('max')
-            merged, _ = fill_missing_amount(merged)
+            merged, _, est = fill_missing_amount_marked(merged)
+            est_days.update(int(d) for d in merged.loc[est, 'date'])
             merged = merged.drop_duplicates(subset=['date'], keep='last')
             merged = merged.sort_values('date', kind='mergesort').reset_index(drop=True)
         else:
             merged = new.sort_values('date', kind='mergesort').reset_index(drop=True)
-            merged, _ = fill_missing_amount(merged)
+            merged, _, est = fill_missing_amount_marked(merged)
+            est_days.update(int(d) for d in merged.loc[est, 'date'])
         self._write_parquet_date32(p, merged)
+        merge_estimated(symbol, est_days, real_days,
+                        ledger_path_for(self.out_root))
 
         rows = merged.values.tolist()
         sat = []
