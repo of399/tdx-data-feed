@@ -27,7 +27,7 @@ import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import adj_factor_dir, daily_dir  # noqa: E402
+from _common import adj_factor_dir, daily_dir, get_limit  # noqa: E402
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
@@ -49,21 +49,6 @@ TOP_FACTORS = {
     'lhb_buy_ratio_20d':  ('high', 0.123),
     'lhb_appear_20d':     ('high', 0.123),
 }
-
-
-def get_limit(code: str) -> float:
-    short = code[2:]
-    if code.startswith('bj'):
-        return 0.295
-    if code.startswith('sz'):
-        if short.startswith('30') or short.startswith('20'):
-            return 0.195
-        return 0.095
-    if code.startswith('sh'):
-        if short.startswith('688'):
-            return 0.195
-        return 0.095
-    return 0.095
 
 
 def calc_stock_factors(df: pd.DataFrame, code: str, ref_date: pd.Timestamp) -> dict | None:

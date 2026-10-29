@@ -38,7 +38,7 @@ import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import daily_files, daily_path, read_path  # noqa: E402
+from _common import daily_files, daily_path, get_limit, read_path  # noqa: E402
 
 ALL_STOCKS = ROOT / 'data/all_a_stocks.json'
 DOUBLE_UP = ROOT / 'data/double_up/double_up_v2_2020_2026_detail.csv'
@@ -62,15 +62,6 @@ def norm_code(code: str) -> str:
 def resolve_parquet(code: str) -> Path:
     """code 带不带 sh/sz/bj 前缀都行；路径由 paths.daily_path 唯一决定，缺文件抛 FileNotFoundError。"""
     return read_path(daily_path(code))
-
-
-def get_limit(code: str) -> float:
-    short = norm_code(code)
-    if short.startswith("920") or short.startswith("8"):
-        return 0.295                      # 北交所
-    if short.startswith("688") or short.startswith("300") or short.startswith("301") or short.startswith("200"):
-        return 0.195                      # 科创板 / 创业板 / 中小板
-    return 0.095                          # 沪深主板
 
 
 def get_board(code: str) -> str:

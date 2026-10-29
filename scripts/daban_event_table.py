@@ -49,7 +49,7 @@ OUT = ROOT / "data/daban/event_table_min60_20261022.parquet"
 META = ROOT / "data/daban/event_table_min60_20261022.meta.json"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import minute_dir  # noqa: E402
+from _common import get_limit, minute_dir  # noqa: E402
 
 MIN60_DIR = minute_dir("min60")
 BARS = ("1030", "1130", "1400", "1500")
@@ -179,8 +179,8 @@ def _daily_history(code: str) -> pd.DataFrame | None:
     for n in (5, 10, 20):
         ma = d["close"].shift(1).rolling(n, min_periods=max(3, n // 2)).mean()
         d[f"dist_ma{n}"] = d["prior_close"] / ma - 1.0
-    # 近 20 日“大涨”次数（主板 9.5%，双创 19.5%）；ST 已从可执行池剔除。
-    threshold = 0.195 if str(code).startswith(("300", "301", "688", "689")) else 0.095
+    # 近 20 日“大涨”次数（主板 9.5%，双创 19.5%，北交所 29.5%）；ST 已从可执行池剔除。
+    threshold = get_limit(code)
     ret = d["close"].pct_change()
     d["big_up_20d"] = (ret >= threshold).astype(int).shift(1).rolling(
         20, min_periods=10).sum()

@@ -18,7 +18,7 @@ import pandas as pd
 socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_dir, get_limit  # noqa: E402
 
 PARQUET = daily_dir()
 VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
@@ -26,20 +26,6 @@ ALL_STOCKS = Path('/home/jiuben/tdx-data-feed/data/all_a_stocks.json')
 V1_DETAIL = Path('/home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_detail.csv')
 V1_BY_CODE = Path('/home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_by_code.csv')
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
-
-LIMIT_MAP = {'main': 0.095, 'gem': 0.195, 'bse': 0.295}
-
-
-def get_limit(code: str) -> float:
-    short = code[2:]
-    if code.startswith('bj'):
-        return LIMIT_MAP['bse']
-    if code.startswith('sz'):
-        return LIMIT_MAP['gem'] if short.startswith('30') or short.startswith('20') else LIMIT_MAP['main']
-    if code.startswith('sh'):
-        return LIMIT_MAP['gem'] if short.startswith('688') else LIMIT_MAP['main']
-    return LIMIT_MAP['main']
-
 
 def get_industry(code: str) -> dict:
     short = re.sub(r'^(sh|sz|bj)', '', code)

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from _common import adj_factor_dir, daily_dir
+from _common import adj_factor_dir, daily_dir, get_limit
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
@@ -37,11 +37,6 @@ START_DATE = pd.Timestamp('2020-01-01')
 WINDOW = 20
 RATIO = 2.0
 
-LIMIT_MAIN = 0.095
-LIMIT_GEM = 0.195
-LIMIT_BSE = 0.295
-
-
 def is_st(code: str, st_set: set) -> bool:
     return code in st_set
 
@@ -50,21 +45,6 @@ def get_name(code: str, name_map: dict) -> str:
     short = re.sub(r'^(sh|sz|bj)', '', code)
     n = name_map.get(short, '?')
     return n.replace('　', '').strip()
-
-
-def get_limit(code: str) -> float:
-    short = code[2:]
-    if code.startswith('bj'):
-        return LIMIT_BSE
-    if code.startswith('sz'):
-        if short.startswith('30') or short.startswith('20'):
-            return LIMIT_GEM
-        return LIMIT_MAIN
-    if code.startswith('sh'):
-        if short.startswith('688'):
-            return LIMIT_GEM
-        return LIMIT_MAIN
-    return LIMIT_MAIN
 
 
 def screen_one_qfq(code: str, name_map: dict, st_set: set) -> list:

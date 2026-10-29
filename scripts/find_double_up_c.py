@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import daily_dir
+from _common import daily_dir, get_limit
 
 PARQUET = daily_dir()
 VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
@@ -34,12 +34,6 @@ RATIO = 2.0  # 翻倍
 MARKETS = ('sh', 'sz', 'bj')
 # 允许"文件存在但读不出来"的标的数；超过它说明标的池在缩水，不是个别脏文件。
 MAX_UNREADABLE = 50
-
-# 涨幅限制（沪深主板 / 创业板 / 科创板 / 北交所）
-LIMIT_MAIN = 0.095    # 主板 ±10%，留余量
-LIMIT_GEM = 0.195     # 创业板/科创板 ±20%
-LIMIT_BSE = 0.295     # 北交所 ±30%
-
 
 def is_st(code: str) -> bool:
     """查 StockVault 文件名判断 ST"""
@@ -64,24 +58,6 @@ def get_name(code: str, name_map: dict) -> str:
         # 去除全角空格
         return n.replace('　', '').strip()
     return '?'
-
-
-def get_limit(code: str) -> float:
-    """根据股票代码判断涨幅限制"""
-    short = code[2:]
-    if code.startswith('bj'):
-        return LIMIT_BSE
-    if code.startswith('sz'):
-        # 30xxxx 创业板, 20xxxx B股，0xxxx/1xxxx 主板
-        if short.startswith('30') or short.startswith('20'):
-            return LIMIT_GEM
-        return LIMIT_MAIN
-    if code.startswith('sh'):
-        # 688xxx 科创板
-        if short.startswith('688'):
-            return LIMIT_GEM
-        return LIMIT_MAIN
-    return LIMIT_MAIN
 
 
 def read_one(fp: Path) -> pd.DataFrame | None:

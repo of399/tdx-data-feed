@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -132,3 +133,26 @@ def test_threshold_change_is_confined_to_689():
     changed = [fp.stem for fp in files if abs(legacy(fp.stem) - get_limit(fp.stem)) > 1e-12]
     assert "sh689009" in changed
     assert [c for c in changed if c != "sh689009"] == []
+
+
+SCRIPT_GET_LIMIT = (
+    "scripts/daban_event_table.py",
+    "scripts/factor_engine.py",
+    "scripts/top10_deep_dive.py",
+    "scripts/find_double_up_c.py",
+    "scripts/find_double_up_c_v2.py",
+    "scripts/v3_premarket_top.py",
+)
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_scripts_have_no_local_limit_table():
+    """六个脚本不得再持有阈值字面量或本地 get_limit 实现。"""
+    offenders = []
+    for rel in SCRIPT_GET_LIMIT:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        if any(v in text for v in ("0.095", "0.195", "0.295")):
+            offenders.append(f"{rel}: 阈值字面量")
+        if "def get_limit" in text:
+            offenders.append(f"{rel}: 本地 get_limit")
+    assert offenders == []
