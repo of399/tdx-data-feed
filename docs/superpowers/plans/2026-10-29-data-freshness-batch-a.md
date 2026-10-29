@@ -44,7 +44,7 @@
 
 ---
 
-### Task 1: manifest 的 last_date 落成 int YYYYMMDD
+### Task 1: manifest 的 last_date 落成 8 位数字字符串 YYYYMMDD（`str`，不是 int）
 
 **Files:**
 - Modify: `tdxfeed/full_sync.py:231`
@@ -62,7 +62,7 @@ list-of-list（`SinaSource.fetch_bars` 里 `bars.append([...])`），`str(bars[-
 - [ ] **Step 1: 写失败测试**
 
 ```python
-"""manifest.last_date 必须是 int YYYYMMDD：bars 是 list-of-list，不能取整行 repr。"""
+"""manifest.last_date 必须是 8 位数字字符串 YYYYMMDD（不是 int）：bars 是 list-of-list，不能取整行 repr。"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -98,7 +98,7 @@ Expected: FAIL — `ImportError: cannot import name 'manifest_last'`
 
 ```python
 def manifest_last(bars) -> str:
-    """manifest 的 last_date：int YYYYMMDD。
+    """manifest 的 last_date：8 位数字字符串 YYYYMMDD（`str`，不是 int）。
 
     bars 是 list-of-list（SinaSource.fetch_bars 的结构），首元素是 normalize_date
     返回的 datetime。不要写 str(bars[-1])——那是整行 repr，5235 条里会坏 5227 条。
@@ -1021,7 +1021,7 @@ git commit -m "feat(canary): data_files 检查加入 adj_factor/derived 末日�
 
 ```
 - 同步成功后由 `tdx-sync.service` 的两行 `ExecStartPost=-` 续跑：`python -m tdxfeed.precompute.indicators --incremental`（派生表，全市场约 1 分钟）与 `python -m tdxfeed.adj_factor`（复权因子增量，**全量约 60 分钟**）。`-` 前缀表示后置失败不把整轮同步判红，是否新鲜由 canary 的 `data_files` 检查兜底（`tests/test_canary_table_freshness.py`）。
-- `data/adj_factor` 的 `date` 列是 **`date32[day]`**（不是 string、也不是 timestamp），写回时保持 `datetime.date` 对象，别 `astype(str)`；历史由 `scripts/download_adj_factor_b.py` 一次性回填，日常更新只走 `tdxfeed/adj_factor.py`（旧脚本命中已存在文件即跳过）。`data/.state/manifest.json` 的 `last_date` 是 int `YYYYMMDD`。
+- `data/adj_factor` 的 `date` 列是 **`date32[day]`**（不是 string、也不是 timestamp），写回时保持 `datetime.date` 对象，别 `astype(str)`；历史由 `scripts/download_adj_factor_b.py` 一次性回填，日常更新只走 `tdxfeed/adj_factor.py`（旧脚本命中已存在文件即跳过）。`data/.state/manifest.json` 的 `last_date` 是 8 位数字字符串 `YYYYMMDD`（`str`，不是 int）。
 ```
 
 - [ ] **Step 2: 改 docs/WORKFLOW.md**

@@ -667,7 +667,7 @@ tdx-data-feed/
 | 10-26 | **成交额回填接入生产写路径**（`writers.merge_write` / `incremental_update` → `fill_missing_amount`）；批量回填改**默认 dry-run + 写前备份** | 新写入自动带估算成交额；历史回填需显式 `--apply` |
 | 10-26 | **daban 纯工具技能**入库（`skills/daban.yaml` + `mcp:tdx-backtest.daban_top_picks` + 意图路由）| ⚠️ 技能描述与工具 warnings 均标注「只作排序研究、不是买入指令」 |
 | 10-26 | pre-commit 新增 `no-zero-byte-files` 钩子；14 处 `zip()` 补 `strict=True`；lint 归零 | 0 字节文件不得入库；`ruff` 在新代码上 0 违规 |
-| 10-29 | **数据停更收口**：`tdx-sync.service` 挂两行 `ExecStartPost=-`（派生表 `--incremental` 约 1 分钟、复权因子增量全量约 60 分钟）；新增 `tdxfeed/adj_factor.py`；canary `data_files` 增检 `adj_factor` / `derived` 末日期；manifest `last_date` 落 int `YYYYMMDD` | 复权/派生表恢复每日刷新；`full_sync` 不产复权的事实写进本文档 |
+| 10-29 | **数据停更收口**：`tdx-sync.service` 挂两行 `ExecStartPost=-`（派生表 `--incremental` 约 1 分钟、复权因子增量全量约 60 分钟）；新增 `tdxfeed/adj_factor.py`；canary `data_files` 增检 `adj_factor` / `derived` 末日期；manifest `last_date` 落 8 位数字字符串 `YYYYMMDD`（`str`，不是 int） | 复权/派生表恢复每日刷新；`full_sync` 不产复权的事实写进本文档 |
 
 > 详细逐日流水见 `docs/` 各专项报告；当日实况见 `docs/WORKFLOW_SNAPSHOT_2026-10-26.md`。
 

@@ -151,7 +151,7 @@ def check_data_files() -> dict:
     """检查关键数据文件数量与表级新鲜度（adj_factor / derived 的末日期）。
 
     只数文件个数发现不了停更：adj 停在 09-24 时文件一个不少，旧实现照样报 ok。
-    表级新鲜度取抽样末日期中位数，阈值是「最近已收盘交易日往前 3 个交易日」。
+    表级新鲜度取抽样末日期中位数，阈值是「最近已收盘交易日往前 1 个交易日」。
     """
     result = {'name': 'data_files', 'status': 'ok', 'details': {}}
 
@@ -173,7 +173,10 @@ def check_data_files() -> dict:
     if n_adj < ADJ_MIN_COUNT:
         problems.append(f'adj_factor only {n_adj} (< {ADJ_MIN_COUNT})')
 
-    limit = stale_threshold(_today())
+    # 容忍 T-1 是有意的：后置任务在 16:30 同步后立即跑，而 baostock 当日 EOD
+    # 晚间才发布，所以复权因子增量结构性只能追到 T-1——这是正常态，不是故障。
+    # 再晚一个交易日（T-2）就说明后置任务连着两天没成功，这才该报警。
+    limit = stale_threshold(_today(), allowed_trading_days=1)
     tables = {
         'adj_factor': (adj_dir, ['*.parquet']),
         'derived': (derived_dir(), ['*_indicators.parquet']),

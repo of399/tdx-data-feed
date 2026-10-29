@@ -74,6 +74,33 @@ def test_data_files_warns_when_derived_stale(tmp_path, monkeypatch):
     assert "derived" in r["message"]
 
 
+def test_data_files_tolerates_one_trading_day_lag(tmp_path, monkeypatch):
+    """adj/derived 结构性只能追到 T-1（baostock 当日 EOD 晚间才发布），T-2 才算停更。
+
+    _today()=2026-10-29 → 最近已收盘交易日 10-28，再回退 1 个交易日 = 10-27
+    （10-24/25 是周末）。末日期 == limit 为 ok；比 limit 早一个交易日（10-26）
+    才 warn——这条钉住「容忍 1 天、不容忍 2 天」。
+    """
+    m = _canary()
+    daily, adj, derived = _dirs(tmp_path)
+    _wire(m, monkeypatch, daily, adj, derived)
+
+    # 10-27 == stale_threshold(_today(), allowed_trading_days=1)：T-1 滞后是正常态。
+    _write(adj / "600000.parquet", "2026-10-27")
+    _write(derived / "sh600000_indicators.parquet", "2026-10-27")
+    r = m.check_data_files()
+    assert r["status"] == "ok", r
+    assert r["details"]["stale_before"] == "2026-10-27"
+
+    # 10-26 比 limit 早一个交易日：后置任务连着两天没成功，必须报警。
+    _write(adj / "600000.parquet", "2026-10-26")
+    _write(derived / "sh600000_indicators.parquet", "2026-10-26")
+    r = m.check_data_files()
+    assert r["status"] == "warn", r
+    assert "adj_factor 陈旧" in r["message"], r
+    assert "derived 陈旧" in r["message"], r
+
+
 def test_data_files_reports_both_count_and_freshness(tmp_path, monkeypatch):
     """计数不足与表陈旧是两个原因，不能互相覆盖——只剩一条就等于另一个静默了。"""
     m = _canary()
