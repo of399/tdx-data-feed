@@ -174,6 +174,10 @@ def main() -> int:
     if args.limit:
         syms = syms[: args.limit]
 
+    if not syms:
+        log.error("没有可处理的标的（daily_files() 为空）")
+        return 1
+
     log.warning("增量更新 %d 只", len(syms))
     ok = skip = fail = added_total = 0
     t0 = time.time()
@@ -188,10 +192,13 @@ def main() -> int:
         if st == "ok":
             ok += 1
             added_total += r["added"]
+        elif st == "up_to_date":
+            skip += 1
         elif st == "fetch_failed":
             fail += 1
         else:
-            skip += 1
+            fail += 1
+            log.error("  未知状态 %r（%s），按失败计", st, sym)
         if i % 100 == 0 or i == len(syms):
             el = time.time() - t0
             log.info(

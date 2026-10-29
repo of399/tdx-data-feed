@@ -239,6 +239,9 @@ def main() -> int:
     # 全市场 / 增量
     files = daily_files()
     total = len(files)
+    if total == 0:
+        print("❌ 没有可处理的日线文件（daily_files() 为空）", file=sys.stderr)
+        return 1
     print(f"目标 {total} 个标的 ...")
     ok, skip, fail = 0, 0, 0
     for i, f in enumerate(files):
