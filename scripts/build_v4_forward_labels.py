@@ -25,29 +25,27 @@ import pandas as pd
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_path  # noqa: E402
 
-PK = daily_dir()
 SRC = ROOT / "data" / "v4"
 CODE_RE = re.compile(r"对股票\s+(\d{6})")
 DATE_RE = re.compile(r"截至\s*(\d{4}-\d{2}-\d{2})")
 
 
 def load_parquet(code_clean: str) -> pd.DataFrame | None:
-    for prefix in ("sh", "sz", "bj"):
-        p = PK / f"{prefix}{code_clean}.parquet"
-        if p.exists():
-            try:
-                df = pd.read_parquet(p)
-            except Exception:
-                return None
-            # schema 漂移：date 为 int64 YYYYMMDD
-            if str(df["date"].dtype).startswith("int"):
-                df["date"] = pd.to_datetime(df["date"].astype(str), format="%Y%m%d")
-            else:
-                df["date"] = pd.to_datetime(df["date"])
-            return df.sort_values("date").reset_index(drop=True)
-    return None
+    p = daily_path(code_clean)
+    if not p.exists():
+        return None
+    try:
+        df = pd.read_parquet(p)
+    except Exception:
+        return None
+    # schema 漂移：date 为 int64 YYYYMMDD
+    if str(df["date"].dtype).startswith("int"):
+        df["date"] = pd.to_datetime(df["date"].astype(str), format="%Y%m%d")
+    else:
+        df["date"] = pd.to_datetime(df["date"])
+    return df.sort_values("date").reset_index(drop=True)
 
 
 def parse_sample(s: dict) -> tuple[str | None, str | None]:

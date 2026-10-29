@@ -29,7 +29,7 @@ from rouge_score import rouge_scorer
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_dir, daily_path  # noqa: E402
 
 PARQUET_DIR = daily_dir()
 TEST_JSONL = ROOT / "train" / "data" / "test.jsonl"
@@ -113,20 +113,17 @@ def build_input_from_rows(rows) -> str:
 
 def daily_tail(code: str, end_idx: int | None = None, window: int = 20):
     """返回 (last_date, input_json, df_tail) 或 None。end_idx 指定窗口末尾行号。"""
-    for cand in (code, f"sh{code}", f"sz{code}", f"bj{code}"):
-        p = PARQUET_DIR / f"{cand}.parquet"
-        if p.exists():
-            df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
-            df = df.sort_values("date").reset_index(drop=True)
-            if len(df) < window + 1:
-                return None
-            if end_idx is None:
-                end_idx = len(df) - 1
-            start = max(0, end_idx - window + 1)
-            df_tail = df.iloc[start:end_idx + 1].reset_index(drop=True)
-            break
-    else:
+    p = daily_path(code)
+    if not p.exists():
         return None
+    df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
+    df = df.sort_values("date").reset_index(drop=True)
+    if len(df) < window + 1:
+        return None
+    if end_idx is None:
+        end_idx = len(df) - 1
+    start = max(0, end_idx - window + 1)
+    df_tail = df.iloc[start:end_idx + 1].reset_index(drop=True)
     rows, prev = [], None
     for _, row in df_tail.iterrows():
         d_str = parse_date(row["date"])

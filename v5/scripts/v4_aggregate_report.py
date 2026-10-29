@@ -13,10 +13,9 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from _paths import daily_dir
+from _paths import daily_path
 
 VAULT_DIR = Path("/home/jiuben/StockVault/01-标的")
-PARQUET_DIR = daily_dir()
 REPORT_DIR = Path("/home/jiuben/tdx-data-feed/v5/reports")
 
 # 关键时点（用于验证 v4 判断准确度）
@@ -41,24 +40,23 @@ def parse_date(d) -> str:
 
 def get_current_price(code: str) -> tuple[float, str]:
     """返回 (现价, 现价日期)"""
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
-        if p.exists():
-            df = pd.read_parquet(p, columns=["date", "close"])
-            df = df.sort_values("date").reset_index(drop=True)
-            return float(df.iloc[-1]["close"]), parse_date(df.iloc[-1]["date"])
-    return 0.0, "?"
+    p = daily_path(code)
+    if not p.exists():
+        return 0.0, "?"
+    df = pd.read_parquet(p, columns=["date", "close"])
+    df = df.sort_values("date").reset_index(drop=True)
+    return float(df.iloc[-1]["close"]), parse_date(df.iloc[-1]["date"])
 
 
 def get_price_at(code: str, date_int: int) -> float:
     """返回指定日期收盘价"""
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
-        if p.exists():
-            df = pd.read_parquet(p, columns=["date", "close"])
-            df = df[df["date"] <= date_int].reset_index(drop=True)
-            if len(df) > 0:
-                return float(df.iloc[-1]["close"])
+    p = daily_path(code)
+    if not p.exists():
+        return 0.0
+    df = pd.read_parquet(p, columns=["date", "close"])
+    df = df[df["date"] <= date_int].reset_index(drop=True)
+    if len(df) > 0:
+        return float(df.iloc[-1]["close"])
     return 0.0
 
 

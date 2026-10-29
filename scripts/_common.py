@@ -8,7 +8,6 @@
     from _common import compute_window_features, get_limit
 """
 import os
-import re
 import sys
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -16,6 +15,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from tdxfeed.date_utils import parse_date, parse_date_series, to_date_str  # noqa: E402
+from tdxfeed.execution.limits import normalize_code as _normalize_code  # noqa: E402
 from tdxfeed.features_5d import (  # noqa: E402
     compute_window_features,
     compute_window_features_extended,
@@ -41,14 +41,8 @@ from tdxfeed.paths import (  # noqa: E402
 
 
 def norm_code(c) -> str:
-    """股票代码规范化: 小写 + 去 sh/sz/bj 前缀 + 6 位零填充。
-
-    审计 P1-3-1 (2026-10-17): 统一 4 处逐字重复的 _norm_code 实现
-    (compare_plan_e_signals / oracle_plan_e_ceiling / plan_e_confidence / llm_signal_plan_e)。
-    """
-    c = str(c).lower()
-    c = re.sub(r"^(sh|sz|bj)", "", c)
-    return c.zfill(6)
+    """股票代码规范化: 小写 + 去 sh/sz/bj 前缀 + 6 位零填充（委托 limits）。"""
+    return _normalize_code(c)
 
 
 def is_bj(c) -> bool:

@@ -35,6 +35,7 @@ MARKETS = ('sh', 'sz', 'bj')
 # 允许"文件存在但读不出来"的标的数；超过它说明标的池在缩水，不是个别脏文件。
 MAX_UNREADABLE = 50
 
+
 def is_st(code: str) -> bool:
     """查 StockVault 文件名判断 ST"""
     md_path = VAULT_DIR / f'{code}'

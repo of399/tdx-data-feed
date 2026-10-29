@@ -10,11 +10,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from _paths import daily_dir
+from _paths import daily_path
 
 # ===== 路径常量 =====
 VAULT_DIR = Path("/home/jiuben/StockVault")
-PARQUET_DIR = daily_dir()
 REPORT_DIR = Path("/home/jiuben/tdx-data-feed/v5/reports")
 OLLAMA_URL = "http://127.0.0.1:11434"
 V4_MODEL = "qwen3-14b-tdx-fast:14b"
@@ -24,11 +23,8 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 def code_to_files(code: str) -> Path | None:
     """600519 → sh600519.parquet"""
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
-        if p.exists():
-            return p
-    return None
+    p = daily_path(code)
+    return p if p.exists() else None
 
 
 def parse_date(d) -> str:

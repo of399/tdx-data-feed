@@ -34,7 +34,7 @@ import pandas as pd
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_dir, daily_path  # noqa: E402
 
 PARQUET_DIR = daily_dir()
 DOUBLE_UP = ROOT / "data" / "double_up" / "double_up_2020_2026_detail.csv"
@@ -70,15 +70,12 @@ def market_of(code: str) -> str:
 
 
 def get_parquet(code: str):
-    # 支持裸 6 位代码或带 sh/sz/bj 前缀；data/parquet/daily 实际为裸名(+bj 前缀)
-    bare = re.sub(r"^(sh|sz|bj)", "", code)
-    for c in (bare, f"sh{bare}", f"sz{bare}", f"bj{bare}"):
-        p = PARQUET_DIR / f"{c}.parquet"
-        if p.exists():
-            df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
-            df["date"] = parse_datecol(df["date"])
-            return df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
-    return None
+    p = daily_path(code)
+    if not p.exists():
+        return None
+    df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
+    df["date"] = parse_datecol(df["date"])
+    return df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
 
 
 def window_rows(df: pd.DataFrame, end_idx: int):

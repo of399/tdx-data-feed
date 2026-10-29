@@ -12,10 +12,9 @@ import re
 from pathlib import Path
 
 import pandas as pd
-from _paths import daily_dir
+from _paths import daily_path
 
 VAULT_DIR = Path("/home/jiuben/StockVault/01-标的")
-PARQUET_DIR = daily_dir()
 V5_TRAIN = Path("/home/jiuben/tdx-data-feed/data/v5_train/v5_train.json")
 OUT_DIR = Path("/home/jiuben/tdx-data-feed/data/v6_train")
 WINDOW = 20
@@ -40,11 +39,8 @@ def find_vault_note(code: str) -> Path | None:
 
 
 def find_parquet(code: str) -> Path | None:
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
-        if p.exists():
-            return p
-    return None
+    p = daily_path(code)
+    return p if p.exists() else None
 
 
 def build_v6_instruction(name: str, code: str, last_date: str) -> str:
@@ -90,22 +86,21 @@ def build_input_json(df_window: pd.DataFrame) -> str:
 
 
 def get_current_price(code: str) -> float:
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
-        if p.exists():
-            df = pd.read_parquet(p, columns=["close"])
-            return float(df.iloc[-1]["close"])
-    return 0.0
+    p = daily_path(code)
+    if not p.exists():
+        return 0.0
+    df = pd.read_parquet(p, columns=["close"])
+    return float(df.iloc[-1]["close"])
 
 
 def get_price_at(code: str, date_int: int) -> float:
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
-        if p.exists():
-            df = pd.read_parquet(p, columns=["date", "close"])
-            df = df[df["date"] <= date_int].reset_index(drop=True)
-            if len(df) > 0:
-                return float(df.iloc[-1]["close"])
+    p = daily_path(code)
+    if not p.exists():
+        return 0.0
+    df = pd.read_parquet(p, columns=["date", "close"])
+    df = df[df["date"] <= date_int].reset_index(drop=True)
+    if len(df) > 0:
+        return float(df.iloc[-1]["close"])
     return 0.0
 
 

@@ -15,10 +15,9 @@ warnings.filterwarnings("ignore")
 
 import pandas as pd  # noqa: E402
 import torch  # noqa: E402
-from _paths import daily_dir  # noqa: E402
+from _paths import daily_path  # noqa: E402
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig  # noqa: E402
 
-PARQUET_DIR = daily_dir()
 MERGED = "/home/jiuben/models/Qwen3-14B-tdx-v6-merged"
 OLLAMA_URL = "http://127.0.0.1:11434"
 V4_MODEL = "qwen3-14b-tdx-fast:14b"
@@ -97,16 +96,13 @@ def parse_date(d):
 
 
 def build_input(code, window=20):
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
-        if p.exists():
-            df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
-            df = df.sort_values("date").reset_index(drop=True)
-            df_tail = df.tail(window).reset_index(drop=True)
-            last_date = parse_date(df_tail.iloc[-1]["date"])
-            break
-    else:
+    p = daily_path(code)
+    if not p.exists():
         return None, None, None
+    df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
+    df = df.sort_values("date").reset_index(drop=True)
+    df_tail = df.tail(window).reset_index(drop=True)
+    last_date = parse_date(df_tail.iloc[-1]["date"])
     rows = []
     prev_close = None
     for _, row in df_tail.iterrows():

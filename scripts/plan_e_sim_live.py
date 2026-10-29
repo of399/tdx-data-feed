@@ -49,9 +49,8 @@ UNIVERSE_FILE = ROOT / "data" / "all_a_stocks.json"
 # v9 兼容: predict.py FEATURE_COLS 是 18 维;v9 模型是 26 维(需在 predict 路径兼容)。
 # sim_live 用相同的 DataFrame + LightGBM predict,模型自动按特征顺序匹配。
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_path  # noqa: E402
 
-PARQUET_DIR = daily_dir()
 OUTPUT_DIR = ROOT / "data" / "plan_e"
 
 # TP/SL/HOLD 与 plan_e_backtest v2 / plan_e_journal 完全一致
@@ -95,13 +94,8 @@ def load_universe(limit: int | None = None) -> list[str]:
 
 
 def find_parquet(code: str) -> Path | None:
-    """按代码前缀统一候选。"""
-    code_clean = code.lstrip("bj")
-    for prefix in ("", "sh", "sz", "bj"):
-        f = PARQUET_DIR / f"{prefix}{code_clean}.parquet"
-        if f.exists():
-            return f
-    return None
+    p = daily_path(code)
+    return p if p.exists() else None
 
 
 def _load_one_for_window(code: str) -> pd.DataFrame:

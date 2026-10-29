@@ -18,10 +18,9 @@ import re
 from pathlib import Path
 
 import pandas as pd
-from _paths import daily_dir
+from _paths import daily_path
 
 VAULT_DIR = Path("/home/jiuben/StockVault/01-标的")
-PARQUET_DIR = daily_dir()
 V3_DATA = Path("/home/workbuddy/lf_project/data/stock_a.json")
 OUT_DIR = Path("/home/jiuben/tdx-data-feed/data/v5_train")
 WINDOW = 20
@@ -51,11 +50,8 @@ def find_vault_note(code: str) -> Path | None:
 
 
 def find_parquet(code: str) -> Path | None:
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
-        if p.exists():
-            return p
-    return None
+    p = daily_path(code)
+    return p if p.exists() else None
 
 
 def build_input_json(df_window: pd.DataFrame) -> str:

@@ -11,10 +11,9 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from _paths import daily_dir
+from _paths import daily_path
 
 VAULT_DIR = Path("/home/jiuben/StockVault/01-标的")
-PARQUET_DIR = daily_dir()
 OLLAMA_URL = "http://127.0.0.1:11434"
 REPORT = Path("/home/jiuben/tdx-data-feed/v5/reports/v6-eval-20260924.md")
 
@@ -104,16 +103,13 @@ def call_ollama(model: str, prompt: str) -> tuple[str, float, int]:
 
 def build_input(code: str, window: int = 20) -> tuple[str, str, str]:
     """返回 (instruction, input_json, last_date_str)"""
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
-        if p.exists():
-            df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
-            df = df.sort_values("date").reset_index(drop=True)
-            df_tail = df.tail(window).reset_index(drop=True)
-            last_date = parse_date(df_tail.iloc[-1]["date"])
-            break
-    else:
+    p = daily_path(code)
+    if not p.exists():
         return None, None, None
+    df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
+    df = df.sort_values("date").reset_index(drop=True)
+    df_tail = df.tail(window).reset_index(drop=True)
+    last_date = parse_date(df_tail.iloc[-1]["date"])
 
     rows = []
     prev_close = None

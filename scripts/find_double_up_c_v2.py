@@ -37,6 +37,7 @@ START_DATE = pd.Timestamp('2020-01-01')
 WINDOW = 20
 RATIO = 2.0
 
+
 def is_st(code: str, st_set: set) -> bool:
     return code in st_set
 

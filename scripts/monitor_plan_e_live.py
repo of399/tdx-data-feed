@@ -55,14 +55,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 import pandas as pd
-from _common import daily_dir, parse_date
+from _common import daily_path, parse_date
 
 ROOT = Path(__file__).parent.parent
 LIVE_DIR = ROOT / "data" / "plan_e" / "live"
 JOURNAL = LIVE_DIR / "journal.csv"
 POSITIONS = LIVE_DIR / "positions.json"
 
-PARQUET = daily_dir()
 OBS_DIR = LIVE_DIR / "observation_reports"
 HISTORY = LIVE_DIR / "monitor_history.csv"
 
@@ -130,19 +129,17 @@ def _cost_fraction(exch: str) -> float:
 
 def _load_price_series(code: str) -> pd.Series | None:
     """加载某代码日 K 收盘价序列（索引 date），失败返回 None。"""
-    cc = str(code).zfill(6).lstrip("bj")
-    for cand in [f"{cc}.parquet", f"sh{cc}.parquet", f"sz{cc}.parquet", f"bj{cc}.parquet"]:
-        f = PARQUET / cand
-        if f.exists():
-            try:
-                df = pd.read_parquet(f)
-            except Exception:
-                return None
-            df["date"] = parse_date(df["date"])
-            s = df.set_index("date")["close"]
-            s = s[~s.index.duplicated(keep="last")].sort_index()
-            return s
-    return None
+    f = daily_path(code)
+    if not f.exists():
+        return None
+    try:
+        df = pd.read_parquet(f)
+    except Exception:
+        return None
+    df["date"] = parse_date(df["date"])
+    s = df.set_index("date")["close"]
+    s = s[~s.index.duplicated(keep="last")].sort_index()
+    return s
 
 
 def _journal_sha(path: Path) -> tuple[str | None, float | None]:

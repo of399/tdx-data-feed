@@ -38,9 +38,8 @@ import pandas as pd
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_path  # noqa: E402
 
-PARQUET_DIR = daily_dir()
 OLLAMA_URL = "http://127.0.0.1:11434"
 WINDOW = 20
 
@@ -89,13 +88,12 @@ def unit_mult(amount, volume, close) -> int:
 
 
 def _get_df(code_clean: str):
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code_clean}.parquet"
-        if p.exists():
-            df = pd.read_parquet(p)
-            df["date"] = df["date"].apply(fmt_date)
-            return df.sort_values("date").reset_index(drop=True)
-    return None
+    p = daily_path(code_clean)
+    if not p.exists():
+        return None
+    df = pd.read_parquet(p)
+    df["date"] = df["date"].apply(fmt_date)
+    return df.sort_values("date").reset_index(drop=True)
 
 
 def build_window(code: str, as_of: str):
@@ -104,7 +102,7 @@ def build_window(code: str, as_of: str):
     返回 (instruction, input_json, last_date) 或 None（数据不足/找不到 as_of）。
     as_of: 窗口末日(=peak_date)，与 v4 训练分布一致（模型预测 as_of 之后 5 日方向）。
     """
-    code_clean = str(code).zfill(6).lstrip("bj")
+    code_clean = norm_code(code)
     df = _get_df(code_clean)
     if df is None or len(df) < WINDOW:
         return None

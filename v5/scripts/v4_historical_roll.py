@@ -13,11 +13,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from _paths import daily_dir
+from _paths import daily_path
 
 # ===== 路径 =====
 VAULT_DIR = Path("/home/jiuben/StockVault/01-标的")
-PARQUET_DIR = daily_dir()
 REPORT_DIR = Path("/home/jiuben/tdx-data-feed/v5/reports")
 OLLAMA_URL = "http://127.0.0.1:11434"
 V4_MODEL = "qwen3-14b-tdx-fast:14b"
@@ -78,11 +77,8 @@ def find_vault_note(code: str) -> Path | None:
 
 
 def find_parquet(code: str) -> Path | None:
-    for prefix in ("sh", "sz", "bj"):
-        p = PARQUET_DIR / f"{prefix}{code}.parquet"
-        if p.exists():
-            return p
-    return None
+    p = daily_path(code)
+    return p if p.exists() else None
 
 
 def call_v4(instruction: str, input_str: str) -> tuple[str, float, int]:

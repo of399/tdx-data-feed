@@ -27,6 +27,7 @@ V1_DETAIL = Path('/home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_
 V1_BY_CODE = Path('/home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_by_code.csv')
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 
+
 def get_industry(code: str) -> dict:
     short = re.sub(r'^(sh|sz|bj)', '', code)
     try:
