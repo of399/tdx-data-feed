@@ -98,7 +98,13 @@ def get_price_at(code: str, date_int: int) -> float:
     if not p.exists():
         return 0.0
     df = pd.read_parquet(p, columns=["date", "close"])
-    df = df[df["date"] <= date_int].reset_index(drop=True)
+    # 在役 daily 的 date 是 date32[day]（读回 datetime.date），旧表是 int YYYYMMDD
+    if pd.api.types.is_numeric_dtype(df["date"]):
+        df = df[df["date"] <= int(date_int)]
+    else:
+        cutoff = pd.Timestamp(str(int(date_int)))
+        df = df[pd.to_datetime(df["date"]) <= cutoff]
+    df = df.reset_index(drop=True)
     if len(df) > 0:
         return float(df.iloc[-1]["close"])
     return 0.0
