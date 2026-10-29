@@ -96,19 +96,26 @@ UNIVERSE_FILE = ROOT / 'data' / 'all_a_stocks.json'
 
 # ============== 多模型注册表(信号突破:分类 → PnL 回归)==============
 # kind: cls=分类器(输出概率,阈值过滤); reg=回归器(输出预期 PnL,Top-N 排序)
+# basis: raw=特征按日线原价算; hfq=价格维按后复权因子算（涨停/成交额仍按 raw）
 # 评估见 scripts/eval_signal_forward.py / eval_signal_honest.py(时序前向,去泄漏)
 MODEL_REGISTRY = {
-    "prod":           (MODEL_FILE, "cls"),                                                       # 当前生产(18维分类,回滚用)
-    "v9":             (ROOT / "data" / "double_up" / "d_signal_5d_model_v9.txt", "cls"),          # 26维分类
-    "v10_dart":       (ROOT / "data" / "double_up" / "d_signal_5d_model_v10.txt", "cls"),         # DART 随机化分类
-    "vpnl":           (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl.txt", "reg"),        # PnL 回归
-    "vpnl_asym":      (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_asym.txt", "reg"),    # PnL 回归(非对称)
-    "vpnl_huber":     (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber.txt", "reg"),   # 原部署默认(回滚用)
-    "vpnl_huber_ind": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_industry.txt", "reg"),
-    "vpnl_huber_mkt": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_market.txt", "reg"),  # 需当日市场特征
-    "vpnl_huber_stage1": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_stage1.txt", "reg"),  # ★ Step 7 新模型(21维精选+候选因子)
+    "prod":           (MODEL_FILE, "cls", "raw"),                                                       # 当前生产(18维分类,回滚用)
+    "v9":             (ROOT / "data" / "double_up" / "d_signal_5d_model_v9.txt", "cls", "raw"),          # 26维分类
+    "v10_dart":       (ROOT / "data" / "double_up" / "d_signal_5d_model_v10.txt", "cls", "raw"),         # DART 随机化分类
+    "vpnl":           (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl.txt", "reg", "raw"),        # PnL 回归
+    "vpnl_asym":      (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_asym.txt", "reg", "raw"),    # PnL 回归(非对称)
+    "vpnl_huber":     (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber.txt", "reg", "raw"),   # 原部署默认(回滚用)
+    "vpnl_huber_ind": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_industry.txt", "reg", "raw"),
+    "vpnl_huber_mkt": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_market.txt", "reg", "raw"),  # 需当日市场特征
+    "vpnl_huber_stage1": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_stage1.txt", "reg", "raw"),  # ★ Step 7 新模型(21维精选+候选因子)
     # 打板专用：29 维特征（26 旧 + 3 新涨停特征），二分类目标 = 次日收盘涨停
-    "daban":             (ROOT / "data" / "double_up" / "d_signal_5d_model_daban.txt", "cls"),
+    "daban":             (ROOT / "data" / "double_up" / "d_signal_5d_model_daban.txt", "cls", "raw"),
+    # hfq 口径候选（2026-10-30 双跑产物；不设为默认，切流是独立决定）
+    "daban_hfq": (ROOT / "data" / "double_up" / "d_signal_5d_model_daban_hfq_20261030.txt",
+                  "cls", "hfq"),
+    "vpnl_huber_stage1_hfq": (
+        ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_stage1_hfq_20261030.txt",
+        "reg", "hfq"),
 }
 # ============== 模型切换配置（2026-10-19 切流，daban 小仓位启用）==============
 # 切换依据：历史累积验证 334 交易日 / 199,283 样本，分年度稳定领先
@@ -132,6 +139,7 @@ FALLBACK_MODEL = "vpnl_huber_stage1"
 ACTIVE_MODEL_PATH = MODEL_REGISTRY[DEFAULT_MODEL][0]
 ACTIVE_MODEL_NAME = DEFAULT_MODEL   # resolve_model 里随实际选用/回退后的模型更新
 ACTIVE_IS_REG = MODEL_REGISTRY[DEFAULT_MODEL][1] == "reg"
+ACTIVE_PRICE_BASIS = MODEL_REGISTRY[DEFAULT_MODEL][2]
 # Step 7：特征管线模式（legacy=26 基础维; polars=26 基础维+9 候选因子，新模型 vpnl_huber_stage1 必需）
 ACTIVE_FEATURE_MODE = "polars"  # 随 DEFAULT_MODEL=stage1 对齐（legacy 26 基础维+候选因子）
 # 新模型必需的 polars 候选因子列（legacy 26 维不产出这些 → 缺列会 KeyError）
@@ -168,6 +176,7 @@ FEATURE_COLS = [
 import polars as pl  # noqa: E402
 from _common import compute_window_features_extended  # noqa: E402
 
+from tdxfeed import adjusted  # noqa: E402
 from tdxfeed.daban.limit_price import exchange_prefix, normalize_code  # noqa: E402
 from tdxfeed.daban.sector_features import (  # noqa: E402
     EXTRA_FEATURE_COLS,
@@ -342,15 +351,18 @@ def _compute_candidate_polars(df_raw: pd.DataFrame, code: str) -> dict | None:
         return None
 
 
-def compute_features(code: str) -> dict:
+def compute_features(code: str, price_basis: str | None = None) -> dict:
     """
     对单只股计算特征（口径与训练侧完全一致，见 tdxfeed/features_5d）。
 
     返回 26 维(技术面扩展) + 5 维板块 + 4 维市场代理 = 35 维(若模型需要)。
     任意模型期望的特征子集都会被自动选取。
 
+    price_basis: None 取当前模型的注册表口径；"raw" 不碰因子表；"hfq" 价格维走后复权帧。
+
     返回 None 表示无法计算（数据不足等）。
     """
+    price_basis = price_basis or ACTIVE_PRICE_BASIS
     code = str(code).zfill(6)
     raw = code.lower()
     if raw[:2] in ('sh', 'sz', 'bj'):
@@ -420,8 +432,27 @@ def compute_features(code: str) -> dict:
         except Exception:
             adj_factor_value = 1.0
 
+    frame_hfq = None
+    if price_basis == "hfq":
+        try:
+            # 用 fp.stem 而不是裸 code：fp 可能是回退探测命中的文件，
+            # 只有 stem 保证咽喉读到的正是 df_raw 那份日线（如 sh000001 指数）。
+            frame_hfq = adjusted.frame(fp.stem, kind="hfq", strict=False)
+        except Exception as e:
+            print(f"[WARN] {code} hfq 帧构建失败: {e!r}", file=sys.stderr)
+            return None
+        if frame_hfq.attrs.get("factor_cov", 0.0) < adjusted.MIN_FACTOR_COV:
+            print(f"[WARN] {code} 后复权覆盖 {frame_hfq.attrs.get('factor_cov')} 低于门禁，跳过",
+                  file=sys.stderr)
+            return None
+        if len(frame_hfq) != len(df_raw) or not (
+                pd.to_datetime(frame_hfq["date"]).reset_index(drop=True)
+                .equals(pd.to_datetime(df_raw["date"]).reset_index(drop=True))):
+            print(f"[WARN] {code} hfq 帧与日线不同日，跳过", file=sys.stderr)
+            return None
+
     # 26 维特征（始终计算扩展集，main() 按 model.feature_name() 取子集，向后兼容 v8/v9+）
-    feats = compute_window_features_extended(df_raw, code)
+    feats = compute_window_features_extended(df_raw, code, frame_hfq=frame_hfq)
     if feats is None:
         return None
 
@@ -432,7 +463,8 @@ def compute_features(code: str) -> dict:
     #   设计取舍：17 个基础维沿用已验证的 legacy features_5d（最大化一致性与安全），仅新候选因子
     #   走 polars 路径，满足「新管线产出 21 列」且零破坏现有模型（模型按 feature_name 取子集，多余列自动忽略）。
     if ACTIVE_FEATURE_MODE == "polars":
-        cand = _compute_candidate_polars(df_raw, code)
+        cand = _compute_candidate_polars(
+            frame_hfq if frame_hfq is not None else df_raw, code)
         if cand is None:
             return None  # 候选因子缺失 → 新模型会 KeyError，跳过该股
         feats.update(cand)
@@ -460,10 +492,11 @@ def load_single_stock(code: str) -> tuple:
     return code, compute_features(code)
 
 
-def _init_feature_mode(mode: str) -> None:
-    """在每个 worker 进程内显式设置特征管线模式（不依赖 fork 继承全局变量）。"""
-    global ACTIVE_FEATURE_MODE
+def _init_feature_mode(mode: str, basis: str) -> None:
+    """在每个 worker 进程内显式设置特征管线模式与价格口径（不依赖 fork 继承）。"""
+    global ACTIVE_FEATURE_MODE, ACTIVE_PRICE_BASIS
     ACTIVE_FEATURE_MODE = mode
+    ACTIVE_PRICE_BASIS = basis
 
 
 def load_all_stocks(codes: list, max_workers: int = 8) -> pd.DataFrame:
@@ -473,7 +506,7 @@ def load_all_stocks(codes: list, max_workers: int = 8) -> pd.DataFrame:
     failed = 0
     with ProcessPoolExecutor(max_workers=max_workers,
                              initializer=_init_feature_mode,
-                             initargs=(ACTIVE_FEATURE_MODE,)) as executor:
+                             initargs=(ACTIVE_FEATURE_MODE, ACTIVE_PRICE_BASIS)) as executor:
         futures = {executor.submit(load_single_stock, code): code for code in codes}
         for i, fut in enumerate(as_completed(futures)):
             _code, data = fut.result()
@@ -731,8 +764,10 @@ def resolve_model(args):
         print(f"  [大仓位模式] 模型={FALLBACK_MODEL}(波段PnL回归) Top={args.top} (稳健优先)")
 
     global ACTIVE_MODEL_PATH, ACTIVE_IS_REG, ACTIVE_FEATURE_MODE, ACTIVE_MODEL_NAME
+    global ACTIVE_PRICE_BASIS
     ACTIVE_MODEL_PATH = MODEL_REGISTRY[model_name][0]
     ACTIVE_IS_REG = MODEL_REGISTRY[model_name][1] == "reg"
+    ACTIVE_PRICE_BASIS = MODEL_REGISTRY[model_name][2]
     ACTIVE_FEATURE_MODE = args.features
 
     # 异常回退：目标模型不可用 -> 回退 FALLBACK_MODEL
@@ -743,6 +778,7 @@ def resolve_model(args):
             model_name = FALLBACK_MODEL
             ACTIVE_MODEL_PATH = MODEL_REGISTRY[model_name][0]
             ACTIVE_IS_REG = MODEL_REGISTRY[model_name][1] == "reg"
+            ACTIVE_PRICE_BASIS = MODEL_REGISTRY[model_name][2]
         else:
             sys.exit(f"❌ 回退模型也不存在: {ACTIVE_MODEL_PATH}")
 
@@ -758,6 +794,7 @@ def resolve_model(args):
             model_name = FALLBACK_MODEL
             ACTIVE_MODEL_PATH = MODEL_REGISTRY[model_name][0]
             ACTIVE_IS_REG = MODEL_REGISTRY[model_name][1] == "reg"
+            ACTIVE_PRICE_BASIS = MODEL_REGISTRY[model_name][2]
             model = lgb.Booster(model_file=str(ACTIVE_MODEL_PATH))
         else:
             sys.exit(f"❌ 回退模型也加载失败: {e!r}")
