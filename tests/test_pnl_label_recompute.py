@@ -96,6 +96,7 @@ def test_refuses_to_write_when_labels_vanish(monkeypatch, tmp_path):
     df = pd.read_csv(dst, float_precision="round_trip")
     emptied = df.drop(columns=["hypothetical_pnl"]).assign(hypothetical_pnl=pd.NA)
     monkeypatch.setattr(R, "OUT_DATA", dst)
-    monkeypatch.setattr(R, "attach_pnl", lambda features, max_workers=8: emptied)
-    assert R.main() == 1
+    monkeypatch.setattr(R, "attach_pnl",
+                        lambda features, max_workers=8, price_basis="raw": emptied)
+    assert R.main([]) == 1
     assert dst.read_bytes() == NEW.read_bytes(), "闸门没拦住：文件被覆盖了"

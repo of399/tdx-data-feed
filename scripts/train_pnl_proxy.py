@@ -35,6 +35,7 @@ ROOT = Path(__file__).parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from tdxfeed.adjusted import MIN_FACTOR_COV, frame as adj_frame  # noqa: E402
 from tdxfeed.execution.bars import as_bars  # noqa: E402
 from tdxfeed.execution.costs import CostModel  # noqa: E402
 from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
@@ -66,9 +67,23 @@ def _load_one(code: str) -> pd.DataFrame:
     return _load(code)
 
 
-def compute_hypothetical_pnl(code: str, sig_date: pd.Timestamp) -> float | None:
+def _load_one_basis(code: str, price_basis: str) -> pd.DataFrame:
+    """raw 走原加载器（零改动）；hfq 走咽喉，覆盖率不足返回空表交给上层记 None。"""
+    if price_basis == "raw":
+        return _load_one(code)
+    f = adj_frame(code, kind="hfq", strict=False)
+    if f.attrs.get("factor_cov", 0.0) < MIN_FACTOR_COV:
+        return pd.DataFrame()
+    f = f.copy()
+    f["date"] = pd.to_datetime(f["date"])
+    f["code"] = code
+    return f.sort_values("date").reset_index(drop=True)
+
+
+def compute_hypothetical_pnl(code: str, sig_date: pd.Timestamp,
+                             price_basis: str = "raw") -> float | None:
     """与 plan_e 同一结算口径的 PnL 代理标签。返回 None 表示数据不足。"""
-    df = _load_one(code)
+    df = _load_one_basis(code, price_basis)
     if df.empty:
         return None
     sig_match = df.index[df["date"] == sig_date]
@@ -90,7 +105,8 @@ def compute_hypothetical_pnl(code: str, sig_date: pd.Timestamp) -> float | None:
     return None if r is None else float(r.net_ret)
 
 
-def attach_pnl(df: pd.DataFrame, max_workers: int = 8) -> pd.DataFrame:
+def attach_pnl(df: pd.DataFrame, max_workers: int = 8,
+               price_basis: str = "raw") -> pd.DataFrame:
     """给每个样本算 hypothetical_pnl(并行)。"""
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -99,7 +115,8 @@ def attach_pnl(df: pd.DataFrame, max_workers: int = 8) -> pd.DataFrame:
 
     if max_workers > 1 and len(rows) > 100:
         with ProcessPoolExecutor(max_workers=max_workers) as ex:
-            futs = {ex.submit(compute_hypothetical_pnl, code, sd): i for i, (code, sd) in enumerate(rows)}
+            futs = {ex.submit(compute_hypothetical_pnl, code, sd, price_basis): i
+                    for i, (code, sd) in enumerate(rows)}
             done = 0
             for fut in as_completed(futs):
                 i = futs[fut]
@@ -113,7 +130,7 @@ def attach_pnl(df: pd.DataFrame, max_workers: int = 8) -> pd.DataFrame:
                     print(f"    [{done}/{len(rows)}] valid_pnl={valid}", flush=True)
     else:
         for i, (code, sd) in enumerate(rows, 1):
-            results[i - 1] = compute_hypothetical_pnl(code, sd)
+            results[i - 1] = compute_hypothetical_pnl(code, sd, price_basis)
             if i % 500 == 0 or i == len(rows):
                 valid = sum(1 for v in results.values() if v is not None)
                 print(f"    [{i}/{len(rows)}] valid_pnl={valid}", flush=True)
