@@ -18,9 +18,17 @@ class State:
         return {}
 
     def save(self):
+        """整文件重写走 tmp→rename：读到半个 manifest 会让整轮同步被判成空。"""
         os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
-        with open(self.state_file, 'w', encoding='utf-8') as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2, default=str)
+        tmp = f"{self.state_file}.{os.getpid()}.tmp"
+        try:
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2, default=str)
+            os.replace(tmp, self.state_file)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
 
     def last_date(self, symbol):
         return self.data.get(symbol, {}).get('last_date')

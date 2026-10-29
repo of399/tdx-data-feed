@@ -12,6 +12,7 @@ State manifest——`State.save()` 是整文件重写，3 线程并发会互相�
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -35,13 +36,34 @@ def load_done(state_path: str = RESUME_PATH) -> set[str]:
 
 def mark_done(state_path: str, symbol: str) -> None:
     """原子换文件（.tmp + os.replace）。只在主线程调用：读-改-写不是原子的，
-    worker 线程里并发跑会丢条目。"""
+    worker 线程里并发跑会丢条目。tmp 名带 pid：并发的第二个回填进程不会和它互踩。"""
     os.makedirs(os.path.dirname(state_path), exist_ok=True)
     done = load_done(state_path) | {symbol}
-    tmp = state_path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"done": sorted(done)}, fh, ensure_ascii=False)
-    os.replace(tmp, state_path)
+    tmp = f"{state_path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"done": sorted(done)}, fh, ensure_ascii=False)
+        os.replace(tmp, state_path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def acquire_run_lock(path: str) -> object | None:
+    """进程级互斥（flock）。抢不到返回 None：两个回填进程读-改-写同一份 done 集会互相丢条目。"""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fh = open(path, "a+", encoding="utf-8")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    fh.seek(0)
+    fh.truncate()
+    fh.write(f"{os.getpid()}\n")
+    fh.flush()
+    return fh
 
 
 def backfill_symbol(symbol: str, target: int, *, fetch=fetch_history,

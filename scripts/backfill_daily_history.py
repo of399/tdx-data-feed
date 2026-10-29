@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tdxfeed.backfill_history import (  # noqa: E402
-    RESUME_PATH, backfill_symbol, load_done, mark_done)
+    RESUME_PATH, acquire_run_lock, backfill_symbol, load_done, mark_done)
 from tdxfeed.writers import Writers  # noqa: E402
 
 BAD_RATIO_MAX = 0.05
@@ -70,6 +70,11 @@ def main() -> int:
     if audit.get("target") != args.target:
         print(f"[WARN] 审计 target={audit.get('target')} ≠ 本次 --target={args.target}，"
               "回填范围与审计口径不一致", flush=True)
+    lock = acquire_run_lock(args.resume + ".lock")
+    if lock is None:
+        print(f"[ABORT] 已有回填进程持有 {args.resume}.lock：两份 done 集并发读-改-写会丢条目",
+              flush=True)
+        return 1
     done = load_done(args.resume)
     extend, todo = plan(audit, done, args.limit)
     print(f"审计 {audit_path.name}：extend {len(extend)} 只，"
