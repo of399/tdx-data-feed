@@ -2,6 +2,8 @@
 
 状态：**设计已确认，2026-10-26 中午按 HEAD 现状重写**（另一路会话已把补历史通道与因子生产落进 HEAD，本设计据此收窄）。三项决定由用户拍板 —— ① daily 继续存 raw、另加复权层；② 价格类特征一起切口径并重训；③ 标签（翻倍正样本宇宙）也切 hfq。
 
+> **2026-10-29 收口（先读这条）**：本文「因子权威 = `data/adj_factor_ext/`」的定位**已撤回**。该目录**至今不存在**（0 文件、零消费者、无回填驱动、不在每日链路内），`tdxfeed/adj_factor_history.py` 只是**实验模块**，不构成现行权威。现行两套在役因子表是 `data/adj_factor/`（qfq 锚，`tdxfeed/adj_factor.py` 每日增量）与 `data/hfq_factor/`（真后复权，`tdxfeed/hfq_factor.py` 每日增量），两者都随 `tdx-sync.service` 的 `ExecStartPost` 维护；「三表互不可换算、禁回落」这条约束**仍然有效**。§2.2 / §2.3 / §8 描述的是一条**未实施**的路线：只有出现真实下游（收益率类特征或标签）时才按 §2.1 重新评估，落地前不得引用本文声称复权层「已就绪」。
+
 目标：在不破坏「涨停价 = 交易所绝对价」这一不可让渡语义的前提下，让收益率类消费者拿到无除权跳空的连续价格序列，并把确实缺历史的票补到上市日（判据与只数见 §3：**候选 10 只**，不是先前按行数猜的 98 只）。
 
 
@@ -23,7 +25,7 @@
 | 截断的指纹 | 5 只票 `local_min` 恰为 **2022-07-01**、行数恰 **1045**（sz000900/sz300339/sz300401/sh689009/sh688511）——同一窗口批量重写，不是源尽头 | 同扫描 |
 | 只读审计已跑出的范围（target=2000-01-01） | extend **4** / listed_after_target 4471 / ok 746，`request_failure_ratio=0.0`，缺 19700 交易日 | `data/audit/history_depth_20261026.json` |
 | 回填已在一只票上跑通 | sh600000 现 6413 行、首行 1999-11-10 = ipoDate；`done=["sh600000"]` | `data/parquet/daily/sh600000.parquet`、`data/.state/history_backfill.json` |
-| 并存三套因子表，**互不可换算** | `adj_factor`（qfq 锚、2020 起）/ `hfq_factor`（2020 起）/ `adj_factor_ext`（hfq 锚、可追到 2000 前）。新/旧 hfq 重叠 1633 行比值 中位 12.221060、**std 0.437535** ⇒ 不是同一量的两种刻度 | `tdxfeed/adj_factor_history.py:1-16` 文档字符串 |
+| 三套因子口径（两套在盘、一套未落地），**互不可换算** | `adj_factor`（qfq 锚、2020 起）/ `hfq_factor`（2020 起）/ `adj_factor_ext`（设计为 hfq 锚、可追到 2000 前，**未落地**）。2026-10-29 重建前实测：新/旧 hfq 重叠 1633 行比值 中位 12.221060、**std 0.437535** ⇒ 不是同一量的两种刻度 | `tdxfeed/adj_factor_history.py` 文档字符串 |
 | 现役价格模型的重训成本 | 1,071,227 训练 / 113,892 测试，29 维，**17–19 分钟，CPU ~3GB** | `docs/V9R_CKPT1000_ASSESSMENT_2026-10-19.md:100-108` |
 | 可复现基线 | daban OOS AUC **0.7478**（raw 口径）；对照 0.7602 / 0.7459 在盘 | `docs/RERUN_PLAN_2026-10-19.md:103`、`data/double_up/daban_train_report*.md` |
 
@@ -34,7 +36,7 @@
 | 批 | 内容 | 状态 | 停止点判据 |
 |---|---|---|---|
 | **P0 已在 HEAD** | 腾讯分页深取（`tdxfeed/history_paging.py`）、幂等回填 runner（`backfill_history.py` + `scripts/backfill_daily_history.py`）、深度只读审计（`scripts/audit_daily_history_depth.py`）、hfq 因子反推（`tdxfeed/adj_factor_history.py` → `data/adj_factor_ext/`） | **已落地并有测试**（4 份守卫文件） | 本设计不复述、不重写，只作为 P1/P2 的依赖 |
-| P1 因子接线 | `adj_factor_ext` 补跑到全市场 + append-only 不变量守卫 + **读侧咽喉 `tdxfeed/adjusted.py`** | 待做。咽喉目前**不存在**：全仓库没有任何文件读 `adj_factor_ext`（`data/adj_factor_ext/` 目录本身也还没生成），`features_5d` 仍按旧契约用 raw close | 验收 §8 第 1、2 条过；此时线上行为一字未变，可安全搁下 |
+| P1 因子接线 | `adj_factor_ext` 补跑到全市场 + append-only 不变量守卫 + **读侧咽喉 `tdxfeed/adjusted.py`** | **2026-10-29 定夺：不落地**（目录不存在、零消费者、无回填驱动；`adj_factor_ext` 降级为实验模块，现行因子以 `data/adj_factor` + `data/hfq_factor` 两条每日链为准）。咽喉同样**不存在**，`features_5d` 仍按旧契约用 raw close | 验收 §8 第 1、2 条过；此时线上行为一字未变，可安全搁下 |
 | P2 补历史 | 按 ipoDate 判据补 **8~10 只**（不是 98）+ 重叠区对账门禁 | 已在 sh600000 单只跑通，其余未跑 | 验收 §8 第 3 条过；每只补前留单日快照 |
 | P3 口径切换 | `features_5d` 逐维分派 + 无裸 close 不变量守卫 + daban 双跑对照 | 待做，且**是这份设计唯一还独占的部分** | 验收 §8 第 4、5 条过；**线上模型不切** |
 
@@ -43,7 +45,7 @@ P1 做完就能停下来评估价值——如果咽喉现算的收益率已经�
 ## 2. 架构：两层权威 + 一个读侧咽喉
 
 ```
-腾讯 hfq + 未复权两条序列 ──► data/adj_factor_ext/{code}.parquet  ← 因子权威（hfq 锚，逐日 factor）
+腾讯 hfq + 未复权两条序列 ──► data/adj_factor_ext/{code}.parquet  ← 实验模块（未落地，不是权威；见 §2.1）
 data/parquet/daily/*.parquet                                     ← 价格权威（raw，不改写历史）
                     └──────────► tdxfeed/adjusted.py: frame(symbol, kind)  ← 唯一咽喉（本设计新增）
                                             ├─► tdxfeed/features_5d.py（训练与预测共用）
@@ -57,22 +59,22 @@ data/parquet/daily/*.parquet                                     ← 价格权�
 
 落一张**因子**表不算破例：因子是比率，不是价格；`adj_factor_ext` 存 `date/raw_close/hfq_close/factor` 四列，下游要的连续价格仍由咽喉现算。
 
-### 2.1 因子权威 = `data/adj_factor_ext/`（已在 HEAD，本设计只补两处）
+### 2.1 因子表 `data/adj_factor_ext/`（实验模块；2026-10-29 定夺：不落地、不构成权威）
 
-已具备的：`derive_factor(raw_rows, hfq_rows)` 逐日 `factor = hfq_close / raw_close`，只出两条序列的交集，**交集内部有洞直接抛**（地板差取交集，中段对不齐才是垃圾因子）；`write_ext` 用 `.parquet.tmp` + `os.replace`，半写不可见。
+**本节写的是「若要落地该怎么做」，不是现状。** 2026-10-29 的收口结论：该目录从未生成，全仓库只有 `tdxfeed/adj_factor_history.py` 与 `tests/test_adj_factor_history.py` 提到它，无消费者、不在每日链路内；日常两条因子链已在役（`data/adj_factor/` qfq 锚、`data/hfq_factor/` 真后复权，均为 `tdx-sync.service` 的 `ExecStartPost` 增量）。因此本模块降级为**实验模块**，本设计撤回「因子权威 = `data/adj_factor_ext/`」的定位，回填与否等真实下游出现再定。下面两条约束**不随撤回失效**，将来落地时照此执行：
 
-本设计要补的两件事：
+模块本体已有 `derive_factor(raw_rows, hfq_rows)`（逐日 `factor = hfq_close / raw_close`，只出两条序列交集，交集内部有洞直接抛）与 `write_ext`（`.parquet.tmp` + `os.replace`，半写不可见），`tests/test_adj_factor_history.py` 锁着写入形状；缺的是数据与消费者。
 
-- **选表规则写进代码，不留在文档里**。三套因子表互不可换算（`adj_factor_ext` / `data/hfq_factor/` 重叠 1633 行比值 std 0.437535），`tdxfeed/adj_factor_history.py:11-15` 已经点明「不要做读不到就回落到另一套」。这条约束目前只活在文档字符串里，咽喉实现必须把它变成机械检查：`adjusted.py` 里出现的因子目录常量**只允许一个**，守卫扫源码禁止任何第二处 `hfq_factor` / `adj_factor` 读取路径进入价格派生。
+- **选表规则写进代码，不留在文档里**。三套因子表互不可换算（`adj_factor_ext` / `data/hfq_factor/` 重叠 1633 行比值 std 0.437535），`tdxfeed/adj_factor_history.py` 的文档字符串已经点明「不要做读不到就回落到另一套」。这条约束目前只活在文档字符串里，咽喉实现必须把它变成机械检查：`adjusted.py` 里出现的因子目录常量**只允许一个**，守卫扫源码禁止任何第二处 `hfq_factor` / `adj_factor` 读取路径进入价格派生。
 - **append-only 不变量要有绊线**：`factor` 在除权日之前不得随新事件改变。现有测试只锁了写入形状，没锁这条。
 
-`data/adj_factor/*.parquet`（旧日频表）**退役为只读**，不删、不再刷新，仅继续服务它现有的两个消费者（`scripts/clean_double_up_detail.py:60-69`、`scripts/find_double_up_c_v2.py:157`），本设计不改这两个脚本。
+`data/adj_factor/*.parquet` **不是退役表**：它由 `tdxfeed/adj_factor.py` 每日增量维护（`tdx-sync.service` 的 `ExecStartPost`），并继续服务已有的两个研究脚本（`scripts/clean_double_up_detail.py:60-69`、`scripts/find_double_up_c_v2.py:157`）；本设计不改这两个脚本。它锚定 qfq、只覆盖 2020 年起，所以不能当连续价格权威用。
 
 
-### 2.2 `tdxfeed/adjusted.py`（新，派生层，唯一咽喉）
+### 2.2 `tdxfeed/adjusted.py`（待落地；当前不存在，唯一咽喉）
 
 ```python
-frame(symbol: str, *, kind: str = "raw", root: Path) -> pd.DataFrame
+frame(symbol: str, *, kind: str = "raw", root: Path) -> pd.DataFrame   # 未实现
 ```
 
 - `kind="raw"` 直接返回 `data/parquet/daily/{symbol}.parquet`，**一字不改**（涨停价、封板判定走这条）。
@@ -171,6 +173,8 @@ for sym in candidates:
 
 ## 8. 验收标准
 
+> 以下全部是**落地后**的验收标准；2026-10-29 收口时一条都还没有执行（第 3 条除外——补历史已单独在推进，见 §3）。
+
 1. **派生不反噬 raw**：`frame(sym, kind="raw")` 与磁盘逐字节一致；且 `adj_factor_ext.raw_close` 对 `daily.close` 逐日误差 0（因子表由这两条序列相除而来，误差非 0 就说明它在覆盖之后又变了）。sh600000 用独立生产者 `adj_factor.raw_close` 实测已为 **0.000e+00 / 1633 日**，其余候选照此复核。
 2. **复权真的起作用，且因子表不陈旧**：取 `factor` 发生跳变的相邻各 5 日（600519 最后一次实测 2026-06-26），`hfq` 收益率连续、`raw` 出现台阶；同时 `adj_factor_ext` 末日不得比 `daily` 末日旧超过 1 个交易日——这条不通就禁止开训、禁止出预测。
 3. **补历史**：§3 的 10 只候选逐只落到「已补到 ipoDate（gap ≤ 缓冲带）」或「进 rejected / 停牌清单」两者之一；重叠区一字不变（按第 1 条的对账方式复测）；每只补前留有单日快照；行数只增不减。
@@ -188,6 +192,8 @@ for sym in candidates:
 - 不切换线上模型。
 
 ## 10. 守卫清单（TDD，RED 先行）
+
+> 下表 6 份测试**全部尚未创建**；唯一已存在的复权守卫是 `tests/test_adj_factor_history.py`（只锁写入形状，不在下表）。不要把下表当成已存在的门禁。
 
 | 文件 | 锁住什么 |
 |---|---|

@@ -8,13 +8,20 @@
 与未复权逐行相同），每有一次分红整条历史序列都要重算，存下来的因子隔天就漂；
 hfq 锚在上市日，历史段不动，才可当静态数据存。
 
-本目录与 data/hfq_factor/ 仍是两套口径，不可混用：旧表（2026-10-29 之前）存的其实
+本模块的目录与 data/hfq_factor/ 仍是两套口径，不可混用：旧表（2026-10-29 之前）存的其实
 是 1/前复权因子——那个脚本把 adjustflag=3（不复权）当成后复权、又用前复权价做分母。
 该表已于 2026-10-29 重建为真后复权（adjustflag=1 / 3，hfq_factor = hfq_close / raw_close）。
 重建后两套仍不是简单换算关系：多数标的上 `hfq_factor / adj_factor` 是一个常数，但
 baostock 的 flag=1 与 flag=2 在约 1.6% 的标的上自相矛盾（比值有台阶，有的 flag=1
 全程等于未复权价），所以既不能互推也不能互相校验。这里只写自己的目录，下游引用必须
 显式选一个，不要做「读不到就回落到另一套」——回落只会把两套数字混进同一条序列。
+
+状态（2026-10-29 定夺）：本模块**未落地**——data/adj_factor_ext/ 目录从未生成，
+全仓库只有本文件与 tests/test_adj_factor_history.py 提到它，无消费者、不在每日链路内，
+因此**不构成因子权威**。在役的是 data/adj_factor/（前/不复权因子）与 data/hfq_factor/
+（真后复权），都由 tdx-sync.service 的 ExecStartPost 每日增量维护。启用本模块前先有
+真实下游（收益率类特征或标签），并按
+docs/superpowers/specs/2026-10-26-adjust-layer-hfq-design.md §2.1 重新评估。
 """
 from __future__ import annotations
 
