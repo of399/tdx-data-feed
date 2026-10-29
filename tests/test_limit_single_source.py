@@ -146,6 +146,18 @@ SCRIPT_GET_LIMIT = (
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_daban_exchange_prefix_delegates_to_paths():
+    from tdxfeed import paths
+    assert limit_price.exchange_prefix is paths.exchange_prefix
+
+
+def test_daban_exchange_prefix_keeps_explicit_prefix():
+    """sh000001 是上证指数；重推会指到 sz000001 平安银行。"""
+    assert limit_price.exchange_prefix("sh000001") == "sh"
+    assert limit_price.exchange_prefix("sz000001") == "sz"
+    assert limit_price.exchange_prefix("000001") == "sz"
+
+
 def test_scripts_have_no_local_limit_table():
     """六个脚本不得再持有阈值字面量或本地 get_limit 实现。"""
     offenders = []

@@ -33,6 +33,9 @@ from decimal import Decimal
 
 from tdxfeed.execution import limits as _limits
 from tdxfeed.names import is_st_name as _is_st_name
+# 入参自带 sh/sz/bj 时以入参为准：不可先 normalize 再重推，
+# 否则 sh000001（上证指数）会被指到 sz000001（平安银行）。
+from tdxfeed.paths import exchange_prefix
 
 __all__ = [
     "LIMIT_RATIO",
@@ -72,14 +75,6 @@ def normalize_code(code: str) -> str:
 def market_of(code: str) -> str:
     """判断所属板块：main / gem / bse。"""
     return _limits.market_of(code)
-
-
-def exchange_prefix(code: str) -> str:
-    """交易所前缀：sh / sz / bj。"""
-    c = _limits.normalize_code(code)
-    if _limits.market_of(c) == MARKET_BSE:
-        return "bj"
-    return "sh" if c[0] in "69" else "sz"
 
 
 def is_st(name: str) -> bool:
