@@ -32,7 +32,14 @@ sys.path.insert(0, str(ROOT))
 
 from tdxfeed.backfill_history import acquire_run_lock  # noqa: E402
 from tdxfeed.hfq_factor import (  # noqa: E402
-    COLUMNS, FAIL_ABORT, _query_retry, bs_code, exit_code, merge_rows, write_atomic)
+    COLUMNS,
+    FAIL_ABORT,
+    _query_retry,
+    bs_code,
+    exit_code,
+    merge_rows,
+    write_atomic,
+)
 from tdxfeed.paths import hfq_factor_dir  # noqa: E402
 
 GATE_TOL = 0.005
