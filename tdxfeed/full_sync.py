@@ -182,6 +182,17 @@ def write_sync_summary(individual: dict, index: dict, out_root: str):
 SYNC_BAD_RATIO_MAX = 0.2
 
 
+def manifest_last(bars) -> str:
+    """manifest 的 last_date：int YYYYMMDD。
+
+    bars 是 list-of-list（SinaSource.fetch_bars 的结构），首元素是 normalize_date
+    返回的 datetime。不要写 str(bars[-1])——那是整行 repr，5235 条里会坏 5227 条。
+    """
+    if not bars:
+        raise ValueError("manifest_last 需要非空 bars")
+    return str(Writers._date_int(bars[-1][0]))
+
+
 def sync_exit_code(individual: dict, index: dict) -> int:
     """同步健康判定：0=可放行下游，1=systemd 应记为失败。
 
@@ -228,7 +239,7 @@ def main():
             bars = src.fetch_bars(sym)
             if bars:
                 n = w.merge_write(sym, bars)
-                last = str(bars[-1]).replace("-", "")
+                last = manifest_last(bars)
                 state.update(sym, last, n)
                 ok += 1
             else:
