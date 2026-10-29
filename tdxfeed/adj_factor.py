@@ -190,6 +190,16 @@ def update_one(bs, code: str, out_dir: Path, today: str) -> str:
     return f"ok:+{len(merged) - n_old}"
 
 
+# baostock 会话在长跑中会掉：10001001 用户未登录、10002007 网络接收错误。
+# 重连后重试同一只；数据缺陷（shrink / partial-empty）不在此列，重连救不了。
+SESSION_LOST_CODES = ("10001001", "10002007")
+MAX_RELOGIN = 30
+
+
+def _session_lost(result: str) -> bool:
+    return result.startswith("fail:") and any(c in result for c in SESSION_LOST_CODES)
+
+
 def exit_code(ok: int, skip: int, fail: int) -> int:
     total = ok + skip + fail
     if total == 0:
@@ -233,10 +243,18 @@ def main(argv=None) -> int:
         return 1
     ok = skip = fail = rebase = added = 0
     consec = 0
+    relogin = 0
     aborted = False
     try:
         for i, code in enumerate(codes, 1):
             r = update_one(bs, code, out_dir, args.today)
+            if _session_lost(r) and relogin < MAX_RELOGIN:
+                relogin += 1
+                lg = bs.login()
+                if lg.error_code == "0":
+                    print(f"  ↻ baostock 会话中断，已重连（第 {relogin} 次）：{code}",
+                          flush=True)
+                    r = update_one(bs, code, out_dir, args.today)
             if r.startswith("ok:") or r.startswith("rebase:"):
                 ok += 1
                 if r.startswith("rebase:"):

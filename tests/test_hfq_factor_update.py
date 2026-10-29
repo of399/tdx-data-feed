@@ -470,3 +470,51 @@ def test_legacy_schema_queries_full_history_directly(tmp_path, monkeypatch):
     monkeypatch.setattr(m, "_query", fake_query)
     assert update_one(object(), "600000", tmp_path, "2026-09-25").startswith("rebase:+")
     assert starts == ["2026-09-23", "2026-09-23"], starts
+
+
+def _fake_bs(monkeypatch, logins):
+    """把 main() 里的 `import baostock as bs` 换成可计数的假模块。"""
+    import sys
+    import types
+
+    class FakeBS:
+        @staticmethod
+        def login():
+            logins.append(1)
+            return types.SimpleNamespace(error_code="0", error_msg="success")
+
+        @staticmethod
+        def logout():
+            pass
+
+    monkeypatch.setitem(sys.modules, "baostock", FakeBS)
+
+
+def test_main_relogins_once_when_session_lost(tmp_path, monkeypatch):
+    """会话在长跑中会掉（10001001/10002007）：重连后重试同一只，而不是记失败。"""
+    import tdxfeed.hfq_factor as m
+
+    logins: list[int] = []
+    _fake_bs(monkeypatch, logins)
+    monkeypatch.setattr(m, "hfq_factor_dir", lambda: tmp_path)
+    results = iter([
+        "fail:RuntimeError:baostock 10001001: 用户未登录",
+        "ok:+3",
+    ])
+    monkeypatch.setattr(m, "update_one", lambda *a, **k: next(results))
+
+    assert m.main(["--code", "600000", "--today", "2026-10-28"]) == 0
+    assert len(logins) == 2
+
+
+def test_main_does_not_relogin_on_data_defects(tmp_path, monkeypatch):
+    """shrink / empty-window 是数据缺陷不是会话问题，重连救不了。"""
+    import tdxfeed.hfq_factor as m
+
+    logins: list[int] = []
+    _fake_bs(monkeypatch, logins)
+    monkeypatch.setattr(m, "hfq_factor_dir", lambda: tmp_path)
+    monkeypatch.setattr(m, "update_one", lambda *a, **k: "fail:shrink")
+
+    assert m.main(["--code", "600000", "--today", "2026-10-28"]) == 1
+    assert len(logins) == 1
