@@ -9,7 +9,9 @@ is_positive/hypothetical_pnl + 26 维）扩展为 Optuna 可用的宽表：
 
 输出：data/double_up/stage1_wide_table.parquet（每 (code, signal_date) 一行）。
 
-复权口径：day parquet 的 close 已审计为未复权（raw），与 features_5d/训练一致，零漂移。
+复权口径：price_basis=raw（默认）时特征与标签都是 raw；price_basis=hfq 时
+26 维按 features_5d 的逐维分派（13 hfq / 8 raw / 4 量纲 / 4 枚举）从 hfq 帧算，
+标签来自 src CSV（即 d_signal_5d_features_vpnl_hfq.csv 的 hfq 标签）。
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ from pathlib import Path
 
 import polars as pl
 
+from .adjusted import MIN_FACTOR_COV, frame as adj_frame
 from .factors_candidates import CANDIDATE_NAMES, compute_candidate_features
 from .factors_polars import compute_window_features_extended_polars
 from .paths import daily_dir
@@ -59,8 +62,12 @@ def build_wide_table(
     out_parquet: Path = OUT_PARQUET,
     sample_codes: int | None = None,
     verify_parity: bool = True,
+    price_basis: str = "raw",
 ) -> dict:
     """装配宽表。按 code 分组，每股票读一次 parquet，对其每个 signal_date 计算特征。"""
+    if price_basis != "raw" and verify_parity:
+        log.info("price_basis=%s：CSV 里是 raw 特征，parity 检查自动关闭", price_basis)
+        verify_parity = False
     base = pl.read_csv(src_csv, infer_schema_length=10000)
     # signal_date 统一为字符串，避免被推断为 Date 导致后续 == 比较/解析歧义
     base = base.with_columns(pl.col("signal_date").cast(pl.Utf8))
@@ -80,13 +87,27 @@ def build_wide_table(
     n_asym_nonfinite = 0
     n_diff_big = 0
     n_diff_rel = 0
+    n_hfq_skip = 0
 
     for code in codes:
         fp = DAILY / f"{code}.parquet"
         if not fp.exists():
             n_missing_file += int((base.get_column("code") == code).sum())
             continue
+        # raw 路径一字不动：仍按 fp 直读，不绕咽喉（保持与既有宽表逐值一致）
         df = _norm_date(pl.read_parquet(fp))
+        frame_hfq = None
+        if price_basis == "hfq":
+            f_hfq = adj_frame(code, kind="hfq", strict=False)
+            if f_hfq.attrs.get("factor_cov", 0.0) < MIN_FACTOR_COV:
+                n_hfq_skip += int((base.get_column("code") == code).sum())
+                continue
+            frame_hfq = _norm_date(pl.from_pandas(f_hfq))
+            # 同长还不够：两帧必须同日同序，否则 sig_idx 会错位
+            if (frame_hfq.height != df.height
+                    or frame_hfq["date"].to_list() != df["date"].to_list()):
+                n_hfq_skip += int((base.get_column("code") == code).sum())
+                continue
         dates = df["date"].to_list()
         sub = base.filter(pl.col("code") == code)
         for sd, is_pos, pnl in zip(
@@ -108,11 +129,14 @@ def build_wide_table(
                 n_missing_date += 1
                 continue
             try:
-                f26 = compute_window_features_extended_polars(df, code, sig_idx=anchor)
+                f26 = compute_window_features_extended_polars(
+                    df, code, sig_idx=anchor, frame_hfq=frame_hfq)
                 if f26 is None:
                     n_missing_date += 1
                     continue
-                cands = compute_candidate_features(df, code, sig_idx=anchor, lookback=60)
+                cands = compute_candidate_features(
+                    frame_hfq if frame_hfq is not None else df,
+                    code, sig_idx=anchor, lookback=60)
                 if cands is None:  # 极端短历史
                     cands = {k: 0.0 for k in CANDIDATE_NAMES}
             except (ZeroDivisionError, ValueError, IndexError) as e:
@@ -164,12 +188,13 @@ def build_wide_table(
     out.write_parquet(out_parquet)
     log.warning("最差 parity 项: diff=%.4e feature=%s code=%s signal_date=%s", *worst)
     log.info(
-        "完成: n_ok=%d 缺失文件=%d 缺失日期=%d 计算失败=%d parity_max=%.3e",
-        n_ok, n_missing_file, n_missing_date, n_compute_fail, parity_max,
+        "完成: n_ok=%d 缺失文件=%d 缺失日期=%d 计算失败=%d 缺因子跳过=%d parity_max=%.3e",
+        n_ok, n_missing_file, n_missing_date, n_compute_fail, n_hfq_skip, parity_max,
     )
     print(f"\n宽表写出: {out_parquet}  rows={out.height}")
     print(f"  26维 parity_max(有限值对) = {parity_max:.3e}")
     print(f"  缺失文件={n_missing_file}  缺失日期={n_missing_date}  计算失败(数据异常跳过)={n_compute_fail}")
+    print(f"  缺因子整只跳过={n_hfq_skip}")
     print(f"  非有限单元={n_nonfinite}  其中与CSV不一致(疑似bug)={n_asym_nonfinite}")
     print(f"  特征漂移: 绝对差>1 的单元={n_diff_big}  相对差>1e-3 的单元={n_diff_rel}")
     return {
@@ -177,6 +202,7 @@ def build_wide_table(
         "n_missing_date": n_missing_date, "n_compute_fail": n_compute_fail,
         "n_nonfinite": n_nonfinite, "n_asym_nonfinite": n_asym_nonfinite,
         "n_diff_big": n_diff_big, "n_diff_rel": n_diff_rel,
+        "n_hfq_skip": n_hfq_skip,
         "parity_max": parity_max, "out": str(out_parquet),
     }
 
@@ -190,8 +216,10 @@ if __name__ == "__main__":
     ap.add_argument("--src", type=str, default=str(SRC_CSV))
     ap.add_argument("--out", type=str, default=str(OUT_PARQUET))
     ap.add_argument("--no-parity", action="store_true")
+    ap.add_argument("--price-basis", choices=["raw", "hfq"], default="raw")
     a = ap.parse_args()
     build_wide_table(
         src_csv=Path(a.src), out_parquet=Path(a.out),
         sample_codes=a.sample, verify_parity=not a.no_parity,
+        price_basis=a.price_basis,
     )
