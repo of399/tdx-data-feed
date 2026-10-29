@@ -5,7 +5,15 @@ from datetime import date
 
 import pandas as pd
 
-from tdxfeed.adj_factor import COLUMNS, bs_code, last_date, merge_rows, update_one, write_atomic
+from tdxfeed.adj_factor import (
+    COLUMNS,
+    bs_code,
+    exit_code,
+    last_date,
+    merge_rows,
+    update_one,
+    write_atomic,
+)
 
 
 def _old_df():
@@ -73,7 +81,8 @@ def test_update_one_writes_atomically(tmp_path, monkeypatch):
 
     monkeypatch.setattr(m, "_query", fake_query)
     assert update_one(object(), "600000", tmp_path, "2026-09-25") == "ok:+1"
-    assert calls[0][1] == "2026-09-25"
+    # 窗口从 last_date 当日起（含重叠日），不是次日起
+    assert calls[0][1] == "2026-09-24"
     assert calls[0][3] == "2"
     assert last_date(p) == "2026-09-25"
     assert str(pq.read_schema(p).field("date").type) == "date32[day]"
@@ -93,3 +102,106 @@ def test_write_atomic_preserves_date32(tmp_path):
     p = tmp_path / "600000.parquet"
     write_atomic(p, _old_df())
     assert str(pq.read_schema(p).field("date").type) == "date32[day]"
+
+
+def test_update_one_rebases_when_overlap_qfq_changed(tmp_path, monkeypatch):
+    """重叠日 qfq_close 变了 = 除权重算了基准，旧段必须整表按新基准重拉。"""
+    p = tmp_path / "600000.parquet"
+    _old_df().to_parquet(p, index=False)
+    import tdxfeed.adj_factor as m
+
+    series = {
+        "2026-09-24": (["2026-09-24", "8.70"], ["2026-09-24", "9.00"]),
+        "2020-01-01": (
+            [["2026-09-23", "8.70"], ["2026-09-24", "8.70"], ["2026-09-25", "8.80"]],
+            [["2026-09-23", "8.98"], ["2026-09-24", "9.00"], ["2026-09-25", "9.10"]],
+        ),
+    }
+
+    def fake_query(bs, code, start, end, flag):
+        qfq, raw = series[start]
+        if start != "2020-01-01":
+            # 增量窗口：重叠日 09-24 的 qfq 已由 9.00 变成 8.70
+            qfq = [qfq, ["2026-09-25", "8.80"]]
+            raw = [raw, ["2026-09-25", "9.10"]]
+        return qfq if flag == "2" else raw
+
+    monkeypatch.setattr(m, "_query", fake_query)
+    assert update_one(object(), "600000", tmp_path, "2026-09-25").startswith("rebase:+")
+    out = pd.read_parquet(p)
+    assert len(out) == 3, "重拉是整表替换，不是叠加"
+    row = out[out["date"].astype(str) == "2026-09-24"].iloc[0]
+    assert row["qfq_close"] == 8.70, "旧段 09-24 也按新基准"
+    assert abs(row["adj_factor"] - round(8.70 / 9.00, 6)) < 1e-9
+    assert out[out["date"].astype(str) == "2026-09-23"].iloc[0]["qfq_close"] == 8.70
+
+
+def test_update_one_rebases_on_mixed_internal_base(tmp_path, monkeypatch):
+    """首轮只追加不回算留下的接缝：重叠日没变，但旧表后段因子比前段小 = 两套基准。"""
+    p = tmp_path / "600000.parquet"
+    pd.DataFrame(
+        [
+            ["600000", date(2026, 9, 24), 1.0, 9.00, 9.00],
+            ["600000", date(2026, 9, 25), 0.96, 9.10, 9.48],
+        ],
+        columns=COLUMNS,
+    ).to_parquet(p, index=False)
+    import tdxfeed.adj_factor as m
+
+    calls = []
+
+    def fake_query(bs, code, start, end, flag):
+        calls.append(start)
+        if start == "2020-01-01":
+            return (
+                [["2026-09-24", "8.64"], ["2026-09-25", "9.10"]]
+                if flag == "2"
+                else [["2026-09-24", "9.00"], ["2026-09-25", "9.48"]]
+            )
+        return [["2026-09-25", "9.10"]] if flag == "2" else [["2026-09-25", "9.48"]]
+
+    monkeypatch.setattr(m, "_query", fake_query)
+    assert update_one(object(), "600000", tmp_path, "2026-09-28").startswith("rebase:+")
+    assert "2020-01-01" in calls
+    out = pd.read_parquet(p)
+    assert abs(out["adj_factor"].iloc[0] - 8.64 / 9.00) < 1e-6
+    assert abs(out["adj_factor"].iloc[1] - 9.10 / 9.48) < 1e-6
+
+
+def test_update_one_fails_when_only_one_series_empty(tmp_path, monkeypatch):
+    p = tmp_path / "600000.parquet"
+    _old_df().to_parquet(p, index=False)
+    import tdxfeed.adj_factor as m
+
+    def fake_query(bs, code, start, end, flag):
+        return [["2026-09-25", "9.10"]] if flag == "2" else []
+
+    monkeypatch.setattr(m, "_query", fake_query)
+    assert update_one(object(), "600000", tmp_path, "2026-09-25") == "fail:partial-empty"
+
+
+def test_update_one_skips_when_both_series_empty(tmp_path, monkeypatch):
+    p = tmp_path / "600000.parquet"
+    _old_df().to_parquet(p, index=False)
+    import tdxfeed.adj_factor as m
+
+    monkeypatch.setattr(m, "_query", lambda *a, **k: [])
+    assert update_one(object(), "600000", tmp_path, "2026-09-27") == "skip"
+
+
+def test_update_one_reports_bad_parquet(tmp_path):
+    p = tmp_path / "600000.parquet"
+    p.write_bytes(b"not a parquet")
+    assert update_one(object(), "600000", tmp_path, "2026-09-25").startswith("fail:")
+
+
+def test_exit_code():
+    # --code / --limit 试跑：一只都不许失败
+    assert exit_code(0, 0, 1) == 1
+    assert exit_code(9, 0, 1) == 1
+    # 一只都没跑（目录空、清单空）也算失败
+    assert exit_code(0, 0, 0) == 1
+    # 全量：容忍 max(20, 2%)
+    assert exit_code(5210, 11, 0) == 0
+    assert exit_code(5100, 0, 100) == 0
+    assert exit_code(5100, 0, 121) == 1
