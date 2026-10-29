@@ -33,8 +33,10 @@ class AkshareSource(DataSource):
                 last_err = e
                 time.sleep(2 * (attempt + 1))
         # Eastmoney 回退：最多 2 轮，退避间隔 3/6 秒
+        from_em = False
         if df is None or df.empty or "date" not in df.columns:
             df = None
+            from_em = True
             for attempt in range(2):
                 try:
                     df = self._fetch_em(code)
@@ -45,8 +47,8 @@ class AkshareSource(DataSource):
                     time.sleep(3 * (attempt + 1))
         if df is None or df.empty or "date" not in df.columns:
             raise RuntimeError("两个数据源均失败: " + str(last_err)[:120])
-        # Sina 源 volume 单位为股，转手（÷100）
-        if "volume" in df.columns:
+        # Sina 的 volume 单位是股，转手（÷100）；东财的成交量本身就是手，不能再除。
+        if not from_em and "volume" in df.columns:
             df["volume"] = df["volume"] / 100.0
         bars = []
         for _, r in df.iterrows():
