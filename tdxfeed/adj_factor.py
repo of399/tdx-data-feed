@@ -18,19 +18,17 @@ import os
 import socket
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
 
+from tdxfeed.freshness import CN_HOLIDAYS, last_trading_day
 from tdxfeed.paths import adj_factor_dir, adj_factor_files
 
 socket.setdefaulttimeout(30)
 
 COLUMNS = ["code", "date", "adj_factor", "qfq_close", "raw_close"]
-
-# 整表重拉的起点：现存文件最早一行都在 2020-01 及以后。
-START_DATE = "2020-01-01"
 
 # 连续这么多只失败就中止整轮：登录失效时每只还要退避 3 次，不能一路拖下去。
 FAIL_ABORT = 20
@@ -156,21 +154,34 @@ def update_one(bs, code: str, out_dir: Path, today: str) -> str:
         if start >= today:
             return "skip"
         old = pd.read_parquet(path)
+        n_old = len(old)
+        old_first = str(old["date"].iloc[0])
+        old_last = str(old["date"].iloc[-1])
         qfq = _query_retry(bs, bs_code(code), start, today, "2")
         raw = _query_retry(bs, bs_code(code), start, today, "3")
         if not qfq and not raw:
-            return "skip"                        # 周末/节假日：没有新交易日
+            # 只有窗口 (start, today] 全是休市日才算 skip。窗口里本应有交易日却
+            # 两条都空 = 源整体异常，记 skip 会让 5221 只全 skip 仍退 0。
+            expected = last_trading_day(date.fromisoformat(today),
+                                        CN_HOLIDAYS).isoformat()
+            if expected > start:
+                return "fail:empty-window"
+            return "skip"
         if not qfq or not raw:
             return "fail:partial-empty"          # 源只回一条序列 = 数据异常，不是没行情
         rebased = _rebase_needed(old, qfq) or _stale_base(old)
-        n_old = len(old)
         if rebased:
-            qfq = _query_retry(bs, bs_code(code), START_DATE, today, "2")
-            raw = _query_retry(bs, bs_code(code), START_DATE, today, "3")
+            # 起点取文件自身首行日期：源只回部分历史时下面会拦住，不能靠常量猜。
+            qfq = _query_retry(bs, bs_code(code), old_first, today, "2")
+            raw = _query_retry(bs, bs_code(code), old_first, today, "3")
             old = old.iloc[0:0]                  # 整表替换
         merged = merge_rows(old, qfq, raw, code=code)
         if merged is None:
             return "fail:no-valid-rows"
+        # 缩表守卫：写盘前比行数与末日期。源少回了历史就放弃本轮，原文件不动，
+        # 否则整表替换会静默把历史截断。
+        if len(merged) < n_old or str(merged["date"].iloc[-1]) < old_last:
+            return "fail:shrink"
         write_atomic(path, merged)
     except Exception as e:  # 单只失败不应中断整轮
         return f"fail:{type(e).__name__}:{str(e)[:60]}"

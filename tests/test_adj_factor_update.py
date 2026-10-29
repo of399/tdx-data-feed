@@ -112,7 +112,7 @@ def test_update_one_rebases_when_overlap_qfq_changed(tmp_path, monkeypatch):
 
     series = {
         "2026-09-24": (["2026-09-24", "8.70"], ["2026-09-24", "9.00"]),
-        "2020-01-01": (
+        "2026-09-23": (
             [["2026-09-23", "8.70"], ["2026-09-24", "8.70"], ["2026-09-25", "8.80"]],
             [["2026-09-23", "8.98"], ["2026-09-24", "9.00"], ["2026-09-25", "9.10"]],
         ),
@@ -120,7 +120,7 @@ def test_update_one_rebases_when_overlap_qfq_changed(tmp_path, monkeypatch):
 
     def fake_query(bs, code, start, end, flag):
         qfq, raw = series[start]
-        if start != "2020-01-01":
+        if start != "2026-09-23":
             # 增量窗口：重叠日 09-24 的 qfq 已由 9.00 变成 8.70
             qfq = [qfq, ["2026-09-25", "8.80"]]
             raw = [raw, ["2026-09-25", "9.10"]]
@@ -152,7 +152,7 @@ def test_update_one_rebases_on_mixed_internal_base(tmp_path, monkeypatch):
 
     def fake_query(bs, code, start, end, flag):
         calls.append(start)
-        if start == "2020-01-01":
+        if start == "2026-09-24":
             return (
                 [["2026-09-24", "8.64"], ["2026-09-25", "9.10"]]
                 if flag == "2"
@@ -162,10 +162,73 @@ def test_update_one_rebases_on_mixed_internal_base(tmp_path, monkeypatch):
 
     monkeypatch.setattr(m, "_query", fake_query)
     assert update_one(object(), "600000", tmp_path, "2026-09-28").startswith("rebase:+")
-    assert "2020-01-01" in calls
+    assert "2026-09-24" in calls
     out = pd.read_parquet(p)
     assert abs(out["adj_factor"].iloc[0] - 8.64 / 9.00) < 1e-6
     assert abs(out["adj_factor"].iloc[1] - 9.10 / 9.48) < 1e-6
+
+
+def test_rebase_query_starts_from_file_first_date(tmp_path, monkeypatch):
+    """整表重拉起点是文件自身首行日期，不是写死的常量。"""
+    p = tmp_path / "600000.parquet"
+    pd.DataFrame(
+        [
+            ["600000", date(2024, 3, 15), 1.0, 7.00, 7.00],
+            ["600000", date(2026, 9, 25), 0.96, 9.10, 9.48],
+        ],
+        columns=COLUMNS,
+    ).to_parquet(p, index=False)
+    import tdxfeed.adj_factor as m
+
+    calls = []
+
+    def fake_query(bs, code, start, end, flag):
+        calls.append(start)
+        if start == "2024-03-15":
+            return (
+                [["2024-03-15", "6.72"], ["2026-09-25", "9.10"]]
+                if flag == "2"
+                else [["2024-03-15", "7.00"], ["2026-09-25", "9.48"]]
+            )
+        return [["2026-09-25", "9.10"]] if flag == "2" else [["2026-09-25", "9.48"]]
+
+    monkeypatch.setattr(m, "_query", fake_query)
+    assert update_one(object(), "600000", tmp_path, "2026-09-28").startswith("rebase:+")
+    assert "2024-03-15" in calls, "重拉起点应取旧表首行日期"
+    assert "2020-01-01" not in calls, "不应再用写死的常量起点"
+
+
+def test_update_one_refuses_shrunken_rebase(tmp_path, monkeypatch):
+    """源只回了部分历史时整表替换会静默截断，必须放弃本轮且不动原文件。"""
+    p = tmp_path / "600000.parquet"
+    pd.DataFrame(
+        [
+            ["600000", date(2026, 9, 21), 1.0, 9.00, 9.00],
+            ["600000", date(2026, 9, 22), 1.0, 9.02, 9.02],
+            ["600000", date(2026, 9, 23), 1.0, 9.05, 9.05],
+            ["600000", date(2026, 9, 24), 0.96, 9.10, 9.48],
+        ],
+        columns=COLUMNS,
+    ).to_parquet(p, index=False)
+    before = pd.read_parquet(p)
+    import tdxfeed.adj_factor as m
+
+    def fake_query(bs, code, start, end, flag):
+        if start == "2026-09-21":            # 整表重拉：源只回了 2 行
+            return (
+                [["2026-09-21", "8.64"], ["2026-09-24", "9.10"]]
+                if flag == "2"
+                else [["2026-09-21", "9.00"], ["2026-09-24", "9.48"]]
+            )
+        return [["2026-09-24", "9.10"]] if flag == "2" else [["2026-09-24", "9.48"]]
+
+    monkeypatch.setattr(m, "_query", fake_query)
+    assert update_one(object(), "600000", tmp_path, "2026-09-28") == "fail:shrink"
+    after = pd.read_parquet(p)
+    assert len(after) == len(before) == 4
+    assert str(after["date"].iloc[-1]) == "2026-09-24"
+    pd.testing.assert_frame_equal(after, before)
+    assert not list(tmp_path.glob("*.tmp*")), "失败路径不该留临时文件"
 
 
 def test_update_one_fails_when_only_one_series_empty(tmp_path, monkeypatch):
@@ -187,6 +250,35 @@ def test_update_one_skips_when_both_series_empty(tmp_path, monkeypatch):
 
     monkeypatch.setattr(m, "_query", lambda *a, **k: [])
     assert update_one(object(), "600000", tmp_path, "2026-09-27") == "skip"
+
+
+def test_update_one_fails_when_window_has_trading_day_but_source_empty(tmp_path, monkeypatch):
+    """窗口里有交易日却两条都空 = 源异常，记 skip 会让全市场静默退 0。"""
+    p = tmp_path / "600000.parquet"
+    pd.DataFrame(
+        [
+            ["600000", date(2026, 10, 22), 1.0, 9.00, 9.00],
+            ["600000", date(2026, 10, 23), 1.0, 9.10, 9.10],
+        ],
+        columns=COLUMNS,
+    ).to_parquet(p, index=False)
+    import tdxfeed.adj_factor as m
+
+    monkeypatch.setattr(m, "_query", lambda *a, **k: [])
+    assert update_one(object(), "600000", tmp_path, "2026-10-27") == "fail:empty-window"
+
+
+def test_update_one_skips_when_window_is_all_holidays(tmp_path, monkeypatch):
+    """国庆休市 + 周末：(2026-09-30, 2026-10-05] 没有交易日，空响应是真 skip。"""
+    p = tmp_path / "600000.parquet"
+    pd.DataFrame(
+        [["600000", date(2026, 9, 30), 1.0, 9.10, 9.10]],
+        columns=COLUMNS,
+    ).to_parquet(p, index=False)
+    import tdxfeed.adj_factor as m
+
+    monkeypatch.setattr(m, "_query", lambda *a, **k: [])
+    assert update_one(object(), "600000", tmp_path, "2026-10-05") == "skip"
 
 
 def test_update_one_reports_bad_parquet(tmp_path):
