@@ -1,6 +1,6 @@
 # tdx-data-feed 工作流全景文档
 
-> 生成：2026-09-27 · 最近更新：**2026-10-26**（对齐 daban 默认模型、ETF/北交所下线、方案E 实盘入口退出、daban 试验仓票据线、复权扩展层、监控栈与 systemd 调度现状）
+> 生成：2026-09-27 · 最近更新：**2026-10-29**（对齐 daban 默认模型、ETF/北交所下线、方案E 实盘入口退出、daban 试验仓票据线、复权扩展层、监控栈与 systemd 调度现状；10-29 补记同步后的派生表/复权因子刷新路径与 `full_sync` 不产复权的事实）
 > 范围：tdx-data-feed 完整系统（数据采集 → 特征/样本 → LightGBM 信号 → 方案E 回测 → 盘中委托单 → 告警巡检全链路）
 >
 > 阅读路径：第 1 章建立心智模型 → 第 2-3 章按数据流向读 → 第 4-6 章按组件维度查 → 第 7 章是速查表 → 第 8 章是变更记录。
@@ -32,18 +32,20 @@
 | `tdxfeed/symbols.py` | **A 股 symbol 口径**（2026-10-26 新增）：统一代码 → 数据源 symbol | 代码 | 规范化 symbol | 被审计/回填调用 |
 | `scripts/audit_daily_history_depth.py` | **日线深度只读审计**（2026-10-26 新增）：输出"谁需要回填"的**可判分类** | parquet/daily | 审计报告（实测免探测 747 只）| 手动 |
 | `scripts/backfill_daily_history.py` + `tdxfeed/backfill_history.py` | **幂等回填 runner**（2026-10-26 新增）：续跑单权威 = done 集；连续失败熔断 | 审计结论 | 补齐后的 parquet | 手动 / 续跑 |
-| `tdxfeed/adj_factor_history.py` | **后复权因子反推**（2026-10-26 新增）：从 hfq / 未复权两条序列反推，**只写 `data/adj_factor_ext/`** | hfq + raw | `data/adj_factor_ext/*.parquet`（**当前 0 文件，未回填**）| 手动 |
+| `tdxfeed/adj_factor_history.py` | **后复权因子反推**（2026-10-26 新增）：从 hfq / 未复权两条序列反推，**只写 `data/adj_factor_ext/`** | hfq + raw | `data/adj_factor_ext/*.parquet`（**当前 0 文件，未回填、零消费者、不在每日链路内**）| 手动 |
 | `tdxfeed/amount_fix.py` | **成交额缺口估算**（2026-10-26 新增并接入写入路径）：Sina 日K 无 amount 时用 `close × volume(手) × 100` 估算，**只补缺口不覆盖真值**；`writers.merge_write` / `incremental_update` 写入时自动调用 | 日线 df | 同 df（补 amount 列）| 写入路径自动 |
 | `scripts/backfill_daily_amount.py` | 成交额历史批量回填（**默认 dry-run**，落盘须显式 `--apply`；写前备份到 `data/parquet/daily_amount_bak/`）| daily parquet | 补齐后的 parquet + `.day` | 手动 |
 | `scripts/download_universe.py` | 沪深 A 股代码清单/补全 | pytdx 枚举 + Sina 日 K | `data/all_a_stocks.json` | 手动 |
 | `scripts/analyze_one.py` | 单只股多因子分析（技术面）| parquet/daily + adj_factor | dict（落库） | 单股触发 |
-| `tdxfeed/full_sync.py` | **实际生产全量同步**（systemd 调用）：Sina 源日K + akshare 清单 + 财务/复权增量（**2026-10-26 起接入腾讯源分页深取**）| Sina/akshare/baostock/腾讯 | `data/parquet/daily/*.parquet`（5,236）+ `sh\|sz/lday/*.day`（增量双写）| 系统级 `tdx-sync.timer` 工作日 16:30 |
+| `tdxfeed/full_sync.py` | **实际生产全量同步**（systemd 调用）：Sina 源日K + akshare 清单 + 财务增量（**2026-10-26 起接入腾讯源分页深取**）。**不产复权因子**（`grep -n adj tdxfeed/full_sync.py tdxfeed/writers.py` 零命中）| Sina/akshare/baostock/腾讯 | `data/parquet/daily/*.parquet`（5,236）+ `sh\|sz/lday/*.day`（增量双写）| 系统级 `tdx-sync.timer` 工作日 16:30 |
+| `tdxfeed/adj_factor.py` | **复权因子增量更新**（2026-10-29 新增）：baostock 前复权/不复权双序列 → 重叠日校验 → 除权后整表重拉；`date` 保持 `date32[day]` | baostock | `data/adj_factor/*.parquet`（5,221）| `tdx-sync.service` 的 `ExecStartPost`（工作日 16:30 同步成功后；全量约 60 分钟）|
+| `tdxfeed/precompute/indicators.py` | **派生表预计算**（MA/MACD/KDJ/RSI/BOLL + 形态 + 相似K线）| parquet/daily | `data/parquet/derived/*_indicators.parquet`（5,211）| `tdx-sync.service` 的 `ExecStartPost`（`--incremental`，全市场约 1 分钟）|
 | `tdxfeed/cli.py` | `sync` 子命令：单标的拉取双写（**仅手动单只，非全量**）| Sina/akshare/tencent | 同上 | 手动 |
 | `scripts/akshare_industry_loader.py` | 申万/同花顺行业分类加载（股票→行业映射）| akshare `stock_industry_clf_hist_sw` | `data/industry/sw_*.csv`（335 三级）| 手动 |
 | `scripts/akshare_concept_loader.py` | 同花顺(THS)题材/概念板块列表（名称+代码）加载与查询 | akshare `stock_board_concept_name_ths` | `data/concept/ths_concept_list.csv`（375 板块）| 手动（7 天缓存）|
 | `scripts/tdx_concept_loader.py` | 通达信(tdx)个股→概念归属（解析 `block_gn/hy/fg/zs/wg.dat`，独立于 THS）| 本地通达信 `T0002/block/` | `data/concept/tdx_{gn,hy,...}.csv` | 手动（⚠️ 需用户放置标准 `block_gn.dat`）|
 
-**已下线 / 弃用（勿再调用）**：`download_adj_factor_bj.py`、`download_bj_daily.py`、`download_etf_bond.py`、`backfill_adj_etf.py`（2026-10-21 北交所/ETF 下线，仅留弃用提示）；`download_akshare_bj.py`、`min_sync2.py`（已不存在）；复权与财务现由 `full_sync` 内置 `writers` / `fin_parquet` 产出。`scripts/download_adj_factor_b.py` 仍存在于仓库，但**生产路径为 `full_sync` 内置**。
+**已下线 / 弃用（勿再调用）**：`download_adj_factor_bj.py`、`download_bj_daily.py`、`download_etf_bond.py`、`backfill_adj_etf.py`（2026-10-21 北交所/ETF 下线，仅留弃用提示）；`download_akshare_bj.py`、`min_sync2.py`（已不存在）。**财务**由 `full_sync` 内置 `fin_parquet` 产出；**复权因子不由 `full_sync` 产出**——日线由 `full_sync` 写，复权因子由 `tdxfeed/adj_factor.py` 在同步成功后作为 `tdx-sync.service` 的 `ExecStartPost` 增量维护（`grep -n adj tdxfeed/full_sync.py tdxfeed/writers.py` 零命中；旧版这里写成「复权现由 full_sync 内置产出」，正是复权停更五周的根因）。`scripts/download_adj_factor_b.py` 仍存在于仓库，但只作一次性全量回填，命中已存在文件即返回 `cached` 跳过。
 
 ### 1.2 训练层（2 条线，生产只需 LightGBM）
 
@@ -292,8 +294,8 @@
 │  baostock API ──────┐                                                        │
 │  akshare API  ──────┼─→ full_sync.py（+ 腾讯日K分页深取 history_paging）     │
 │  腾讯 / Eastmoney ──┘                  ↓                                    │
-│                                       data/adj_factor/ + data/parquet/daily/│
-│                                       (5,221 复权 + 5,236 日K parquet)       │
+│                                       data/parquet/daily/ (5,236 日K)       │
+│                                       复权 / 派生表走同步后置 ExecStartPost  │
 │                                             ↓                               │
 │  pytdx / akshare 清单 ──→ download_universe.py → data/all_a_stocks.json    │
 │                                                                             │
@@ -371,8 +373,8 @@
 tdx-data-feed/
 ├── data/
 │   ├── all_a_stocks.json              # 5,221 只沪深 A 股清单
-│   ├── adj_factor/                    # 5,221 .parquet (date, adj_factor, qfq_close, raw_close, code)
-│   ├── adj_factor_ext/                # 后复权因子（10-26 新建, 当前 0 文件, 未回填）
+│   ├── adj_factor/                    # 5,221 .parquet (date, adj_factor, qfq_close, raw_close, code)；tdx-sync ExecStartPost 维护
+│   ├── adj_factor_ext/                # 后复权因子（10-26 新建, 0 文件：未回填、零消费者、不在每日链路内）
 │   ├── parquet/
 │   │   ├── daily/                     # 5,236 .parquet（个股 5,228 + 指数 8；另 5,232 个 .v1.bak 备份）
 │   │   ├── finance.parquet            # 1,667,841 行 财务
@@ -417,11 +419,12 @@ tdx-data-feed/
             ┌────────── tdxfeed.full_sync ──────────┐
             │                                        │
             ▼                                        ▼
-   data/adj_factor/ (5,221)              data/parquet/daily/ (5,236)
-            │                                         │
-            │  [10-26 支线]                          │
-            │  adj_factor_history → adj_factor_ext/  │
-            │  audit_daily_history_depth             │
+   data/parquet/daily/ (5,236)     [ExecStartPost 同步后置]
+            │                       adj_factor.py → data/adj_factor/ (5,221)
+            │                       indicators.py → derived/*_indicators.parquet
+            │  [10-26 支线]
+            │  adj_factor_history → adj_factor_ext/（未回填、零消费者）
+            │  audit_daily_history_depth
             │        ↓ backfill_daily_history（幂等） │
             └─────────────┬───────────────────────────┘
                           ▼
@@ -484,6 +487,8 @@ tdx-data-feed/
 | 任务 | 自动触发 | 手动触发 | 触发器 |
 |---|---|---|---|
 | 行情同步 | ✅ | - | 系统级 systemd timer `tdx-sync.timer` (工作日 16:30) |
+| 复权因子增量 | ✅ | ✅ | `tdx-sync.service` 的 `ExecStartPost`（同步成功后，全量约 60 分钟）/ `make data-adj` |
+| 派生表增量（indicators）| ✅ | ✅ | `tdx-sync.service` 的 `ExecStartPost`（`--incremental`，约 1 分钟）/ `python -m tdxfeed.precompute.indicators --incremental` |
 | 训练健康检查 | ✅ | - | systemd timer `trainsh-health.timer` (5min) |
 | 翻倍样本重建 | ✅ | ✅ | `plan-e-double-up.timer`（18:30）/ `make analyze-double-up` |
 | 方案 D 每日预测（predict.py）| ✅ | - | systemd `predict-daily.timer`（收盘后，前置数据新鲜度检查）|
@@ -491,7 +496,7 @@ tdx-data-feed/
 | 方案 E 归档 | ✅ | ✅ | `plan-e-journal.timer`（18:10）/ `make journal` |
 | **daban 试验仓委托单** | ✅ | ✅ | `daban-ticket.timer`（工作日盘中每 5 min）/ `scripts/daban_entry.py` |
 | 日线深度审计 / 幂等回填 | - | ✅ | `scripts/audit_daily_history_depth.py` / `scripts/backfill_daily_history.py` |
-| 后复权回填 | - | ✅ | `tdxfeed/adj_factor_history.py` → `data/adj_factor_ext/` |
+| 后复权回填 | - | ✅ | `tdxfeed/adj_factor_history.py` → `data/adj_factor_ext/`（**未回填、零消费者、不在每日链路内**）|
 | 方案 E 回测对比 | - | ✅ | `make plan-e-compare` / `scripts/plan_e_backtest.py --compare` |
 | 生产模型训练 | - | ✅ | `scripts/train_daban_model.py`（⚠️ 不带 `--tag` 会覆盖生产模型）|
 | **执行研究线**（Stage 0/1/2）| - | ✅ | `scripts/daban_min60_features.py` → `daban_event_table.py` → `daban_seal_research.py` → `daban_exec_research.py`（详见 `docs/DABAN_EXECUTION_RESEARCH_LINE.md`）|
@@ -548,7 +553,7 @@ tdx-data-feed/
   /home/jiuben/tdx-data-feed/data/all_a_stocks.json     # 5,221 只清单
   /home/jiuben/tdx-data-feed/data/parquet/daily/*.parquet  # 5,236 日 K（个股 5,228 + 指数 8；不含 .v1.bak）
   /home/jiuben/tdx-data-feed/data/adj_factor/*.parquet    # 5,221 复权因子
-  /home/jiuben/tdx-data-feed/data/adj_factor_ext/         # 后复权因子（10-26 新建, 0 文件未回填）
+  /home/jiuben/tdx-data-feed/data/adj_factor_ext/         # 后复权因子（10-26 新建, 0 文件：未回填、零消费者、不在每日链路内）
   /home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_detail.csv  # 17,582 翻倍样本
   /home/jiuben/tdx-data-feed/data/daban/tickets/          # 试验仓人工委托单
 
@@ -616,7 +621,7 @@ tdx-data-feed/
 - [x] **监控栈**：prometheus / alertmanager / grafana / pushplus 桥（系统级）已 active；`OnFailure` 失败推送链已接
 - [x] **方案 F（行业/题材）**：`akshare_industry_loader.py`（申万 335 三级）+ `akshare_concept_loader.py`（THS 375 板块列表）已落地；⚠️ THS 概念**仅名称+代码列表**，成分股明细需另接 Eastmoney `stock_board_concept_cons_em`（不同后端，未纳入）
 - [x] **v7 部署到 Ollama**：已完成，v7r 续训作为研究端点（**非生产预测器**）
-- [ ] **`adj_factor_ext/` 回填**（10-26 代码已落地，**0 文件**）：后复权序列未生成，任何依赖后复权的下游结论目前**未验证**
+- [ ] **`adj_factor_ext/` 回填**（10-26 代码已落地，**0 文件**）：未回填、零消费者、不在每日链路内，后复权序列未生成，任何依赖后复权的下游结论目前**未验证**（权威复权序列是 `data/adj_factor/`）
 - [ ] **试验仓持仓回流**：`daban_paper.py` 尚未与委托单成交闭环，"下单建议 → 实际成交 → 归因"不可审计
 - [ ] **执行研究线代码治理**：重复实现抽取（`net_return`/`_auc`/`load_universe`/markdown 助手）、硬编码 `20261022` 参数化、`tdxfeed/daban/` 缺 logging、研究脚本 84 处 `except Exception` 吞错、超大函数拆分（`build_report` 265 行等）—— 清单见 `docs/DABAN_EXECUTION_RESEARCH_LINE.md` §6
 - [ ] **执行研究线门禁复评**：Stage 1 `gate.passed=false` → Stage 2 仅诊断；**若要复评必须先满足 precision≥0.80 且 test AUC 明显高于 0.5**，否则维持 `overall_go=false`
@@ -627,9 +632,9 @@ tdx-data-feed/
 
 ---
 
-### 7.5 部署形态说明（2026-10-26 复核）
+### 7.5 部署形态说明（2026-10-26 复核，2026-10-29 补记同步后置任务）
 
-- **生产形态 = `venv` 虚拟环境 + systemd timer（同步在系统级，其余在用户级）**（唯一实际运行方式）：工作日 16:30 系统级 `tdx-sync` 拉数据，18:05 用户级 `predict-daily` 出榜（不再挂同步依赖，数据是否到位由 `precheck_freshness.sh` 判定），`canary-health` 每 5min 巡检（数据链路的 warn 也会退出非零触发告警）；方案 E 那条 `→ plan-e-journal` 下游链路 2026-10-24 上午整批 disable、当晚 `plan-e-today` + `plan-e-journal` 重开（只恢复自动算研究清单，不恢复建仓入口）。同一批（2026-10-24）给 `predict-daily` / `canary-health`（以及退役前的用户级 `tdxfeed-sync`）挂了 `OnFailure=onfailure-alert@<单元>.service` → `scripts/onfailure_alert.py`，把「单元挂了」变成微信推送；此前这些失败只落在 `logs/*.err` 里。
+- **生产形态 = `venv` 虚拟环境 + systemd timer（同步在系统级，其余在用户级）**（唯一实际运行方式）：工作日 16:30 系统级 `tdx-sync` 拉数据，同步成功后同单元的两行 `ExecStartPost=-` 续跑派生表增量（约 1 分钟）与复权因子增量（全量约 60 分钟；`-` 前缀让后置失败不把同步判红，新鲜度由 canary 的 `data_files` 兜底并触发告警），18:05 用户级 `predict-daily` 出榜（不再挂同步依赖，数据是否到位由 `precheck_freshness.sh` 判定），`canary-health` 每 5min 巡检（数据链路的 warn 也会退出非零触发告警）；方案 E 那条 `→ plan-e-journal` 下游链路 2026-10-24 上午整批 disable、当晚 `plan-e-today` + `plan-e-journal` 重开（只恢复自动算研究清单，不恢复建仓入口）。同一批（2026-10-24）给 `predict-daily` / `canary-health`（以及退役前的用户级 `tdxfeed-sync`）挂了 `OnFailure=onfailure-alert@<单元>.service` → `scripts/onfailure_alert.py`，把「单元挂了」变成微信推送；此前这些失败只落在 `logs/*.err` 里。
 - **数学服务是例外**：独立 `venv-math`（antlr4 4.11 ↔ omegaconf 4.9.* 死锁），`make verify-math` 校验，**不要在主 venv 跑**。
 - **`docker-compose.yml` 是目标架构（未实际部署）**：仓库里的 compose 栈（Ollama/PostgreSQL/Redis/Prometheus/Grafana + exporters）当前**未启用**；实际跑的监控栈见下条，是宿主机上的系统级 systemd 单元，不是容器。
 - **监控栈已在跑（2026-10-24 实测，推翻 2026-10-16 的「维持未部署」）**：`prometheus` / `alertmanager` / `grafana-server` / `pushplus_bridge` 四个**系统级**单元均 active+enabled，2026-10-22 20:40~20:41 起；Prometheus 5 个抓取目标全 up（`prometheus`/`alertmanager`/`node`/`canary`/`math-sympy-http`），当前 0 条 firing 规则；Grafana 在 :3000。当时「不部署」的理由（GPU 被 Ollama 占满、内存紧）没有复查记录。
@@ -657,11 +662,12 @@ tdx-data-feed/
 | 10-26 | **腾讯日K 分页深取适配器**（`tdxfeed/history_paging.py`）+ 镜像域 + WAF 501 退避 + volume 单位=手 | 历史深度补齐能力 |
 | 10-26 | **日线深度只读审计**（`audit_daily_history_depth.py` + `tdxfeed/symbols.py`）："谁需要回填"变可判分类（免探测 747 只）| 回填从"猜"变"有清单" |
 | 10-26 | **幂等回填 runner**（`backfill_daily_history.py` + `tdxfeed/backfill_history.py`）：done 集为续跑单权威 + 连续失败熔断 | 回填可中断可续跑 |
-| 10-26 | **后复权因子反推**（`tdxfeed/adj_factor_history.py`）→ `data/adj_factor_ext/`（**代码已落地，0 文件未回填**）| 派生价格在读侧现算，raw 仍是落盘权威 |
+| 10-26 | **后复权因子反推**（`tdxfeed/adj_factor_history.py`）→ `data/adj_factor_ext/`（**代码已落地，0 文件未回填、零消费者、不在每日链路内**）| 派生价格在读侧现算，raw 仍是落盘权威 |
 | 10-26 | **执行研究线入库**（7 次提交：`e5d60f0`/`c0b37dd`/`c9e2e01`/`3baee07`/`b3f1274`/`1b19086`/`7c341f6`）：核心模块 7 个 + 研究脚本 19 个 + 证据报告 7 份 + 专章 `docs/DABAN_EXECUTION_RESEARCH_LINE.md` | 研究线**只读生产数据、不下单**；结论 Stage1 gate false、Stage2 `overall_go=false` |
 | 10-26 | **成交额回填接入生产写路径**（`writers.merge_write` / `incremental_update` → `fill_missing_amount`）；批量回填改**默认 dry-run + 写前备份** | 新写入自动带估算成交额；历史回填需显式 `--apply` |
 | 10-26 | **daban 纯工具技能**入库（`skills/daban.yaml` + `mcp:tdx-backtest.daban_top_picks` + 意图路由）| ⚠️ 技能描述与工具 warnings 均标注「只作排序研究、不是买入指令」 |
 | 10-26 | pre-commit 新增 `no-zero-byte-files` 钩子；14 处 `zip()` 补 `strict=True`；lint 归零 | 0 字节文件不得入库；`ruff` 在新代码上 0 违规 |
+| 10-29 | **数据停更收口**：`tdx-sync.service` 挂两行 `ExecStartPost=-`（派生表 `--incremental` 约 1 分钟、复权因子增量全量约 60 分钟）；新增 `tdxfeed/adj_factor.py`；canary `data_files` 增检 `adj_factor` / `derived` 末日期；manifest `last_date` 落 int `YYYYMMDD` | 复权/派生表恢复每日刷新；`full_sync` 不产复权的事实写进本文档 |
 
 > 详细逐日流水见 `docs/` 各专项报告；当日实况见 `docs/WORKFLOW_SNAPSHOT_2026-10-26.md`。
 
