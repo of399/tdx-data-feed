@@ -37,7 +37,6 @@ import pandas as pd
 ROOT = Path('/home/jiuben/tdx-data-feed')
 FACTOR_FP = ROOT / 'data/factors/event_factors_with_sentiment.parquet'
 SIGNIF_FP = ROOT / 'data/factor_significance_detail.csv'
-DOUBLE_UP_FP = ROOT / 'data/double_up/double_up_v2_2020_2026_detail.csv'
 OUT_DIR = ROOT / 'data/plan_e'
 
 # 从 factor_significance_detail.csv 自动读取 Top N（保证 v3 用最强因子）

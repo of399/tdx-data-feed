@@ -4,6 +4,8 @@
 
 前置文档：`docs/superpowers/specs/2026-10-26-adjust-layer-hfq-design.md`。本文沿用它的逐维分派判据与双跑协议，但**因子权威换成在役的 `data/hfq_factor`**；该文 §2.2 规划的 `adj_factor_ext` 咽喉与 2026-10-29 的撤回结论继续有效，本文不复活它。
 
+> **2026-10-30 后续补记（§5.3 残余已处理）**：`scripts/find_double_up_hfq.py` 已用 `adjusted.frame(kind="hfq")` 重筛宇宙，产出 `data/double_up/double_up_hfq_2020_2026_detail.csv`（17,794 笔 / 1,621 只，剔除 20 笔跨 suspect 上跳），`factor_engine` 已切、v3 两个死常量已删；`find_double_up_c_v2.py` 与线上模型都未动。对照见 `docs/research/2026-10-30-hfq-universe-rescreen.md`。三条口径更正：① 旧 v2 的 bj 4,219 条不可复现，原因是 `data/parquet/daily` 没有 bj 日线，**不是** adj 修订；② §1 的「49 个 / 27 个」按「日收益差」在今日数据上扫描未能复现（≥3% 为 42 起 / 37 起负向），保留原数字但注明口径未复现；③ hfq 源侧存在 3 起上跳坏点（`sz302132` 2025-02-18 / `sz003038` 2022-03-30 / `sz000981` 2022-02-28），`factor_jumps` 已能识别，宇宙筛选按 suspect 上跳剔除，因子表本身未修。
+
 目标：让价格特征与收益率标签拿到无除权跳空的连续价格，同时让涨跌停、封板、委托价继续对交易所 raw 绝对价；把这次口径切换做成**同一样本集上的可解释消融**，而不是换一批数据重来。
 
 ---
@@ -173,7 +175,7 @@ def frame(symbol: str, *, kind: str = "raw", strict: bool = False) -> pd.DataFra
 
 `scripts/train_daban_model.py:79` 的次日收盘涨停判定继续用 raw close。这是交易所口径，不能复权。
 
-### 5.3 样本宇宙 → 本轮不动
+### 5.3 样本宇宙 → 本轮不动（2026-10-30 后续已重筛，见文首补记）
 
 翻倍筛选（`find_double_up_c_v2.py:51` 的 `screen_one_qfq`）仍用 qfq，产出 `double_up_2020_2026_detail.csv`，决定 stage1 的 9981 个样本。理由：它决定样本集，切了就不是同一样本集的对照，双跑会失去解释力。
 

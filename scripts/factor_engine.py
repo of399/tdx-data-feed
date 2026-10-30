@@ -10,7 +10,7 @@
 输入:
 - parquet/daily/{code}.parquet: 行情
 - adj_factor/{short}.parquet: 复权因子（可选）
-- double_up/double_up_v2_2020_2026_detail.csv: 22,305 笔翻倍样本（标签）
+- double_up/double_up_hfq_2020_2026_detail.csv: 17,794 笔翻倍样本（标签，hfq 筛选）
 
 输出:
 - data/factors/event_factors.parquet: ~44k 行事件 × 30 列因子
@@ -23,7 +23,7 @@
 依赖:
 - 仅使用 daily (8,035 只) + adj_factor (5,565 只)
 - 资金/情绪因子因数据未覆盖（仅核心 300）暂未实现
-- 北交所标的必须有 adj 才计算（保持与翻倍样本一致口径）
+- 北交所无日线，hfq 宇宙不含 bj 样本（旧 qfq 宇宙的 bj 行已随重筛退场）
 """
 import argparse
 import json
@@ -41,7 +41,7 @@ ROOT = Path('/home/jiuben/tdx-data-feed')
 from _common import daily_files, daily_path, get_limit, read_path  # noqa: E402
 
 ALL_STOCKS = ROOT / 'data/all_a_stocks.json'
-DOUBLE_UP = ROOT / 'data/double_up/double_up_v2_2020_2026_detail.csv'
+DOUBLE_UP = ROOT / 'data/double_up/double_up_hfq_2020_2026_detail.csv'
 OUT_DIR = ROOT / 'data/factors'
 ST_VAULT = Path('/home/jiuben/StockVault/01-标的')
 

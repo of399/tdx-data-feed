@@ -19,6 +19,7 @@ import logging
 
 import pandas as pd
 
+from .execution.limits import limit_ratio
 from .paths import daily_path, hfq_factor_path
 
 log = logging.getLogger("adjusted")
@@ -27,7 +28,10 @@ MIN_FACTOR_COV = 0.999
 FACTOR_RAW_TOL = 0.01
 HEAD_LAG_MAX = 5
 TAIL_LAG_MAX = 1
+JUMP_RET_TOL = 0.02
 PRICE_COLS = ("open", "high", "low", "close")
+JUMP_COLS = ["date", "factor_prev", "factor", "factor_chg",
+             "raw_ret", "econ", "limit", "suspect"]
 
 
 class AdjustmentError(RuntimeError):
@@ -47,6 +51,37 @@ def _raw_close_dev(daily: pd.DataFrame, dates: pd.Series,
     if ov.empty:
         return None
     return float((ov["raw_close"] / ov["close"] - 1.0).abs().median())
+
+
+def factor_jumps(symbol: str, *, is_st: bool = False) -> pd.DataFrame:
+    """hfq_factor 变化日及其经济收益；suspect = |econ| 超出涨跌停带 + JUMP_RET_TOL。
+
+    除权日 econ = (1+raw_ret)×(1+factor_chg)−1 是持有人的真实收益，必在涨跌停带内。
+    baostock 后复权序列在个别代码上会跳变（302132 于代码切换日 ×5.98、000981 的
+    +58% 假涨、003038 的 +33% 假涨），本地表忠实复刻了源侧错误；这里只识别，不改表。
+    """
+    if not hfq_factor_path(symbol).exists():
+        return pd.DataFrame(columns=JUMP_COLS)
+    daily = pd.read_parquet(daily_path(symbol), columns=["date", "close"])
+    daily = daily.assign(date=pd.to_datetime(daily["date"])).sort_values("date")
+    daily = daily.drop_duplicates("date").reset_index(drop=True)
+    fac = pd.read_parquet(hfq_factor_path(symbol), columns=["date", "hfq_factor"])
+    fac = fac.assign(date=pd.to_datetime(fac["date"]))
+    fac = fac.dropna(subset=["hfq_factor"]).drop_duplicates("date")
+    factor = fac.set_index("date")["hfq_factor"].reindex(daily["date"]).ffill()
+
+    out = pd.DataFrame({
+        "date": daily["date"].to_numpy(),
+        "factor_prev": factor.shift(1).to_numpy(),
+        "factor": factor.to_numpy(),
+        "raw_ret": daily["close"].astype(float).pct_change().to_numpy(),
+    })
+    out["factor_chg"] = out["factor"] / out["factor_prev"] - 1.0
+    out["econ"] = (1.0 + out["raw_ret"]) * (1.0 + out["factor_chg"]) - 1.0
+    out = out[out["factor_chg"].abs() > 1e-9].copy()
+    out["limit"] = float(limit_ratio(symbol, is_st=is_st))
+    out["suspect"] = out["econ"].abs() > out["limit"] + JUMP_RET_TOL
+    return out[JUMP_COLS].reset_index(drop=True)
 
 
 def frame(symbol: str, *, kind: str = "raw", strict: bool = False) -> pd.DataFrame:

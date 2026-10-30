@@ -74,7 +74,7 @@
 
 ## 5. 已知残余
 
-- **样本宇宙仍用 qfq 翻倍筛选**（规格记为约 49 个伪事件，本轮未复核），本轮不动；改用 hfq 重筛宇宙需要新一轮对照，不能与本次结果直接横比。
+- **样本宇宙仍用 qfq 翻倍筛选**（规格记为约 49 个伪事件，本轮未复核），本轮不动；改用 hfq 重筛宇宙需要新一轮对照，不能与本次结果直接横比。→ **2026-10-30 后续**：已由 `scripts/find_double_up_hfq.py` 重筛并重训，见 `docs/research/2026-10-30-hfq-universe-rescreen.md`；49/27 的口径按「日收益差」未能复现（≥3% 为 42 起 / 37 起负向）。
 - **12 次因子下跳不修**，白名单守卫 `tests/test_hfq_factor_monotone.py` 钉住；2020 年以前的 30 次只在覆盖 JSON 里记录。
 - **hfq 宽表的 CSV-parity 检查是关闭的**：`tdxfeed/stage1_wide_table.py` 在 `price_basis != "raw"` 时强制 `verify_parity=False`（CSV 存的是 raw 特征），所以 hfq 宽表打印的 `parity_max=0.000e+00` **不是**校验证据，只是没比。hfq 侧的正确性依赖 §4 的窗口统计与 `adjusted.frame` 的 attrs 门禁。
 - 5 个同码指数在 hfq 侧无可用因子（`mismatch`），daban 一律跳过。指数本不该进入个股模型，这是口径边界而非缺陷。

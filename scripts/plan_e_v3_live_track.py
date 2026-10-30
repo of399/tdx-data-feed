@@ -3,7 +3,7 @@
 =========================
 
 相对 v2 跟随版，v3 提前版的实盘跟踪更复杂：
-1. 每日盘后跑当日信号（用最近 22,305 笔翻倍样本 + 全市场因子）
+1. 每日盘后跑当日信号（用 factor_engine 产出的翻倍事件因子 + 全市场因子）
 2. 维护两类池：当日候选 + 持仓监控
 3. 多维度异常检测（胜率/回撤/IC 衰减/滑点）
 4. 每日/周/月三级报告
@@ -46,7 +46,6 @@ import pandas as pd
 ROOT = Path('/home/jiuben/tdx-data-feed')
 LIVE_DIR = ROOT / 'data/plan_e/live_v3'
 FACTOR_FP = ROOT / 'data/factors/event_factors_with_sentiment.parquet'
-DOUBLE_UP_FP = ROOT / 'data/double_up/double_up_v2_2020_2026_detail.csv'
 ALL_STOCKS = ROOT / 'data/all_a_stocks.json'
 
 from _common import daily_dir  # noqa: E402

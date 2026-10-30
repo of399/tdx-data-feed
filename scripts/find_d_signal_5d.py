@@ -22,6 +22,7 @@
 - 是否 ST / 新股
 - 涨停限制（10%/20%/30%）
 """
+import argparse
 from datetime import datetime
 from pathlib import Path
 
@@ -39,6 +40,7 @@ RANDOM_SEED = 42
 
 # 涨停限制与 18 维特征：单一数据源见 tdxfeed/features_5d（与 predict.py 共用）
 from _common import compute_window_features  # noqa: E402
+from tdxfeed.adjusted import MIN_FACTOR_COV, frame as adj_frame  # noqa: E402
 
 
 def load_one(code: str) -> pd.DataFrame:
@@ -57,15 +59,28 @@ def load_one(code: str) -> pd.DataFrame:
     return df.sort_values('date').reset_index(drop=True)
 
 
-def extract_features(code: str, signal_date: pd.Timestamp, is_positive: bool):
+def extract_features(code: str, signal_date: pd.Timestamp, is_positive: bool,
+                     price_basis: str = "raw"):
     """提取 T-1 日的特征（已知当日是 signal_date，看前一天到前 5 天的特征）
 
     18 维特征通过 tdxfeed.features_5d.compute_window_features 统一计算，
     与 predict.py 共用同一函数与同一列顺序，避免训练/推理口径漂移。
+    price_basis="hfq" 时价格比率维走后复权帧（涨停/成交额仍取 raw）。
     """
     df = load_one(code)
     if len(df) == 0:
         return None
+
+    frame_hfq = None
+    if price_basis == "hfq":
+        frame_hfq = adj_frame(code, kind="hfq", strict=False)
+        if frame_hfq.attrs.get("factor_cov", 0.0) < MIN_FACTOR_COV:
+            return None
+        frame_hfq = frame_hfq.sort_values("date").reset_index(drop=True)
+        # 同长还不够：两帧必须同日同序，否则 sig_idx 会错位
+        if (len(frame_hfq) != len(df)
+                or not (pd.to_datetime(frame_hfq["date"]).to_numpy() == df["date"].to_numpy()).all()):
+            return None
 
     # 找到 signal_date 在 df 中的索引（信号日 = 翻倍起始日）
     sig_idx_match = df.index[df['date'] == signal_date]
@@ -76,7 +91,7 @@ def extract_features(code: str, signal_date: pd.Timestamp, is_positive: bool):
         return None
 
     # 调用单一数据源：T-1 = df.iloc[sig_i - 1]，前 5 日 = df.iloc[sig_i-5:sig_i]
-    feats = compute_window_features(df, code, sig_idx=sig_i - 1)
+    feats = compute_window_features(df, code, sig_idx=sig_i - 1, frame_hfq=frame_hfq)
     if feats is None:
         return None
 
@@ -89,12 +104,12 @@ def extract_features(code: str, signal_date: pd.Timestamp, is_positive: bool):
     }
 
 
-def build_dataset():
+def build_dataset(universe_path=V1_DETAIL, price_basis: str = "raw"):
     print('=== 方案 D：翻倍前 5 日信号识别 ===')
     t0 = datetime.now()
 
     # 1. 正样本（翻倍前 5 日）
-    pos_df = pd.read_csv(V1_DETAIL, dtype={'code': str})
+    pos_df = pd.read_csv(universe_path, dtype={'code': str})
     # 去重：同一只股同一周内的 start_date 取最早
     pos_df['start_date'] = pd.to_datetime(pos_df['start_date'])
     pos_df = pos_df.drop_duplicates(subset=['code', 'start_date'])
@@ -136,16 +151,19 @@ def build_dataset():
     # 3. 提取特征
     all_samples = []
     for _, row in pos_df.iterrows():
-        f = extract_features(row['code'], row['start_date'], is_positive=True)
+        f = extract_features(row['code'], row['start_date'], is_positive=True,
+                             price_basis=price_basis)
         if f:
             all_samples.append(f)
-    print(f'正样本特征: {len(all_samples)}')
+    n_pos = len(all_samples)
+    print(f'正样本特征: {n_pos}')
 
     for _, row in neg_df.iterrows():
-        f = extract_features(row['code'], row['start_date'], is_positive=False)
+        f = extract_features(row['code'], row['start_date'], is_positive=False,
+                             price_basis=price_basis)
         if f:
             all_samples.append(f)
-    print(f'负样本特征: {len(all_samples) - len(pos_df)}')
+    print(f'负样本特征: {len(all_samples) - n_pos}')
 
     feat_df = pd.DataFrame(all_samples)
     print(f'\n总样本: {len(feat_df)}, 正样本: {(feat_df["is_positive"] == 1).sum()}, '
@@ -220,10 +238,20 @@ def train_and_report(feat_df):
     return imp, auc, feature_cols
 
 
-def main():
-    feat_df = build_dataset()
-    feat_df.to_csv(OUT_DIR / 'd_signal_5d_features.csv', index=False)
-    print(f'\n特征表保存: {OUT_DIR / "d_signal_5d_features.csv"}')
+def main(argv=None):
+    ap = argparse.ArgumentParser(description='方案 D：翻倍前 5 日信号识别')
+    ap.add_argument('--universe', default=str(V1_DETAIL), help='翻倍明细 CSV')
+    ap.add_argument('--out-features', default=str(OUT_DIR / 'd_signal_5d_features.csv'))
+    ap.add_argument('--price-basis', choices=['raw', 'hfq'], default='raw')
+    ap.add_argument('--skip-train', action='store_true', help='只产特征表，不训练/写报告')
+    args = ap.parse_args(argv)
+
+    feat_df = build_dataset(Path(args.universe), args.price_basis)
+    feat_df.to_csv(args.out_features, index=False)
+    print(f'\n特征表保存: {args.out_features}')
+
+    if args.skip_train:
+        return
 
     imp, auc, feature_cols = train_and_report(feat_df)
 
