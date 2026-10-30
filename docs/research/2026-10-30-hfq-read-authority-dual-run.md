@@ -78,7 +78,7 @@
 - **12 次因子下跳不修**，白名单守卫 `tests/test_hfq_factor_monotone.py` 钉住；2020 年以前的 30 次只在覆盖 JSON 里记录。
 - **hfq 宽表的 CSV-parity 检查是关闭的**：`tdxfeed/stage1_wide_table.py` 在 `price_basis != "raw"` 时强制 `verify_parity=False`（CSV 存的是 raw 特征），所以 hfq 宽表打印的 `parity_max=0.000e+00` **不是**校验证据，只是没比。hfq 侧的正确性依赖 §4 的窗口统计与 `adjusted.frame` 的 attrs 门禁。
 - 5 个同码指数在 hfq 侧无可用因子（`mismatch`），daban 一律跳过。指数本不该进入个股模型，这是口径边界而非缺陷。
-- stage1 的 hfq 臂同时动了特征与标签，Top-20 与 Spearman 方向相反，单折 2,695 样本，不足以判定优劣；要分离「特征效应」与「标签效应」需再做只换一侧的第三组。
+- stage1 的 hfq 臂同时动了特征与标签，Top-20 与 Spearman 方向相反，单折 2,695 样本，不足以判定优劣；只换一侧的两组已于同日补做，归因见 §7——Top20 的总负效应主要来自 hfq 标签，hfq 特征对 Top10 有稳定正贡献。
 - 线上模型未切换：`scripts/predict.py` 的注册表只新增两条 hfq 条目，默认模型不变。
 
 ## 6. 产物清单
@@ -130,3 +130,69 @@ venv/bin/python scripts/train_daban_model.py --price-basis hfq --tag hfq_2026103
 venv/bin/python scripts/train_daban_model.py --price-basis raw --tag raw_20261030 \
   --exclude-symbols-file data/double_up/daban_hfq_skipped_20261030.json
 ```
+
+## 7. 特征效应与标签效应分离（2×2，同日追加）
+
+§5 遗留项要求「只换一侧」的第三组。实际补做了两组（C/D），与原 A/B 凑成完整 2×2：
+
+| 组 | 价格特征 | 标签 | 宽表 |
+|---|---|---|---|
+| A | raw | raw | `stage1_wide_table.parquet` |
+| B | hfq | hfq | `stage1_wide_table_hfq.parquet` |
+| C | hfq | raw | `stage1_wide_table_hfqfeat_rawlabel.parquet` |
+| D | raw | hfq | `stage1_wide_table_rawfeat_hfqlabel.parquet` |
+
+设计成立的前提是 CLI 边界正交：`--src` 只决定标签（`base`），`--price-basis` 只决定特征（`frame_hfq`）。逐值核对结果：
+
+- A vs D：37 个共有列里**只有 `hypothetical_pnl` 不同**（5,514 行），36 个特征列逐值相同；
+- B vs C：同样只有标签列不同（5,512 行）；
+- 样本数：A 9,981，其余三组 9,979。差的是 `sh600001` 两行（hfq 侧缺因子整只跳过；D 的 hfq 标签在这两行也是 NaN，训练期同样剔除到 9,979）。所以 **B−D、B−C 是严格同样本单差**，C−A、D−A 差 2 行（0.02%），可横比但不能称「完全同样本」。
+
+| 组 | 树数 | 样本 | 纯 OOS Spearman | Top10 | Top20 | Top50 | Top20 胜率 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| A raw/raw | 123 | 9,981 | 0.248499 | 0.2886 | 0.2571 | 0.2154 | 0.85 |
+| B hfq/hfq | 113 | 9,979 | 0.253298 | 0.3285 | 0.2339 | 0.2347 | 0.80 |
+| C hfq/raw | 118 | 9,979 | 0.254885 | 0.3326 | 0.2761 | 0.2387 | 0.90 |
+| D raw/hfq | 123 | 9,979 | 0.253744 | 0.2853 | 0.2516 | 0.2143 | 0.85 |
+
+2×2 的四点正好用完自由度，加性分解的交互项恒为 0，所以不单列交互；两个方向上单差是否同号就是交互的直观读法。
+
+| 指标 | 特征效应（raw 标签）C−A | 特征效应（hfq 标签）B−D | 标签效应（raw 特征）D−A | 标签效应（hfq 特征）B−C | 总 B−A |
+|---|---:|---:|---:|---:|---:|
+| Spearman | +0.006385 | −0.000446 | +0.005244 | −0.001587 | +0.004799 |
+| Top10 | +0.043946 | +0.043221 | −0.003325 | −0.004050 | +0.039896 |
+| Top20 | +0.018929 | −0.017709 | −0.005509 | −0.042147 | −0.023218 |
+| Top50 | +0.023326 | +0.020345 | −0.001073 | −0.004054 | +0.019272 |
+
+读法：
+
+- **Top10 的特征效应是唯一在两种标签下几乎同值的项**（+0.0439 / +0.0432）：hfq 价格特征让头部 10 只的组合收益提升约 4.4 个百分点，这是本轮口径改造最扎实的收益。
+- **Top20 的总负效应主要来自标签**：同样本、只换标签的 B−C = −0.0421；特征效应在 Top20 上两种标签下方向相反（+0.0189 / −0.0177），说明这个切片对具体配对敏感，A→B 的单差不能归因给特征。§5 的「Top-20 与 Spearman 方向相反」由此拆开：特征是正贡献（Top10 / Top50 稳健），标签是负贡献（Top20 最明显）。
+- **标签效应在排序质量上方向不一致**（Spearman：raw 特征下 +0.0052、hfq 特征下 −0.0016），在 Top-N PnL 上偏负。hfq 标签没有表现出收益改善，也没有可信证据表明它更差。
+- 统计力：纯 OOS 单折 2,695 条，Top10 只有 10 个点、Top20 20 个点，PnL 均值噪声大；上述差异是方向性证据，不是显著性结论。四个模型 md5 两两不同（`257df281…` / `bd6fe71c…` / `70915f63…` / `7524ee33…`），树数 113–123，不存在「训练没生效」。
+
+产物：
+
+| 产物 | 路径 |
+|---|---|
+| C 宽表 | `data/double_up/stage1_wide_table_hfqfeat_rawlabel.parquet`（9,979 行） |
+| D 宽表 | `data/double_up/stage1_wide_table_rawfeat_hfqlabel.parquet`（9,981 行，训练期剔除 2 行） |
+| C 模型 / 契约 | `d_signal_5d_model_vpnl_huber_stage1_hfqfeat_rawlabel_20261030.txt`（md5 `70915f63…`）/ `stage1_selected_features_hfqfeat_rawlabel_20261030.json` |
+| D 模型 / 契约 | `d_signal_5d_model_vpnl_huber_stage1_rawfeat_hfqlabel_20261030.txt`（md5 `7524ee33…`）/ `stage1_selected_features_rawfeat_hfqlabel_20261030.json` |
+| 训练日志与报告 | `logs/stage1_retrain_20261030_hfqfeat_rawlabel.log` + `logs/stage1_retrain_20261030_150720.{md,json}`（C）；`logs/stage1_retrain_20261030_rawfeat_hfqlabel.log` + `logs/stage1_retrain_20261030_150642.{md,json}`（D） |
+| 宽表构建日志 | `logs/stage1_wide_hfqfeat_rawlabel_20261030.log`、`logs/stage1_wide_rawfeat_hfqlabel_20261030.log` |
+
+复现命令（宽表 + 训练；训练模板见 §6，换宽表与输出名）：
+
+```bash
+# C：hfq 特征 + raw 标签
+venv/bin/python -m tdxfeed.stage1_wide_table --sample 0 \
+  --src data/double_up/d_signal_5d_features_vpnl.csv \
+  --out data/double_up/stage1_wide_table_hfqfeat_rawlabel.parquet --price-basis hfq
+# D：raw 特征 + hfq 标签
+venv/bin/python -m tdxfeed.stage1_wide_table --sample 0 \
+  --src data/double_up/d_signal_5d_features_vpnl_hfq.csv \
+  --out data/double_up/stage1_wide_table_rawfeat_hfqlabel.parquet --price-basis raw
+```
+
+两组宽表可并行构建，但训练不要并行：`stage1_retrain.py` 的报告/JSON 文件名按 `%Y%m%d_%H%M%S` 取，同秒启动会互相覆盖报告（本轮踩过一次，C 组串行重跑补回，模型 md5 不变，训练确定性已验证）。

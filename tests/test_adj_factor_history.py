@@ -41,8 +41,8 @@ def test_zero_raw_close_is_rejected_not_divided():
 
 
 def test_write_ext_lands_in_its_own_dir_with_the_factor_columns(tmp_path):
-    """另建目录：现存 data/hfq_factor/ 与 data/adj_factor/ 从 2020-01-02 起，
-    锚定口径不同就是两套数字，就地改写会让已发布报告的历史结论失效。"""
+    """另建目录：在役 hfq_factor 已是全历史、adj_factor 多数自 2020-01-02 起，
+    两表锚定口径不同就是两套数字，就地改写会让已发布报告的历史结论失效。"""
     import pandas as pd
 
     rows = derive_factor([row("19970801", 23.05)], [row("19970801", 98.37)])
