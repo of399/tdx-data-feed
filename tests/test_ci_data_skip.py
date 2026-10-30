@@ -15,7 +15,10 @@ from types import SimpleNamespace
 NEEDS_DATA = False
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DEPENDENT = ROOT / "tests" / "test_adj_factor_history.py"
+# 正样本选真读 data/ 的模块：test_adj_factor_history.py 只用 tmp_path 构造 fixture，
+# 数据依赖仅是 docstring 字样，措辞一改分类就翻；test_pnl_label_recompute.py 的
+# skipif 直接依赖 data/double_up 下的文件。
+DATA_DEPENDENT = ROOT / "tests" / "test_pnl_label_recompute.py"
 PURE = ROOT / "tests" / "test_plan_e_random_timing.py"
 
 
