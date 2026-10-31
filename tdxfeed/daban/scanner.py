@@ -50,6 +50,7 @@ from tdxfeed.daban.session import SESSION_AUCTION, current_session
 from tdxfeed.daban.tencent_source import TQuote, fetch_tencent_map
 from tdxfeed.daban.ths_board import ConceptStrength, load_concept_snapshot, match_concepts
 from tdxfeed.date_utils import parse_date_series
+from tdxfeed.paths import universe_path
 
 __all__ = [
     "Candidate",
@@ -59,7 +60,7 @@ __all__ = [
 ]
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
-UNIVERSE_PATH = DATA_DIR / "all_a_stocks.json"
+UNIVERSE_PATH = universe_path()
 DAILY_DIR = DATA_DIR / "parquet" / "daily"
 
 STATUS_SEALED = "封板"

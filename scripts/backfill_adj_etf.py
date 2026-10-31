@@ -28,11 +28,11 @@ warnings.filterwarnings('ignore')
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import adj_factor_dir  # noqa: E402
+from _common import adj_factor_dir, universe_path  # noqa: E402
 
 OUT = adj_factor_dir()
 OUT.mkdir(parents=True, exist_ok=True)
-ALL_STOCKS = ROOT / 'data' / 'all_a_stocks.json'
+ALL_STOCKS = universe_path()
 ETF_CODES = ROOT / 'data' / 'etf_codes.txt'
 LOG = Path('/tmp/adj_factor_etf.log')
 

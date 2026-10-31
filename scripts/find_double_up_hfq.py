@@ -31,11 +31,11 @@ if str(ROOT) not in sys.path:
 from tdxfeed.adjusted import MIN_FACTOR_COV, factor_jumps, frame  # noqa: E402
 from tdxfeed.execution.limits import normalize_code  # noqa: E402
 from tdxfeed.features_5d import get_limit  # noqa: E402
-from tdxfeed.paths import daily_files  # noqa: E402
+from tdxfeed.paths import daily_files, universe_path  # noqa: E402
 
 log = logging.getLogger("find_double_up_hfq")
 
-NAME_MAP = ROOT / "data" / "all_a_stocks.json"
+NAME_MAP = universe_path()
 OUT_DETAIL = ROOT / "data" / "double_up" / "double_up_hfq_2020_2026_detail.csv"
 OUT_EXCLUDED = ROOT / "data" / "double_up" / "double_up_hfq_excluded_2020_2026.csv"
 

@@ -32,7 +32,7 @@ import pandas as pd
 
 # 仓库根 + 单一数据源导入桥
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import compute_window_features, compute_window_features_extended
+from _common import compute_window_features, compute_window_features_extended, universe_path
 
 ROOT = Path(__file__).parent.parent
 # 显式把项目根加入 sys.path，确保 `import tdxfeed`（如 freshness）在直接运行时可用。
@@ -44,7 +44,7 @@ from tdxfeed.execution.costs import PLAN_E_COSTS  # noqa: E402
 from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
 
 MODEL_FILE = ROOT / "data" / "double_up" / "d_signal_5d_model.txt"
-UNIVERSE_FILE = ROOT / "data" / "all_a_stocks.json"
+UNIVERSE_FILE = universe_path()
 
 # v9 兼容: predict.py FEATURE_COLS 是 18 维;v9 模型是 26 维(需在 predict 路径兼容)。
 # sim_live 用相同的 DataFrame + LightGBM predict,模型自动按特征顺序匹配。

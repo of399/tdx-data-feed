@@ -36,6 +36,7 @@ from tdxfeed.paths import (  # noqa: E402
     minute_dir,
     parquet_root,
     read_path,
+    universe_path,
     xdxr_path,
 )
 
@@ -74,5 +75,6 @@ __all__ = [
     "parse_date_series",
     "read_path",
     "to_date_str",
+    "universe_path",
     "xdxr_path",
 ]

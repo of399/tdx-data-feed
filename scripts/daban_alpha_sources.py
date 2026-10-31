@@ -24,7 +24,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_dir, universe_path  # noqa: E402
 
 from tdxfeed.daban.filter import SectorFilter, load_sector_features  # noqa: E402
 from tdxfeed.daban.limit_price import limit_ratio, limit_up_price  # noqa: E402
@@ -146,7 +146,7 @@ def main() -> int:
     ap.add_argument("--no-filter", action="store_true", help="不做阶段0 过滤（归因对照）")
     args = ap.parse_args()
 
-    universe = json.loads((_ROOT / "data" / "all_a_stocks.json").read_text(encoding="utf-8"))
+    universe = json.loads(universe_path().read_text(encoding="utf-8"))
     codes = [str(c).zfill(6) for c in universe]
     if args.limit:
         codes = codes[: args.limit]

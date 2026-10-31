@@ -13,10 +13,10 @@ import pandas as pd
 socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_dir, universe_path  # noqa: E402
 
 PARQUET_DIR = daily_dir()
-ALL_STOCKS = Path('/home/jiuben/tdx-data-feed/data/all_a_stocks.json')
+ALL_STOCKS = universe_path()
 LOG = Path('/tmp/bj_daily_download.log')
 
 

@@ -41,7 +41,7 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
     limit_ratio,
     limit_up_price,
 )
-from tdxfeed.paths import DATA_ROOT, daily_dir  # noqa: E402
+from tdxfeed.paths import DATA_ROOT, daily_dir, universe_path  # noqa: E402
 
 DATA = DATA_ROOT
 DAILY = daily_dir()
@@ -50,7 +50,7 @@ EPS = 0.001  # 与通达信公式里的 -0.001 保持一致
 
 
 def load_universe() -> dict[str, str]:
-    payload = json.loads((DATA / "all_a_stocks.json").read_text(encoding="utf-8"))
+    payload = json.loads(universe_path().read_text(encoding="utf-8"))
     return {str(k).zfill(6): str(v) for k, v in payload.items()}
 
 

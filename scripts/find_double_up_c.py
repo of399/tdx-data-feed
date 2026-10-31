@@ -16,11 +16,11 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import daily_dir, get_limit
+from _common import daily_dir, get_limit, universe_path
 
 PARQUET = daily_dir()
 VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
-ALL_STOCKS = Path('/home/jiuben/tdx-data-feed/data/all_a_stocks.json')
+ALL_STOCKS = universe_path()
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 DOUBLE_UP_DETAIL = OUT_DIR / 'double_up_2020_2026_detail.csv'

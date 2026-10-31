@@ -34,7 +34,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from tdxfeed.daban.limit_price import exchange_prefix, is_st, limit_ratio  # noqa: E402
-from tdxfeed.paths import DATA_ROOT, daily_dir  # noqa: E402
+from tdxfeed.paths import DATA_ROOT, daily_dir, universe_path  # noqa: E402
 
 DATA = DATA_ROOT
 DAILY = daily_dir()
@@ -46,7 +46,7 @@ def main() -> int:
     ap.add_argument("--window", type=int, default=30, help="回看交易日数")
     args = ap.parse_args()
 
-    payload = json.loads((DATA / "all_a_stocks.json").read_text(encoding="utf-8"))
+    payload = json.loads(universe_path().read_text(encoding="utf-8"))
     universe = {str(k).zfill(6): str(v) for k, v in payload.items()}
     print(f"股票池 {len(universe)} 只，回看 {args.window} 个交易日\n")
 

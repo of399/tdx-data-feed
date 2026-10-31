@@ -46,6 +46,10 @@ def adj_factor_dir() -> Path:
     return DATA_ROOT / "adj_factor"
 
 
+def universe_path() -> Path:
+    return DATA_ROOT / "all_a_stocks.json"
+
+
 def derived_dir() -> Path:
     return parquet_root() / "derived"
 

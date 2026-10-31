@@ -86,13 +86,13 @@ ROOT = Path(__file__).parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from _common import adj_factor_dir, daily_dir  # noqa: E402
+from _common import adj_factor_dir, daily_dir, universe_path  # noqa: E402
 
 PARQUET_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
 MODEL_FILE = ROOT / 'data' / 'double_up' / 'd_signal_5d_model.txt'
 OUTPUT_DIR = ROOT / 'data' / 'predictions'
-UNIVERSE_FILE = ROOT / 'data' / 'all_a_stocks.json'
+UNIVERSE_FILE = universe_path()
 
 # ============== 多模型注册表(信号突破:分类 → PnL 回归)==============
 # kind: cls=分类器(输出概率,阈值过滤); reg=回归器(输出预期 PnL,Top-N 排序)
@@ -527,7 +527,7 @@ def load_names() -> dict:
     背景: 特征层 is_st 基于训练时名称判断, 名称映射已更新为 *ST 但特征未同步
     -> 300338(*ST开元)/301139(*ST元道) 漏进 Top 20。
     """
-    fp = ROOT / 'data' / 'all_a_stocks.json'
+    fp = universe_path()
     try:
         with open(fp, encoding='utf-8') as f:
             data = json.load(f)
@@ -542,7 +542,7 @@ def load_names() -> dict:
 
 def load_universe() -> list:
     """加载全 A 股代码清单"""
-    fp = ROOT / 'data' / 'all_a_stocks.json'
+    fp = universe_path()
     if fp.exists():
         with open(fp) as f:
             data = json.load(f)

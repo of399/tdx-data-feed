@@ -28,11 +28,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from _common import adj_factor_dir, daily_dir
+from _common import adj_factor_dir, daily_dir, universe_path
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
-NAME_MAP_PATH = Path('/home/jiuben/tdx-data-feed/data/all_a_stocks.json')
+NAME_MAP_PATH = universe_path()
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 
 WINDOW_CAL_DAYS = 30          # 自然日窗口

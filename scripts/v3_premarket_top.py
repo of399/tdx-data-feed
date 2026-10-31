@@ -27,11 +27,11 @@ import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import adj_factor_dir, daily_dir, get_limit  # noqa: E402
+from _common import adj_factor_dir, daily_dir, get_limit, universe_path  # noqa: E402
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
-ALL_STOCKS = ROOT / 'data/all_a_stocks.json'
+ALL_STOCKS = universe_path()
 SIGNALS_DIR = ROOT / 'data/plan_e/live_v3/signals'
 DAILY_DIR = ROOT / 'data/plan_e/live_v3/daily_reports'
 SIGNIF_FP = ROOT / 'data/factor_significance_detail.csv'

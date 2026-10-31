@@ -46,10 +46,10 @@ import pandas as pd
 ROOT = Path('/home/jiuben/tdx-data-feed')
 LIVE_DIR = ROOT / 'data/plan_e/live_v3'
 FACTOR_FP = ROOT / 'data/factors/event_factors_with_sentiment.parquet'
-ALL_STOCKS = ROOT / 'data/all_a_stocks.json'
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_dir, universe_path  # noqa: E402
 
+ALL_STOCKS = universe_path()
 PARQUET = daily_dir()
 SIGNIF_FP = ROOT / 'data/factor_significance_detail.csv'
 

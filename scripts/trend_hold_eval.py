@@ -45,7 +45,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from _common import adj_factor_dir, daily_dir  # noqa: E402
+from _common import adj_factor_dir, daily_dir, universe_path  # noqa: E402
 
 from tdxfeed.daban.execution_backtest import ExecutionConfig, net_return  # noqa: E402
 from tdxfeed.daban.limit_price import (  # noqa: E402
@@ -57,7 +57,7 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
 
 DAILY_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
-UNIVERSE_PATH = _ROOT / "data" / "all_a_stocks.json"
+UNIVERSE_PATH = universe_path()
 OUT_DIR = _ROOT / "data" / "daban"
 INDEX_CODE = "sh000001"      # 上证指数，未复权但对指数无除权问题，仅作 beta 参照
 

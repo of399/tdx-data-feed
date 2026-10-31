@@ -34,7 +34,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from _paths import daily_files
+from _paths import daily_files, universe_path
 
 START_DATE = "2001-01-01"
 WINDOW = 20
@@ -43,7 +43,7 @@ MAX_SPAN_DAYS = 60  # 20 个交易日 ≈ 30 自然日 + 长假 buffer
 
 
 def load_meta():
-    with open("data/all_a_stocks.json") as f:
+    with open(universe_path()) as f:
         return json.load(f)
 
 

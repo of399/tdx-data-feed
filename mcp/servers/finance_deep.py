@@ -45,12 +45,12 @@ logging.basicConfig(
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tdxfeed.paths import finance_deep_dir, finance_parquet  # noqa: E402
+from tdxfeed.paths import finance_deep_dir, finance_parquet, universe_path  # noqa: E402
 
 FIN_PARQUET = finance_parquet()
 DEEP_DIR = finance_deep_dir()
 DEEP_DIR.mkdir(parents=True, exist_ok=True)
-UNIVERSE_FILE = ROOT / "data/all_a_stocks.json"
+UNIVERSE_FILE = universe_path()
 CACHE_TTL_DAYS = 7
 
 STATEMENTS = {

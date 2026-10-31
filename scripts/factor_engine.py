@@ -38,9 +38,9 @@ import pandas as pd
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import daily_files, daily_path, get_limit, read_path  # noqa: E402
+from _common import daily_files, daily_path, get_limit, read_path, universe_path  # noqa: E402
 
-ALL_STOCKS = ROOT / 'data/all_a_stocks.json'
+ALL_STOCKS = universe_path()
 DOUBLE_UP = ROOT / 'data/double_up/double_up_hfq_2020_2026_detail.csv'
 OUT_DIR = ROOT / 'data/factors'
 ST_VAULT = Path('/home/jiuben/StockVault/01-标的')

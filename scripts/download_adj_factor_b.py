@@ -16,12 +16,12 @@ warnings.filterwarnings("ignore")
 # baostock 网络调用全局 30s 超时（避免某只 hang 阻塞整个流程）
 socket.setdefaulttimeout(30)
 
-from _common import adj_factor_dir  # noqa: E402
+from _common import adj_factor_dir, universe_path  # noqa: E402
 
 OUT_DIR = adj_factor_dir()
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 LOG = Path('/tmp/adj_factor_baostock.log')
-ALL_STOCKS = Path('/home/jiuben/tdx-data-feed/data/all_a_stocks.json')
+ALL_STOCKS = universe_path()
 
 START_DATE = '2020-01-01'
 END_DATE = datetime.now().strftime('%Y-%m-%d')

@@ -24,12 +24,12 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from _common import adj_factor_dir, daily_dir, get_limit
+from _common import adj_factor_dir, daily_dir, get_limit, universe_path
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
 VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
-ALL_STOCKS = Path('/home/jiuben/tdx-data-feed/data/all_a_stocks.json')
+ALL_STOCKS = universe_path()
 V1_DETAIL = Path('/home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_detail.csv')
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 

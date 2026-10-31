@@ -36,7 +36,12 @@ logging.basicConfig(
     format="%(asctime)s [mcp:news] %(message)s",
 )
 
-UNIVERSE_FILE = ROOT / "data/all_a_stocks.json"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tdxfeed.paths import universe_path  # noqa: E402
+
+UNIVERSE_FILE = universe_path()
 CACHE_TTL_SEC = 300
 
 

@@ -32,14 +32,14 @@ socket.setdefaulttimeout(30)
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd  # noqa: E402
-from _common import hfq_factor_dir  # noqa: E402
+from _common import hfq_factor_dir, universe_path  # noqa: E402
 
 from tdxfeed.parquet_io import write_table  # noqa: E402
 
 OUT_DIR = hfq_factor_dir()
 # OUT_DIR.mkdir() 随废弃一并移除：import 阶段不许有任何写盘动作（main() 在参数解析前
 # 就退出，`--limit 1` 之类必须连目录都不碰）。回滚本脚本时在 fetch_one 开头自行补建。
-ALL_STOCKS = Path("/home/jiuben/tdx-data-feed/data/all_a_stocks.json")
+ALL_STOCKS = universe_path()
 LOG = Path("/tmp/hfq_factor.log")
 
 START_DATE = "2020-01-01"

@@ -37,10 +37,10 @@ from tdxfeed.history_paging import PAGE_CAP, PageRequestError, http_page  # noqa
 from tdxfeed.symbols import a_share_symbols, sym_of_a_share  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import daily_dir  # noqa: E402
+from _common import daily_dir, universe_path  # noqa: E402
 
 DAILY = daily_dir()
-UNIVERSE = ROOT / "data" / "all_a_stocks.json"
+UNIVERSE = universe_path()
 TARGET_DEFAULT = 20000101
 PROBE_END = "2000-12-31"   # 窗右端：窗内有行就说明源能给到 2000 年之前
 PROBE_COUNT = PAGE_CAP     # 1024：实测 2000 可用、2100 起 param error，取安全阈值
