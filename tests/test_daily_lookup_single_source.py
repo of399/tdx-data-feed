@@ -7,6 +7,7 @@ sz 为个股），`for prefix in ("sh", "sz", "bj")` 先命中 sh 会把个股�
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,10 +17,23 @@ PROBES = (
     'for prefix in ("", "sh", "sz", "bj")',
 )
 
+# 显式列表式探针：`for c in [f'{code}.parquet', f'sh{code}.parquet', ...]`。
+# 只认 sh/sz 模板——bj 段唯一（920/8/4），不存在同码双文件歧义。
+PREFIXED_TPL = re.compile(r"""f["'](?:sh|sz)\{[a-z_]+\}\.parquet["']""")
+
+
+def template_probe_lines(text: str) -> list[int]:
+    return [i for i, line in enumerate(text.splitlines(), 1)
+            if PREFIXED_TPL.search(line)]
+
+
 SWEPT = (
     "scripts/llm_signal_plan_e.py",
     "scripts/build_v4_forward_labels.py",
     "scripts/plan_e_sim_live.py",
+    "scripts/plan_e_backtest.py",
+    "scripts/plan_e_journal.py",
+    "scripts/predict.py",
     "v5/scripts/v4_aggregate_report.py",
     "v5/scripts/v4_historical_roll.py",
     "v5/scripts/v4_poc_analysis.py",
@@ -46,6 +60,28 @@ def test_no_try_prefix_daily_probe():
                 if probe in text:
                     offenders.append(f"{p.relative_to(ROOT)}: {probe}")
     assert offenders == []
+
+
+def test_no_explicit_prefix_probe_list():
+    offenders = []
+    for sub in ("scripts", "v5/scripts", "mcp", "tdxfeed", "quant", "training"):
+        base = ROOT / sub
+        if not base.exists():
+            continue
+        for p in sorted(base.rglob("*.py")):
+            for line in template_probe_lines(p.read_text(encoding="utf-8")):
+                offenders.append(f"{p.relative_to(ROOT)}:{line}")
+    assert offenders == []
+
+
+def test_template_probe_detector_catches_the_shape():
+    sample = (
+        "for c in [f'{code}.parquet', f'sh{code}.parquet', f'sz{code}.parquet']:\n"
+        "fp = PARQUET / f\"bj{code}.parquet\"\n"
+        "fp = daily_path(code)\n"
+    )
+    assert template_probe_lines(sample) == [1]
+    assert template_probe_lines("fp = daily_path(code)\n") == []
 
 
 def test_swept_lookup_uses_daily_path():

@@ -50,6 +50,13 @@ def test_adj_and_derived_naming_differ_by_table(tmp_path, monkeypatch):
     assert paths.derived_path("sh600519").name == "sh600519_indicators.parquet"
 
 
+def test_derived_path_accepts_indicators_stem(tmp_path, monkeypatch):
+    """枚举 derived 目录拿到的是 sh600519_indicators；再拼一次后缀会指向不存在的文件。"""
+    monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
+    assert paths.derived_path("sh600519_indicators") == paths.derived_path("sh600519")
+    assert paths.derived_path("600519_indicators").name == "sh600519_indicators.parquet"
+
+
 def test_explicit_prefix_is_not_rederived(tmp_path, monkeypatch):
     """sh000001（上证指数）与 sz000001（平安银行）都真实存在，不许互相顶替。"""
     monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)

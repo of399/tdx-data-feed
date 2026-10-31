@@ -83,9 +83,8 @@ warnings.filterwarnings('ignore')
 ROOT = Path(__file__).parent.parent
 DOUBLE_UP_CSV = ROOT / 'data' / 'double_up' / 'double_up_2020_2026_detail.csv'
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_path  # noqa: E402
 
-PARQUET_DIR = daily_dir()
 OUTPUT_DIR = ROOT / 'data' / 'plan_e'
 # 实盘样本集（由 scripts/plan_e_real_samples.py 从 journal 回灌，累积去重）
 REAL_TRADES_CSV = ROOT / 'data' / 'double_up' / 'real_trades.csv'
@@ -110,17 +109,15 @@ def _get_df(code_clean: str):
     """带缓存的 parquet 加载：按代码；命中则返回已解析 date 的 DataFrame（加速网格扫描）。"""
     if code_clean in _PARQUET_CACHE:
         return _PARQUET_CACHE[code_clean]
-    for cand in [f'{code_clean}.parquet', f'sh{code_clean}.parquet',
-                 f'sz{code_clean}.parquet', f'bj{code_clean}.parquet']:
-        f = PARQUET_DIR / cand
-        if f.exists():
-            try:
-                df = pd.read_parquet(f)
-            except Exception:
-                return None
-            df['date'] = parse_date(df['date'])
-            _PARQUET_CACHE[code_clean] = df
-            return df
+    f = daily_path(code_clean)
+    if f.exists():
+        try:
+            df = pd.read_parquet(f)
+        except Exception:
+            return None
+        df['date'] = parse_date(df['date'])
+        _PARQUET_CACHE[code_clean] = df
+        return df
     return None
 
 

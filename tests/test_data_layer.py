@@ -48,6 +48,19 @@ def test_daily_files_excludes_migration_backup(tmp_path, monkeypatch):
     assert [p.name for p in paths.daily_files()] == ["sh600000.parquet", "sz000001.parquet"]
 
 
+def test_daily_files_ignores_noncanonical_residue(tmp_path, monkeypatch):
+    """中断的 amount 修补残留以 .parquet 结尾，不能因此被当成一只股票。"""
+    monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
+    d = paths.daily_dir()
+    d.mkdir(parents=True)
+    for name in ("sh600000.parquet", "sz000001.parquet",
+                 "sh600600.amountfix.tmp.parquet",
+                 "sh600601.v1.bak.parquet",
+                 "sh600602.parquet.tmp"):
+        (d / name).write_bytes(b"")
+    assert [p.name for p in paths.daily_files()] == ["sh600000.parquet", "sz000001.parquet"]
+
+
 def test_adj_factor_files_lists_table(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "DATA_ROOT", tmp_path)
     d = paths.adj_factor_dir()
@@ -386,10 +399,13 @@ def test_v5_twin_agrees_with_main_package(tmp_path, monkeypatch):
     for period in ("5", "15", "60", "min60"):
         assert v5.minute_dir(period) == paths.minute_dir(period), period
     assert v5.derived_path("sh600519") == paths.derived_path("sh600519")
+    assert (v5.derived_path("sh600519_indicators")
+            == paths.derived_path("sh600519_indicators"))
     assert v5.DAILY_BAK_SUFFIX == paths.DAILY_BAK_SUFFIX
     daily = paths.daily_dir()
     daily.mkdir(parents=True)
-    for name in ("sh600000.parquet", "sh600000.v1.bak.parquet", "sz000001.parquet"):
+    for name in ("sh600000.parquet", "sh600000.v1.bak.parquet", "sz000001.parquet",
+                 "sh600600.amountfix.tmp.parquet"):
         (daily / name).write_bytes(b"")
     adj = paths.adj_factor_dir()
     adj.mkdir(parents=True)

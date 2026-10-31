@@ -86,11 +86,18 @@ ROOT = Path(__file__).parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from _common import adj_factor_dir, daily_dir, universe_path  # noqa: E402
+from _common import (  # noqa: E402
+    adj_factor_dir,
+    daily_dir,
+    daily_path,
+    model_dir,
+    model_path,
+    universe_path,
+)
 
 PARQUET_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
-MODEL_FILE = ROOT / 'data' / 'double_up' / 'd_signal_5d_model.txt'
+MODEL_FILE = model_path('d_signal_5d_model.txt')
 OUTPUT_DIR = ROOT / 'data' / 'predictions'
 UNIVERSE_FILE = universe_path()
 
@@ -100,21 +107,21 @@ UNIVERSE_FILE = universe_path()
 # 评估见 scripts/eval_signal_forward.py / eval_signal_honest.py(时序前向,去泄漏)
 MODEL_REGISTRY = {
     "prod":           (MODEL_FILE, "cls", "raw"),                                                       # 当前生产(18维分类,回滚用)
-    "v9":             (ROOT / "data" / "double_up" / "d_signal_5d_model_v9.txt", "cls", "raw"),          # 26维分类
-    "v10_dart":       (ROOT / "data" / "double_up" / "d_signal_5d_model_v10.txt", "cls", "raw"),         # DART 随机化分类
-    "vpnl":           (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl.txt", "reg", "raw"),        # PnL 回归
-    "vpnl_asym":      (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_asym.txt", "reg", "raw"),    # PnL 回归(非对称)
-    "vpnl_huber":     (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber.txt", "reg", "raw"),   # 原部署默认(回滚用)
-    "vpnl_huber_ind": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_industry.txt", "reg", "raw"),
-    "vpnl_huber_mkt": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_market.txt", "reg", "raw"),  # 需当日市场特征
-    "vpnl_huber_stage1": (ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_stage1.txt", "reg", "raw"),  # ★ Step 7 新模型(21维精选+候选因子)
+    "v9":             (model_path("d_signal_5d_model_v9.txt"), "cls", "raw"),          # 26维分类
+    "v10_dart":       (model_path("d_signal_5d_model_v10.txt"), "cls", "raw"),         # DART 随机化分类
+    "vpnl":           (model_path("d_signal_5d_model_vpnl.txt"), "reg", "raw"),        # PnL 回归
+    "vpnl_asym":      (model_path("d_signal_5d_model_vpnl_asym.txt"), "reg", "raw"),    # PnL 回归(非对称)
+    "vpnl_huber":     (model_path("d_signal_5d_model_vpnl_huber.txt"), "reg", "raw"),   # 原部署默认(回滚用)
+    "vpnl_huber_ind": (model_path("d_signal_5d_model_vpnl_huber_industry.txt"), "reg", "raw"),
+    "vpnl_huber_mkt": (model_path("d_signal_5d_model_vpnl_huber_market.txt"), "reg", "raw"),  # 需当日市场特征
+    "vpnl_huber_stage1": (model_path("d_signal_5d_model_vpnl_huber_stage1.txt"), "reg", "raw"),  # ★ Step 7 新模型(21维精选+候选因子)
     # 打板专用：29 维特征（26 旧 + 3 新涨停特征），二分类目标 = 次日收盘涨停
-    "daban":             (ROOT / "data" / "double_up" / "d_signal_5d_model_daban.txt", "cls", "raw"),
+    "daban":             (model_path("d_signal_5d_model_daban.txt"), "cls", "raw"),
     # hfq 口径候选（2026-10-30 双跑产物；不设为默认，切流是独立决定）
-    "daban_hfq": (ROOT / "data" / "double_up" / "d_signal_5d_model_daban_hfq_20261030.txt",
+    "daban_hfq": (model_path("d_signal_5d_model_daban_hfq_20261030.txt"),
                   "cls", "hfq"),
     "vpnl_huber_stage1_hfq": (
-        ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_stage1_hfq_20261030.txt",
+        model_path("d_signal_5d_model_vpnl_huber_stage1_hfq_20261030.txt"),
         "reg", "hfq"),
 }
 # ============== 模型切换配置（2026-10-19 切流，daban 小仓位启用）==============
@@ -177,7 +184,7 @@ import polars as pl  # noqa: E402
 from _common import compute_window_features_extended  # noqa: E402
 
 from tdxfeed import adjusted  # noqa: E402
-from tdxfeed.daban.limit_price import exchange_prefix, normalize_code  # noqa: E402
+from tdxfeed.daban.limit_price import normalize_code  # noqa: E402
 from tdxfeed.daban.sector_features import (  # noqa: E402
     EXTRA_FEATURE_COLS,
     build_lookup,
@@ -223,7 +230,7 @@ def _get_market_features() -> pd.DataFrame:
     """懒加载 market_features.csv(全市场代理特征,按 signal_date 查)。"""
     global _MARKET_CACHE
     if _MARKET_CACHE is None:
-        mkt_csv = ROOT / "data" / "double_up" / "market_features.csv"
+        mkt_csv = model_dir() / "market_features.csv"
         if mkt_csv.exists():
             df = pd.read_csv(mkt_csv)
             df["signal_date"] = pd.to_datetime(df["signal_date"]).dt.strftime("%Y-%m-%d")
@@ -366,29 +373,16 @@ def compute_features(code: str, price_basis: str | None = None) -> dict:
     code = str(code).zfill(6)
     raw = code.lower()
     if raw[:2] in ('sh', 'sz', 'bj'):
-        prefix, code_clean = raw[:2], raw[2:].zfill(6)
+        code_clean = raw[2:].zfill(6)
         adj_code = raw.lstrip('bj')
     else:
         code_clean = raw.zfill(6)
         # 裸码按板块推断交易所：0/3→sz，6→sh，4/8/920→bj。
         # 不能按文件存在顺序猜，否则 000001(平安银行) 会被 sh000001(上证指数) 抢走。
-        prefix = exchange_prefix(code_clean)
         adj_code = code_clean
 
-    fp = PARQUET_DIR / f"{prefix}{code_clean}.parquet"
+    fp = daily_path(raw)
     if not fp.exists():
-        fp = None
-        for cand in [
-            f"{code_clean}.parquet",
-            f"sh{code_clean}.parquet",
-            f"sz{code_clean}.parquet",
-            f"bj{code_clean}.parquet",
-        ]:
-            f = PARQUET_DIR / cand
-            if f.exists():
-                fp = f
-                break
-    if fp is None:
         return None
 
     try:

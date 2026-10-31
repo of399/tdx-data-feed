@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,6 +41,8 @@ def exchange_prefix(code: str) -> str:
 
 
 DAILY_BAK_SUFFIX = ".v1.bak.parquet"
+DERIVED_SUFFIX = "_indicators"
+_DAILY_NAME_RE = re.compile(r"(?:sh|sz|bj)\d{6}\.parquet")
 
 
 def _minute_name(period: str) -> str:
@@ -87,9 +90,9 @@ def xdxr_path() -> Path:
 
 
 def daily_files() -> list[Path]:
-    """active daily 文件，排除 .v1.bak 迁移备份；按文件名排序。"""
+    """active daily 文件：只认 前缀+6位 的规范名（排除迁移备份与中断残留）；按名排序。"""
     return sorted(p for p in daily_dir().glob("*.parquet")
-                  if not p.name.endswith(DAILY_BAK_SUFFIX))
+                  if _DAILY_NAME_RE.fullmatch(p.name))
 
 
 def adj_factor_files() -> list[Path]:
@@ -117,11 +120,23 @@ def hfq_factor_path(code: str) -> Path:
 
 
 def derived_path(code: str) -> Path:
-    return derived_dir() / f"{exchange_prefix(code)}{_six(code)}_indicators.parquet"
+    c = str(code).lower().strip()
+    if c.endswith(DERIVED_SUFFIX):
+        c = c[:-len(DERIVED_SUFFIX)]
+    return derived_dir() / f"{exchange_prefix(c)}{_six(c)}{DERIVED_SUFFIX}.parquet"
 
 
 def universe_path() -> Path:
     return DATA_ROOT / "all_a_stocks.json"
+
+
+def model_dir() -> Path:
+    return DATA_ROOT / "double_up"
+
+
+def model_path(name: str) -> Path:
+    """LightGBM 模型文件的读侧定位；只拼路径，不检查存在性。"""
+    return model_dir() / name
 
 
 def state_dir() -> Path:

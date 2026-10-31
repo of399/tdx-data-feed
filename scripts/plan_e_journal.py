@@ -107,7 +107,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from _common import daily_dir  # noqa: E402
+from _common import daily_path  # noqa: E402
 
 from quant.execution.optimal_execution import (  # noqa: E402
     execution_table_markdown,
@@ -160,13 +160,9 @@ def ensure_dirs():
 # ============== 拆单建议（Almgren-Chriss，P2-5 接入） ==============
 
 def _find_parquet(code: str):
-    """按裸码 / sh / sz / bj 前缀定位日 K 文件（与 simulate 逻辑一致）。"""
-    PARQUET = daily_dir()
-    for c in [f'{code}.parquet', f'sh{code}.parquet', f'sz{code}.parquet', f'bj{code}.parquet']:
-        f = PARQUET / c
-        if f.exists():
-            return f
-    return None
+    """定位日 K 文件（裸码按板块推断，同码双文件取个股而非指数）。"""
+    fp = daily_path(code)
+    return fp if fp.exists() else None
 
 
 def get_execution_inputs(fp) -> tuple:
@@ -353,9 +349,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
         'history': [],
     }
 
-    # 用 parquet/daily 数据
     dates = pd.date_range(start=start_date, end=end_date, freq='B')  # 工作日
-    PARQUET = daily_dir()
     journal_records = []
 
     for trade_date in dates:
@@ -365,13 +359,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
         # Step 1: 检查现有持仓是否触发 TP/SL/TIME
         closed = []
         for code, p in list(pos['positions'].items()):
-            fp = PARQUET / f'{code}.parquet'
-            if not fp.exists():
-                fp = PARQUET / f'sh{code}.parquet'
-            if not fp.exists():
-                fp = PARQUET / f'sz{code}.parquet'
-            if not fp.exists():
-                fp = PARQUET / f'bj{code}.parquet'
+            fp = daily_path(code)
             if not fp.exists():
                 continue
             try:
@@ -438,13 +426,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
                     if code in pos['positions']:
                         continue
                     # 找今日开盘价
-                    fp = PARQUET / f'{code}.parquet'
-                    if not fp.exists():
-                        fp = PARQUET / f'sh{code}.parquet'
-                    if not fp.exists():
-                        fp = PARQUET / f'sz{code}.parquet'
-                    if not fp.exists():
-                        fp = PARQUET / f'bj{code}.parquet'
+                    fp = daily_path(code)
                     if not fp.exists():
                         continue
                     try:
@@ -507,12 +489,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
         # 用最后一天的收盘价平仓
         last_date = dates[-1].strftime('%Y-%m-%d')
         for code, p in list(pos['positions'].items()):
-            fp = PARQUET / f'{code}.parquet'
-            for c in [f'{code}.parquet', f'sh{code}.parquet', f'sz{code}.parquet', f'bj{code}.parquet']:
-                f = PARQUET / c
-                if f.exists():
-                    fp = f
-                    break
+            fp = daily_path(code)
             try:
                 df = pd.read_parquet(fp)
                 df['date'] = pd.to_datetime(df['date'])

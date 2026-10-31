@@ -78,6 +78,32 @@ def test_merge_write_keeps_real_amount_when_new_bar_is_zero(tmp_path: Path):
     assert df.loc[0, "amount"] == pytest.approx(123456.0)
 
 
+def test_interrupted_backfill_leaves_no_parquet_suffixed_residue(tmp_path: Path,
+                                                                 monkeypatch):
+    """进程死在 os.replace 之前时，残留不得以 .parquet 结尾——否则下一次会被当股票。"""
+    daily = tmp_path / "parquet/daily"
+    daily.mkdir(parents=True)
+    p = daily / "sh600000.parquet"
+    pd.DataFrame({
+        "date": [20260916],
+        "open": [10.0], "high": [10.0], "low": [10.0], "close": [10.0],
+        "volume": [100.0], "amount": [0.0],
+    }).to_parquet(p, index=False)
+
+    real_write = Writers._write_parquet_date32
+
+    def interrupted_write(path, df):
+        real_write(str(path), df)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(Writers, "_write_parquet_date32", staticmethod(interrupted_write))
+    with pytest.raises(KeyboardInterrupt):
+        backfill_daily_dir(daily, update_day=False)
+
+    residue = [q.name for q in daily.glob("*.parquet") if q.name != "sh600000.parquet"]
+    assert residue == []
+
+
 def test_backfill_daily_dir_updates_parquet(tmp_path: Path):
     daily = tmp_path / "parquet/daily"
     daily.mkdir(parents=True)

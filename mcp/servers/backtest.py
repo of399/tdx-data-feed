@@ -43,13 +43,17 @@ logging.basicConfig(
     format="%(asctime)s [mcp:backtest] %(message)s",
 )
 
-DABAN_MODEL = ROOT / "data/double_up/d_signal_5d_model_daban.txt"
-
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tdxfeed.paths import adj_factor_dir, daily_dir, universe_path  # noqa: E402
+from tdxfeed.paths import (  # noqa: E402
+    adj_factor_dir,
+    daily_dir,
+    model_path,
+    universe_path,
+)
 
+DABAN_MODEL = model_path("d_signal_5d_model_daban.txt")
 UNIVERSE_FILE = universe_path()
 DAILY_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()

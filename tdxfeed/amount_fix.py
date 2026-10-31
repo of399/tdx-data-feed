@@ -208,7 +208,8 @@ def _backfill_one(path: Path, dry_run: bool, update_day: bool,
         backup_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, backup_dir / f"{path.stem}.amountfix.bak.parquet")
 
-    tmp = path.with_suffix(".amountfix.tmp.parquet")
+    # 不以 .parquet 结尾：中断残留不能被 daily 目录的 *.parquet 列举当成股票
+    tmp = path.with_suffix(".amountfix.tmp")
     Writers._write_parquet_date32(str(tmp), filled)
     os.replace(tmp, path)
     if update_day and out_root is not None:
