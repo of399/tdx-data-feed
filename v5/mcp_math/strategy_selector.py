@@ -478,7 +478,7 @@ def execute_with_fallback(
 # M3 W5: audit log 落点（fallback-chain.jsonl + fallback-canary.jsonl）
 # ============================================================================
 
-_AUDIT_DIR = Path(os.environ.get("MATH_AUDIT_DIR", "/home/jiuben/tdx-data-feed/v5/audit"))
+_AUDIT_DIR = Path(os.environ.get("MATH_AUDIT_DIR", Path(__file__).resolve().parents[1] / "audit"))
 _AUDIT_DIR.mkdir(parents=True, exist_ok=True)
 _AUDIT_FALLBACK = _AUDIT_DIR / "fallback-chain.jsonl"
 _AUDIT_CANARY = _AUDIT_DIR / "fallback-canary.jsonl"

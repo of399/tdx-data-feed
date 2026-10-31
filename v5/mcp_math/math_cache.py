@@ -26,7 +26,7 @@ from threading import Lock
 # 路径与配置
 # ============================================================================
 
-CACHE_DIR = Path("/home/jiuben/tdx-data-feed/v5/cache")
+CACHE_DIR = Path(__file__).resolve().parents[1] / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = CACHE_DIR / "math_cache.sqlite"
 

@@ -21,7 +21,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-SIDECAR_DIR = Path("/home/jiuben/tdx-data-feed/v5/cache/derivation_sidecar")
+SIDECAR_DIR = Path(__file__).resolve().parents[1] / "cache" / "derivation_sidecar"
 SIDECAR_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = SIDECAR_DIR / "derivation_cache.sqlite"

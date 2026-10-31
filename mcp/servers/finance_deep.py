@@ -34,14 +34,14 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 warnings.filterwarnings("ignore")
 socket.setdefaulttimeout(20)
 
-LOG_FILE = Path("/home/jiuben/tdx-data-feed/logs/mcp.log")
+ROOT = Path(__file__).resolve().parents[2]
+LOG_FILE = ROOT / "logs" / "mcp.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     filename=str(LOG_FILE), level=logging.INFO,
     format="%(asctime)s [mcp:finance-deep] %(message)s",
 )
 
-ROOT = Path("/home/jiuben/tdx-data-feed")
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

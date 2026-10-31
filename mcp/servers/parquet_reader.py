@@ -31,7 +31,7 @@ class McpError(Exception):
         super().__init__(f"[{code}] {message}")
 
 # === 路径 ================================================================
-ROOT = Path("/home/jiuben/tdx-data-feed")
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

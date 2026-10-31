@@ -23,7 +23,7 @@ from pathlib import Path
 import pandas as pd
 
 # === 路径 ================================================================
-ROOT = Path("/home/jiuben/tdx-data-feed")
+ROOT = Path(__file__).resolve().parents[2]
 LOG_FILE = ROOT / "logs/mcp.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(

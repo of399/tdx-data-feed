@@ -39,7 +39,7 @@ from typing import Any
 import yaml
 
 # === 路径与日志 =============================================================
-LOG_FILE = Path("/home/jiuben/tdx-data-feed/logs/skill_router.log")
+LOG_FILE = Path(__file__).resolve().parents[1] / "logs" / "skill_router.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     filename=str(LOG_FILE), level=logging.INFO,

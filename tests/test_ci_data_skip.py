@@ -44,6 +44,7 @@ def test_needs_data_classifies_modules():
 def test_missing_data_root_skips_only_dependent_items(monkeypatch):
     conftest = _root_conftest()
     monkeypatch.setattr(conftest, "DATA_ROOT", Path("/nonexistent-tdx-data"))
+    monkeypatch.setattr(conftest, "_HAS_DATA", False)
     dependent, pure = _item(DATA_DEPENDENT), _item(PURE)
 
     conftest.pytest_collection_modifyitems(None, [dependent, pure])
@@ -56,11 +57,24 @@ def test_missing_data_root_skips_only_dependent_items(monkeypatch):
 def test_present_data_root_skips_nothing(monkeypatch, tmp_path):
     conftest = _root_conftest()
     monkeypatch.setattr(conftest, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(conftest, "_HAS_DATA", True)
     dependent = _item(DATA_DEPENDENT)
 
     conftest.pytest_collection_modifyitems(None, [dependent])
 
     assert dependent.markers == []
+
+
+def test_skip_decision_is_snapshotted_before_collection(monkeypatch, tmp_path):
+    """收集期导入测试模块会创建 data/；判定必须用导入期快照，不能被它翻成「有数据」。"""
+    conftest = _root_conftest()
+    monkeypatch.setattr(conftest, "DATA_ROOT", tmp_path)  # 目录真实存在
+    monkeypatch.setattr(conftest, "_HAS_DATA", False)
+    dependent = _item(DATA_DEPENDENT)
+
+    conftest.pytest_collection_modifyitems(None, [dependent])
+
+    assert [m.name for m in dependent.markers] == ["skip"]
 
 
 def test_guard_module_opts_out_of_data_skip():

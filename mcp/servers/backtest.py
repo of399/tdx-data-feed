@@ -35,14 +35,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-LOG_FILE = Path("/home/jiuben/tdx-data-feed/logs/mcp.log")
+ROOT = Path(__file__).resolve().parents[2]
+LOG_FILE = ROOT / "logs" / "mcp.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     filename=str(LOG_FILE), level=logging.INFO,
     format="%(asctime)s [mcp:backtest] %(message)s",
 )
 
-ROOT = Path("/home/jiuben/tdx-data-feed")
 DABAN_MODEL = ROOT / "data/double_up/d_signal_5d_model_daban.txt"
 UNIVERSE_FILE = ROOT / "data/all_a_stocks.json"
 

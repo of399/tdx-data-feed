@@ -28,14 +28,14 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 socket.setdefaulttimeout(20)
 
-LOG_FILE = Path("/home/jiuben/tdx-data-feed/logs/mcp.log")
+ROOT = Path(__file__).resolve().parents[2]
+LOG_FILE = ROOT / "logs" / "mcp.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     filename=str(LOG_FILE), level=logging.INFO,
     format="%(asctime)s [mcp:news] %(message)s",
 )
 
-ROOT = Path("/home/jiuben/tdx-data-feed")
 UNIVERSE_FILE = ROOT / "data/all_a_stocks.json"
 CACHE_TTL_SEC = 300
 

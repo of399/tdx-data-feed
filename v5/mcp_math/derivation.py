@@ -512,7 +512,7 @@ def write_audit_log(audit_log: list[dict], target_path: str | None = None) -> st
     from pathlib import Path
 
     if target_path is None:
-        audit_dir = Path("/home/jiuben/tdx-data-feed/v5/audit")
+        audit_dir = Path(__file__).resolve().parents[1] / "audit"
         audit_dir.mkdir(parents=True, exist_ok=True)
         target_path = audit_dir / "derivation_replay.jsonl"
 

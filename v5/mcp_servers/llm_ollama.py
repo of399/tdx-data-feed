@@ -59,7 +59,7 @@ VLLM_ENABLED = os.environ.get("VLLM_ENABLED", "true").lower() == "true" and HAS_
 VLLM_URL = os.environ.get("VLLM_JUDGE_URL", "http://127.0.0.1:8001")
 VLLM_TIMEOUT_S = float(os.environ.get("VLLM_JUDGE_TIMEOUT_S", "60"))
 
-AUDIT_DIR = Path("/home/jiuben/tdx-data-feed/v5/audit")
+AUDIT_DIR = Path(__file__).resolve().parents[1] / "audit"
 AUDIT_DIR.mkdir(parents=True, exist_ok=True)
 AUDIT_LOG = AUDIT_DIR / "llm-calls.jsonl"
 

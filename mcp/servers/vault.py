@@ -30,7 +30,8 @@ try:
 except ImportError:  # numpy 缺失时向量检索不可用，自动退回词法
     np = None
 
-LOG_FILE = Path("/home/jiuben/tdx-data-feed/logs/mcp.log")
+ROOT = Path(__file__).resolve().parents[2]
+LOG_FILE = ROOT / "logs" / "mcp.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     filename=str(LOG_FILE), level=logging.INFO,
@@ -276,7 +277,7 @@ class VectorStore:
 
 
 # 全局 store（per process）
-_store = VectorStore(Path("/home/jiuben/tdx-data-feed/data/vault_store.jsonl"))
+_store = VectorStore(ROOT / "data" / "vault_store.jsonl")
 
 
 # === 工具实现 =============================================================

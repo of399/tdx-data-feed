@@ -266,7 +266,7 @@ async def metrics():
         import json as _json
         from pathlib import Path as _Path
 
-        state_file = _Path("/home/jiuben/tdx-data-feed/v5/audit/canary_state.json")
+        state_file = _Path(_V5_DIR / "audit" / "canary_state.json")
         if state_file.exists():
             state = _json.loads(state_file.read_text())
             lines.append("# HELP canary_ratio Current canary traffic ratio (0-1)")
@@ -275,7 +275,7 @@ async def metrics():
             lines.append("# HELP canary_decisions_total Total canary ratio decisions")
             lines.append("# TYPE canary_decisions_total counter")
             lines.append(f"canary_decisions_total {len(state.get('history', []))}")
-        today_log = _Path("/home/jiuben/tdx-data-feed/v5/audit/fallback-chain.jsonl")
+        today_log = _Path(_V5_DIR / "audit" / "fallback-chain.jsonl")
         if today_log.exists():
             counts = {
                 "control": 0,
@@ -354,7 +354,7 @@ async def _run_tool(name: str, arguments: dict) -> dict:
             # M3 W5: 若调用方没指定 canary_ratio，自动从 canary_state.json 读取
             if "canary_ratio" not in arguments:
                 try:
-                    state_file = Path("/home/jiuben/tdx-data-feed/v5/audit/canary_state.json")
+                    state_file = Path(_V5_DIR / "audit" / "canary_state.json")
                     if state_file.exists():
                         import json as _json
 

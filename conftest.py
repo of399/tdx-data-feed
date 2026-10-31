@@ -23,6 +23,9 @@ TESTS_DIR = ROOT / "tests"
 # 本机跑：data/ 在，一个都不跳。CI 跑：data/ 不在，依赖它的模块跳过。
 # TDX_TEST_DATA_ROOT 只给守卫测试把「数据不存在」演出来，不改真实目录。
 DATA_ROOT = Path(os.environ.get("TDX_TEST_DATA_ROOT", str(ROOT / "data")))
+# 收集期导入测试模块可能顺带创建 data/（如 mcp/servers/vault.py 的 VectorStore），
+# 若在 modifyitems 里现查 exists()，跳过判据会被这些副作用翻成「有数据」。
+_HAS_DATA = DATA_ROOT.exists()
 _DATA_MARKERS = ("data/", "/home/jiuben")
 # 模块级显式退出：只读源码文本、不读 data/ 的模块在**零缩进**处写 `NEEDS_DATA = False`
 # （样例字符串里带 data/ 字样会被下面的分类误判；缩进的同名行不算，避免函数内局部变量误触）。
@@ -47,7 +50,7 @@ def _needs_data(path: Path) -> bool:
 
 
 def pytest_collection_modifyitems(config, items):
-    if DATA_ROOT.exists():
+    if _HAS_DATA:
         return
     reason = f"缺 {DATA_ROOT}：该模块依赖本地行情/产物，无数据环境里跳过"
     for item in items:
