@@ -21,6 +21,9 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# 间接依赖行情数据：backtest 模块自己读 data/，本文件源码里没有 data/ 字样。
+NEEDS_DATA = True
+
 
 def _load(name: str, relpath: str):
     spec = importlib.util.spec_from_file_location(name, ROOT / relpath)

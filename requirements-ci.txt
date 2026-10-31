@@ -22,6 +22,8 @@ mcp>=1.2,<2
 # tests/test_mcp_contracts.py 顶层 import，校验 inputSchema
 jsonschema>=4.20
 scikit-learn>=1.5.0
+# pandas.to_markdown 的可选依赖，缺它会 ImportError（tests/test_plan_e_significance.py 8 条、scripts/plan_e_backtest.py 报告段落）
+tabulate>=0.9
 lightgbm>=4.5.0
 akshare>=1.15.50
 # ERC 组合求解（quant/multifactor/portfolio.py），tests/test_portfolio_erc.py 直接跑求解器

@@ -6,7 +6,8 @@
 
 同一处的第二个职责：CI 没有本地 `data/`，引用行情/产物的模块在收集期就跳过，
 让「测试集能在无数据环境跑」这件事有唯一判据。守卫见 tests/test_ci_data_skip.py。
-只读源码文本、不读 `data/` 的模块在文件里写一行 `NEEDS_DATA = False` 显式退出这个分类。
+只读源码文本、不读 `data/` 的模块在文件里写一行 `NEEDS_DATA = False` 显式退出这个分类；
+数据依赖是间接的（被测模块自己读盘）就写 `NEEDS_DATA = True` 显式加入。
 """
 import os
 import sys
@@ -26,6 +27,8 @@ _DATA_MARKERS = ("data/", "/home/jiuben")
 # 模块级显式退出：只读源码文本、不读 data/ 的模块在**零缩进**处写 `NEEDS_DATA = False`
 # （样例字符串里带 data/ 字样会被下面的分类误判；缩进的同名行不算，避免函数内局部变量误触）。
 _OPT_OUT_LINE = "NEEDS_DATA = False"
+# 反向显式加入：数据依赖是间接的（被测模块自己读盘，测试源码里没有 data/ 字样）时用。
+_OPT_IN_LINE = "NEEDS_DATA = True"
 
 
 def _needs_data(path: Path) -> bool:
@@ -35,7 +38,10 @@ def _needs_data(path: Path) -> bool:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return False
-    if any(line.rstrip() == _OPT_OUT_LINE for line in text.splitlines()):
+    lines = [line.rstrip() for line in text.splitlines()]
+    if _OPT_IN_LINE in lines:
+        return True
+    if _OPT_OUT_LINE in lines:
         return False
     return any(marker in text for marker in _DATA_MARKERS)
 

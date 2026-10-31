@@ -27,6 +27,9 @@ from tdxfeed.features_5d import (  # noqa: E402
     compute_window_features_extended,
 )
 
+# 读 data/parquet/daily；路径用 Path 拼接，源码里没有 data/ 字样，分类抓不到。
+NEEDS_DATA = True
+
 DAILY = ROOT / "data" / "parquet" / "daily"
 
 

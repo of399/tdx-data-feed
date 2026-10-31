@@ -20,8 +20,9 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/home/jiuben/tdx-data-feed")
-sys.path.insert(0, "/home/jiuben/tdx-data-feed/v5")
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "v5"))
 
 import mcp_servers.math_sympy as math_sympy_mod
 from mcp_servers.math_sympy import (

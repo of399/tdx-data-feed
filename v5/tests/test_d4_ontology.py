@@ -11,11 +11,13 @@ v5/mcp_math/ontology.py 验收测试（D4 知识对齐）
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 import httpx
 
-sys.path.insert(0, "/home/jiuben/tdx-data-feed")
-sys.path.insert(0, "/home/jiuben/tdx-data-feed/v5")
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "v5"))
 
 from mcp_math.ontology import (
     bilingual_translate,

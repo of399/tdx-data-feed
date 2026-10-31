@@ -42,7 +42,12 @@ def test_documentation_targets_exist_in_repo():
     for fp, token in _doc_tokens():
         if not token.startswith("file://"):
             continue
-        rel = token[len("file://"):].removeprefix(str(ROOT) + "/")
+        path = token[len("file://"):]
+        # 绝对 file:// 指向作者机器上的检出路径；CI 的 checkout 在别处，无从校验。
+        # 本机 ROOT 与它一致时才校验——那正是文档改名会被抓住的场合。
+        if not path.startswith(str(ROOT) + "/"):
+            continue
+        rel = path[len(str(ROOT)) + 1:]
         target = ROOT / rel
         assert target.exists(), f"{fp.name} 指向不存在的文档 {rel}"
 

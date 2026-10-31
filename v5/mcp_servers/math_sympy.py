@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 # 把 v5 路径加进 sys.path
-V5_DIR = Path("/home/jiuben/tdx-data-feed/v5")
+V5_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(V5_DIR))
 
 from mcp_math import math_cache, math_errors  # noqa: E402

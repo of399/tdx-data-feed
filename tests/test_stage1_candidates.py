@@ -21,6 +21,9 @@ from tdxfeed.factors_candidates import (  # noqa: E402
     compute_candidate_features,
 )
 
+# 读 data/parquet/daily；路径用 Path 拼接，源码里没有 data/ 字样，分类抓不到。
+NEEDS_DATA = True
+
 DAILY = ROOT / "data" / "parquet" / "daily"
 
 

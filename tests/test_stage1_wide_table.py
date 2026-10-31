@@ -20,6 +20,9 @@ from tdxfeed.stage1_wide_table import (  # noqa: E402
     build_wide_table,
 )
 
+# 读 data/parquet/daily 与 data/double_up；路径用 Path 拼接，源码里没有 data/ 字样。
+NEEDS_DATA = True
+
 EXPECTED_BASE = ["code", "signal_date", "is_positive", "hypothetical_pnl"]
 
 

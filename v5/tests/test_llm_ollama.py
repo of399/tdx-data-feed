@@ -17,7 +17,9 @@ from time import sleep
 
 import pytest
 
-sys.path.insert(0, "/home/jiuben/tdx-data-feed")
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT))
+
 from v5.mcp_servers.llm_ollama import (
     chat_impl,
     classify_impl,
@@ -25,6 +27,18 @@ from v5.mcp_servers.llm_ollama import (
     judge_impl,
     reason_impl,
 )
+
+
+def _ollama_up() -> bool:
+    import socket
+
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", 11434)) == 0
+
+
+# 两个用例都要真打 Ollama；CI 没有这个服务，跳过而不是判红。
+pytestmark = pytest.mark.skipif(not _ollama_up(), reason="127.0.0.1:11434 无 Ollama")
 
 PASS = 0
 FAIL = 0
@@ -184,8 +198,8 @@ async def test_layer_2():
         return
 
     server_params = StdioServerParameters(
-        command="/home/jiuben/tdx-data-feed/venv/bin/python",
-        args=["/home/jiuben/tdx-data-feed/v5/mcp_servers/llm_ollama.py"],
+        command=sys.executable,
+        args=[str(_ROOT / "v5" / "mcp_servers" / "llm_ollama.py")],
     )
 
     print("  启动 MCP server (stdio) ...")
