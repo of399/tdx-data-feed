@@ -26,12 +26,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, '/home/jiuben/tdx-data-feed')
-sys.path.insert(0, '/home/jiuben/tdx-data-feed/tdxfeed')
+ROOT = Path(__file__).resolve().parents[1]
+for _p in (ROOT, ROOT / 'tdxfeed'):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 from kline import fetch_sina, save_rows_parquet
-
-ROOT = Path('/home/jiuben/tdx-data-feed')
 
 from _common import parquet_root  # noqa: E402
 

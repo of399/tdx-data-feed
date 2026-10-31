@@ -22,6 +22,7 @@ jobs:
 
       - name: Python 环境信息
         run: |
+          set -o pipefail
           {
             echo "--- python version ---"
             python --version
@@ -48,6 +49,7 @@ jobs:
 
       - name: pytest (冒烟子集)
         run: |
+          set -o pipefail
           pytest tests/test_limit_single_source.py v5/tests/test_alerting_pipeline.py -q 2>&1 | tee /tmp/pytest-smoke.txt
 
       - name: 上传 CI 诊断日志

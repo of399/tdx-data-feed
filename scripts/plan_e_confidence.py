@@ -16,9 +16,11 @@ import time
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, "/home/jiuben/tdx-data-feed/scripts")
+_ROOT = Path(__file__).resolve().parents[1]
+for _p in (_ROOT / "scripts", _ROOT / "training" / "eval"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
-sys.path.insert(0, "/home/jiuben/tdx-data-feed/training/eval")
 from llm_signal_plan_e import build_window
 from plan_e_backtest import backtest, load_double_up
 

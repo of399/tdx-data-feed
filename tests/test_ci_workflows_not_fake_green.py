@@ -40,6 +40,18 @@ def test_quick_sop_runs_tests_not_only_collects():
         assert "--collect-only" not in run
 
 
+def test_tee_steps_use_pipefail():
+    """`cmd | tee` 不加 pipefail 时步骤退出码取 tee 的 0，失败会被吞成常绿。"""
+    for wf in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        for name, step in _steps(wf.name).items():
+            run = step.get("run", "")
+            if "| tee" not in run:
+                continue
+            assert "pipefail" in run, (
+                f"{wf.name} 的「{name}」用 tee 但没 pipefail，失败会被吞"
+            )
+
+
 def test_docker_trivy_scan_is_blocking():
     step = _steps("docker-publish.yml")["Scan image (Trivy)"]
     assert step.get("continue-on-error") is not True
