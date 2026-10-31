@@ -4,7 +4,7 @@
 
 设计目标：
   - 从 data/parquet/daily/*.parquet 派生全市场正股 symbols（不依赖 vipdoc 目录）
-  - 支持 --period 15 / 60
+  - 支持 --period 1 / 5 / 15 / 60（scale=1 需 --datalen 1970，新浪硬顶）
   - 支持 --codes-file 指定缺失清单（精确补齐指定 code）
   - 复用 kline.py 已有的 fetch_sina / save_rows_parquet
   - fail-fast：连续 N 段失败 或 总时间超 M 分钟立即退出
@@ -32,7 +32,10 @@ sys.path.insert(0, '/home/jiuben/tdx-data-feed/tdxfeed')
 from kline import fetch_sina, save_rows_parquet
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
-OUT = ROOT / 'data' / 'parquet'
+
+from _common import parquet_root  # noqa: E402
+
+OUT = parquet_root()
 
 # 6位代码 → 加 sh/sz/bj 前缀（用 daily 实际文件名前缀推断）
 PREFIX_BY_START = {
@@ -78,13 +81,14 @@ def append_journal(journal_fp: Path, row: dict):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--period', required=True, choices=['15', '60'])
+    ap.add_argument('--period', required=True, choices=['1', '5', '15', '60'])
     ap.add_argument('--codes-file', type=str, default=None, help='一行一个 6 位 code 的清单')
     ap.add_argument('--all-stocks', action='store_true', help='从 daily parquet 取全市场正股')
     ap.add_argument('--max-total-minutes', type=int, default=30)
     ap.add_argument('--consecutive-fail-max', type=int, default=10)
     ap.add_argument('--sleep', type=float, default=0.3)
     ap.add_argument('--limit', type=int, default=None)
+    ap.add_argument('--datalen', type=int, default=1023, help='每次取多少根；新浪 scale=1 上限 1970')
     args = ap.parse_args()
 
     period = int(args.period)
@@ -154,7 +158,7 @@ def main():
         t1 = time.time()
         err = None
         try:
-            rows = fetch_sina(sym, scale=period)
+            rows = fetch_sina(sym, scale=period, datalen=args.datalen)
             if rows:
                 save_rows_parquet(sym, rows, period)
                 ok += 1

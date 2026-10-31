@@ -21,12 +21,19 @@ except ImportError as e:
     print(f"[setup] 缺依赖: {e}；请 pip install akshare pandas pyarrow", file=sys.stderr)
     raise
 
-OUT_ROOT = '/home/jiuben/tdx-data-feed/data/parquet'
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from tdxfeed.paths import parquet_root  # noqa: E402
+
+OUT_ROOT = str(parquet_root())
 MAX_RETRY = 5
 SLEEP_BASE = 1.5
 
 # ============ Sina 分钟线（稳定备用源，单次上限 1023 根） ============
-SINA_SCALES = {15: 'min15', 60: 'min60', 5: 'min5'}
+SINA_SCALES = {15: 'min15', 60: 'min60', 5: 'min5', 1: 'min1'}
 
 
 def symbol_to_akshare_code(symbol):
