@@ -10,6 +10,7 @@ Canary 健康检查脚本
   4. GPU 状态
   5. systemd timer 状态
   6. obsidian-sync 部署/重载状态（防仓库-部署漂移与 start-limit-hit）
+  7. 每日验证快照（v5/audit/verification/latest.json）的新鲜度与 all_ok
 
 输出：
   - logs/canary.log（追加）
@@ -35,6 +36,7 @@ import requests
 ROOT = Path(__file__).parent.parent
 LOG_FILE = ROOT / 'logs' / 'canary.log'
 HISTORY_FILE = ROOT / 'logs' / 'canary_history.jsonl'
+VERIFICATION_DIR = ROOT / 'v5' / 'audit' / 'verification'
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import adj_factor_dir, daily_dir, derived_dir, hfq_factor_dir  # noqa: E402
@@ -47,10 +49,11 @@ PARQUET_MIN_COUNT = 5000     # 最少日 K 文件数
 ADJ_MIN_COUNT = 5000         # 最少复权因子文件数
 HFQ_MIN_COUNT = 5000         # 最少后复权因子文件数
 DISK_MIN_FREE_GB = 20        # 最小剩余磁盘 GB
+VERIFICATION_MAX_AGE_HOURS = 30  # 每日 02:00 UTC 快照；留 6 小时余量
 
 # 这些检查出问题（error 或 warn）才退出非零 → systemd OnFailure → 微信。
 # GPU/磁盘这类长期 warn 不在此列：每 5 分钟推一次就是刷屏，留 journal 与 canary 历史即可。
-PAGING_CHECKS = frozenset({'tdxfeed_sync', 'data_files', 'timers'})
+PAGING_CHECKS = frozenset({'tdxfeed_sync', 'data_files', 'timers', 'verification'})
 
 
 def _today() -> date:
@@ -206,6 +209,66 @@ def check_data_files() -> dict:
     return result
 
 
+def check_verification(directory: Path | None = None,
+                       now: datetime | None = None) -> dict:
+    """每日验证快照的新鲜度、结果与 latest 指针。
+
+    `tdx-verification` 是 system 作用域，而 `onfailure-alert@.service` 只部署在用户管理器，
+    系统侧写 `OnFailure=` 会找不到模板、静默无效——所以失败兜底放在这里：
+    快照超过 30 小时没更新（timer 停了）、all_ok 不为 true（验证真的红了）、
+    latest 没跟到最新快照（symlink 漂移），三者都进 PAGING_CHECKS。
+    """
+    result = {'name': 'verification', 'status': 'ok', 'details': {}}
+    directory = directory or VERIFICATION_DIR
+    now = now or datetime.now().astimezone()
+    problems: list[str] = []
+
+    snapshots = sorted(directory.glob('verification-*.json'))
+    result['details'] = {'dir': str(directory), 'snapshots': len(snapshots)}
+    if not snapshots:
+        problems.append(f'{directory} 下没有 verification-*.json')
+    else:
+        result['details']['newest_snapshot'] = snapshots[-1].name
+
+    latest = directory / 'latest.json'
+    if not latest.exists():
+        problems.append('缺 latest.json（或符号链接已断）')
+    else:
+        if not latest.is_symlink():
+            problems.append('latest.json 不是符号链接，可能被拷贝成普通文件')
+        if snapshots:
+            target = latest.resolve()
+            if target.name != snapshots[-1].name:
+                problems.append(f'latest.json → {target.name}，最新快照是 {snapshots[-1].name}')
+        try:
+            payload = json.loads(latest.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as e:
+            problems.append(f'latest.json 读不了: {str(e)[:120]}')
+            payload = None
+        if payload is not None:
+            result['details']['ts'] = payload.get('ts')
+            result['details']['all_ok'] = payload.get('all_ok')
+            if payload.get('all_ok') is not True:
+                problems.append(f"all_ok={payload.get('all_ok')!r}")
+            try:
+                ts = datetime.fromisoformat(str(payload.get('ts')))
+            except ValueError:
+                problems.append(f"ts 无法解析: {payload.get('ts')!r}")
+            else:
+                if ts.tzinfo is None:
+                    problems.append('ts 没有时区，无法判断新鲜度')
+                else:
+                    age = now - ts
+                    result['details']['age_hours'] = round(age.total_seconds() / 3600, 2)
+                    if age > timedelta(hours=VERIFICATION_MAX_AGE_HOURS):
+                        problems.append(f'快照太旧: {age}')
+
+    if problems:
+        result['status'] = 'warn'
+        result['message'] = '; '.join(problems)
+    return result
+
+
 def check_disk() -> dict:
     """检查磁盘空间"""
     result = {'name': 'disk', 'status': 'ok', 'details': {}}
@@ -241,6 +304,7 @@ def check_timers() -> dict:
         ('predict-daily.timer', 'user'),
         ('plan-e-journal.timer', 'user'),
         ('tdx-sync.timer', 'system'),
+        ('tdx-verification.timer', 'system'),
     )
     inactive = []
     for t, scope in timers:
@@ -337,6 +401,7 @@ def run_all_checks() -> dict:
             check_timers(),
             check_gpu(),
             check_obsidian_sync(),
+            check_verification(),
         ]
     }
 
