@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import sys
 from collections import Counter
 from collections.abc import Callable
@@ -39,9 +40,14 @@ from tdxfeed.daban.limit_price import exchange_prefix  # noqa: E402
 from tdxfeed.daban.realtime import fetch_quote_map  # noqa: E402
 from tdxfeed.daban.scanner import Scanner  # noqa: E402
 from tdxfeed.daban.session import SESSION_CONTINUOUS, current_session  # noqa: E402
+from tdxfeed.errors import (  # noqa: E402
+    flush as _flush_swallowed_counts,
+)
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
+
+atexit.register(_flush_swallowed_counts)
 
 # 试验仓参数（§3，与 trial.py 的额度常量配套；改这里要同时改设计文档）
 PHASE = "震荡市"  # --phase 是市场环境标签，不是时刻

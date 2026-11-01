@@ -690,7 +690,7 @@ issues:
     title: "canary 维度文档写 7 维、实际 8 维"
     theme: docs
     severity: P2
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -698,16 +698,16 @@ issues:
     locations: ["docs/WORKFLOW.md", ".codebuddy/skills/tdx-quant-workflow/SKILL.md"]
     detect:
       - kind: grep
-        pattern: "7 维"
-        paths: ["docs/*.md", ".codebuddy/**/*.md"]
-        exclude: [".codebuddy/memory"]
+        pattern: 'canary 维度'
+        paths: ['docs/WORKFLOW.md']
         min_count: 1
-    impact: "巡检覆盖范围被低估，据此配置告警会漏掉 verification 维度"
-    guard: "NONE"
+    impact: "（已修）canary 维度文档口径与代码一致（9 维，含新增 swallowed_errors）；并加守卫测试 tests/test_canary_dimensions_documented.py 静态比对代码与文档"
+    guard: "tests/test_canary_dimensions_documented.py"
+    test: "tests/test_canary_dimensions_documented.py"
     owner: "jiuben"
     due: "2026-11-15"
     exemption: "NONE"
-    fix_hint: "统一为 8 维，并从 canary_health_check.run_all_checks 自动生成该数字"
+    fix_hint: "已完成：docs/WORKFLOW.md 维度表改为 9 维；守卫从 canary 源码静态解析维度名并与文档比对，维度增减都会让测试失败"
 
   - id: KI-OBS-001
     title: "obsidian-git.json 在 skill 中内联副本与仓库源文件不一致"

@@ -9,6 +9,7 @@
   2. 失败时回退 core_stocks + INDICES + 内置样例（少量）
 【v2】数据源由 Tencent 换成 Sina（白天可用，含 amount 支持）。
 """
+import atexit
 import logging
 import os
 import sys
@@ -19,6 +20,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 log = logging.getLogger(__name__)
 
+from tdxfeed.errors import (  # noqa: E402
+    flush as _flush_swallowed_counts,
+)
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.state import State
 from tdxfeed.symbols import INDICES, get_core_stocks, group, sym_of_index
@@ -26,6 +30,8 @@ from tdxfeed.writers import Writers
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
+
+atexit.register(_flush_swallowed_counts)
 
 OUT_ROOT = os.environ.get("TDX_OUT_ROOT", "/home/jiuben/tdx-data-feed/data")
 SLEEP = float(os.environ.get("TDX_SLEEP", "0.15"))

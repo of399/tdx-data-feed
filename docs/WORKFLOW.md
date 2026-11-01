@@ -121,7 +121,7 @@
 - `scripts/distill_outputs.py`、`scripts/batch_distill.py`、`scripts/build_distill_skeleton.py`、`scripts/convert_distill.py` — 蒸馏数据预处理
 - `scripts/finalize_eval.py`、`scripts/redo_finalize.py` — 评估结果定稿
 - `scripts/test_bjs_akshare.py` — 北交所 akshare 接口冒烟测试（数据已下线，脚本仅存档）
-- `scripts/canary_health_check.py` — 金丝雀健康检查（7 维）；日志轮转由 `tdx-clean-logs.timer` + systemd 负责
+- `scripts/canary_health_check.py` — 金丝雀健康检查（**9 维**：ollama / tdxfeed_sync / data_files / disk / timers / gpu / obsidian_sync / verification / **swallowed_errors**（吞错计数，M-4 运营闭环））；日志轮转由 `tdx-clean-logs.timer` + systemd 负责
 
 ---
 
@@ -607,7 +607,7 @@ tdx-data-feed/
 | 方案 E v2（10-24, n=112）| 胜率 **33.9%** / 均收益 **+1.16%** / 夏普 0.12 / 索提诺 0.07 / 最大回撤 -23.63% / Calmar 0.02 |
 | 方案 E 统计结论 | **95% CI 跨零，四检验均无法拒绝「无超额收益」**；随机择时基线与入场日无异 → **研究口径**|
 | 翻倍样本免探测数 | 747 只（10-26 日线深度审计）|
-| canary 维度 | 7（ollama / tdxfeed_sync / data_files / disk / timers / gpu / obsidian_sync）|
+| canary 维度 | 9（ollama / tdxfeed_sync / data_files / disk / timers / gpu / obsidian_sync / verification / swallowed_errors）|
 | 运行中定时器 | 10（含 3 个 5min 级：canary / trainsh / **daban-ticket**）|
 | 执行研究 Stage 0 事件表 | **21,963** 触板事件 / 256 交易日 / 3,742 只（2025-09-05~2026-09-24）|
 | 执行研究 Stage 1 封板分类 | 验证 AUC 0.543 → **测试 AUC 0.522**（接近随机）；`gate.passed=false` |

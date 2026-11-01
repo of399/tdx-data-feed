@@ -88,6 +88,7 @@
 """
 
 import argparse
+import atexit
 import contextlib
 import fcntl
 import json
@@ -119,10 +120,15 @@ from quant.execution.optimal_execution import (  # noqa: E402
 
 # KI-ATOMIC-002/003：账本与日志写入走原子落位 + 互斥锁，崩溃/并发下不丢行
 from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402
+from tdxfeed.errors import (  # noqa: E402
+    flush as _flush_swallowed_counts,
+)
 from tdxfeed.execution.single import SingleTradePlan, check_exit  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
+
+atexit.register(_flush_swallowed_counts)
 
 warnings.filterwarnings('ignore')
 

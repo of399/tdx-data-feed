@@ -68,6 +68,7 @@
 """
 
 import argparse
+import atexit
 import json
 import os
 import sys
@@ -190,11 +191,16 @@ from tdxfeed.daban.sector_features import (  # noqa: E402
     EXTRA_FEATURE_COLS,
     build_lookup,
 )
+from tdxfeed.errors import (  # noqa: E402
+    flush as _flush_swallowed_counts,
+)
 from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
 from tdxfeed.names import is_st_name  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
+
+atexit.register(_flush_swallowed_counts)
 
 
 def is_st(name: str) -> int:

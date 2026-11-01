@@ -24,6 +24,7 @@ Canary 健康检查脚本
 """
 
 import argparse
+import atexit
 import json
 import os
 import subprocess
@@ -42,10 +43,19 @@ VERIFICATION_DIR = ROOT / 'v5' / 'audit' / 'verification'
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import adj_factor_dir, daily_dir, derived_dir, hfq_factor_dir  # noqa: E402
 
+from tdxfeed.errors import (  # noqa: E402
+    flush as _flush_swallowed_counts,
+)
 from tdxfeed.freshness import sample_latest_date, stale_threshold  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
+
+atexit.register(_flush_swallowed_counts)
+
+# 吞错计数巡检窗口与告警阈值（阈值可用环境变量覆盖）
+SWALLOWED_WINDOW_HOURS = int(os.environ.get('TDX_SWALLOWED_WINDOW_HOURS', '24'))
+SWALLOWED_WARN_THRESHOLD = int(os.environ.get('TDX_SWALLOWED_WARN_THRESHOLD', '20'))
 
 # 阈值
 OLLAMA_TIMEOUT = 5           # 秒
@@ -403,6 +413,40 @@ def check_obsidian_sync() -> dict:
     return result
 
 
+def check_swallowed_errors() -> dict:
+    """吞错计数巡检（SEM002 的运营闭环）。
+
+    读取生产入口进程退出时落盘的吞错计数（data/quality/swallowed_counts.jsonl），
+    统计最近窗口内被吞掉的错误总数与集中点。
+
+    说明：这是"计数被读到"的证据链末端 —— 存量 349 处失败从完全不可见，
+    变为代码中可见、可 grep、可统计，并进一步可在巡检里按窗口观察趋势。
+    """
+    result = {'name': 'swallowed_errors', 'status': 'ok', 'details': {}}
+    try:
+        from tdxfeed.errors import read_recent
+        rep = read_recent(hours=SWALLOWED_WINDOW_HOURS)
+    except Exception as e:
+        _ERROR_COUNT['check_swallowed_errors'] += 1
+        result['status'] = 'error'
+        result['message'] = str(e)[:200]
+        return result
+    total = int(rep.get('total', 0))
+    result['details'] = {
+        'window_hours': SWALLOWED_WINDOW_HOURS,
+        'total': total,
+        'records': rep.get('records', 0),
+        'exists': rep.get('exists', False),
+        'top_modules': list(rep.get('modules', {}).items())[:5],
+        'top_functions': list(rep.get('top_functions', []))[:5],
+    }
+    if total > SWALLOWED_WARN_THRESHOLD:
+        result['status'] = 'warn'
+        result['message'] = (f'最近 {SWALLOWED_WINDOW_HOURS}h 吞错 {total} 处'
+                             f'（阈值 {SWALLOWED_WARN_THRESHOLD}）')
+    return result
+
+
 def run_all_checks() -> dict:
     """跑所有检查"""
     return {
@@ -416,6 +460,7 @@ def run_all_checks() -> dict:
             check_gpu(),
             check_obsidian_sync(),
             check_verification(),
+            check_swallowed_errors(),
         ]
     }
 
