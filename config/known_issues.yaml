@@ -834,6 +834,30 @@ issues:
     exemption: "已决定保留至 12 月（待复评）"
     fix_hint: "决策归档或保留；若归档则移出扫描范围，并在本条记录替代资产位置"
 
+  - id: KI-RULE-002
+    title: "完整规则集在 CI 中仅报告不阻断，新代码可合法复制旧模式"
+    theme: rule
+    severity: P0
+    status: FIXED
+    first_seen: "2026-10-17"
+    last_seen: "2026-11-01"
+    seen_count: 5
+    sources:
+      - "docs/QUALITY_GATE_ANALYSIS_2026-11-01.md:210"
+      - "docs/INCREMENTAL_LINT_GATE.md"
+    locations: [".github/workflows/lint.yml", "config/ruff_baseline.json"]
+    detect:
+      - kind: grep
+        pattern: 'ci_violation_gate\.py check'
+        paths: [".github/workflows/*.yml"]
+        min_count: 1
+    impact: "（已修）完整规则集升级为增量阻断：存量 252 条冻结为基线额度，新增行不得引入新违规"
+    guard: "tests/test_ci_violation_gate.py"
+    owner: "jiuben"
+    due: "2026-11-01"
+    exemption: "NONE"
+    fix_hint: "已完成（M-2）：基线只降不升 + 新增行零新增 + 基线完整性三条断言；详见 docs/INCREMENTAL_LINT_GATE.md"
+
   # ---------------- 已修复并有守卫（示例：固化"修完有守卫"的范式）----------------
   - id: KI-SINGLE-005
     title: "股票池路径访问器已单源化（universe_path）"

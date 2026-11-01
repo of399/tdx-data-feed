@@ -10,12 +10,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 增量阻断需要 diff base（origin/main...HEAD）
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
       - run: pip install ruff==0.16.7
       - name: 阻断项：语法错误与未定义名
         run: ruff check . --select E9,F63,F7,F82
-      - name: 建议项：完整规则集（存量约 200 条，暂不阻断）
+      - name: 建议项：完整规则集（存量约 250 条，不阻断）
         continue-on-error: true
         run: ruff check . --statistics --ignore=E501
+      - name: 增量阻断：新增行不得引入新违规 + 基线只降不升
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main || git fetch --no-tags origin main
+          python scripts/ci_violation_gate.py check --base origin/main
+      - name: 基线快照自检（基线不得低于实测 / 增长审批不得过期）
+        run: python scripts/ci_violation_gate.py check --no-diff

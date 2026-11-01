@@ -194,10 +194,12 @@ Round3 明确记录：P0 把吞错从 37 处降到 4 处，**但 P1 改造又新
 | 守卫 | ✅ **已实施** | `tests/test_known_issues_ledger.py`（7 项：结构、id 唯一、R5、R6、detect 合法、guard 文件存在、扫描语义、NEW 路径）|
 | 首轮报告 | ✅ **已产出** | `docs/AUDIT_ROUND_2026-11-01.md`（栏1 已按实填写；栏2：新增 0 / 复现 35 / 消失 0）|
 | 入口 | ✅ | `make ledger-scan` / `make ledger-report` / `make ledger-probe PAT=... PATHS=...` |
-| M-2 增量阻断 | ⬜ 未实施 | 下一步 |
+| **M-2 增量阻断** | ✅ **已实施**（19:30）| `scripts/ci_violation_gate.py`（check/update/show）+ `config/ruff_baseline.json`（252 条 / 153 格基线）+ `.github/workflows/lint.yml` 接入（PR 三断言全跑 / push 只跑基线断言）+ `tests/test_ci_violation_gate.py`（17 项）+ `docs/INCREMENTAL_LINT_GATE.md`（169 行规范）|
 | M-3 豁免行级化 | ⬜ 未实施 | — |
 | M-4 AST 语义守卫 | ⬜ 未实施 | — |
 | M-5/M-6、D-1~D-6 | ⬜ 未实施 | — |
+
+**M-2 增量阻断已落地（19:30）**：完整 ruff 规则集由"仅报告"升级为**增量阻断**——存量 252 条冻结为 (文件×规则) 基线额度，新增行不得引入新违规，基线只降不升（上升需 30 天有效期的显式审批，到期 CI 自动变红）。实测三条断言均可触发（干净文件新增违规被 A1+A2 双拦、脏文件净增长被 A1 拦、基线被抬高被 A3 拦）。
 
 **当场验证结论**：复扫 36 条 → 复现 35 / 消失 0 / FIXED 且守卫在位 1 / 守卫缺失 0；其中 **29 条复现问题仍无自动守卫**（下轮仍会复发，已在报告列出）；NEW 路径经 `probe` 验证可用。扫描口径由"自由扫描 ≈145 条"变为"**台账复扫 35 条 + 新增须显式登记**"，新增与复现从此可分离统计。
 

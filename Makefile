@@ -213,6 +213,19 @@ sop-quick:  ## 告警链路 quick 验证（5s，非侵入）
 sop-full:  ## 告警链路 full 验证（140s，侵入）
 	bash v5/tests/test_alerting_pipeline.sh --mode full --auto-sink --report-json /tmp/sop-full-report.json
 
+# ============== 增量阻断门禁（CI gate）==============
+lint-gate:  ## 增量阻断：新增行不得引入新违规 + 基线只降不升（CI 同款）
+	cd $(ROOT) && $(PYTHON) scripts/ci_violation_gate.py check --base origin/main
+
+lint-gate-local:  ## 本地版（基线断言，跳过 diff）
+	cd $(ROOT) && $(PYTHON) scripts/ci_violation_gate.py check --no-diff
+
+lint-baseline:  ## 按当前实测收紧基线（只降不升；上升需 --allow-growth --reason）
+	cd $(ROOT) && $(PYTHON) scripts/ci_violation_gate.py update
+
+lint-baseline-show:  ## 查看基线概览
+	cd $(ROOT) && $(PYTHON) scripts/ci_violation_gate.py show
+
 # ============== 已知问题台账（known-issues ledger）==============
 ledger-scan:  ## 复扫台账每条问题的 detect 规格（仍存在/已消失/守卫缺失）
 	cd $(ROOT) && $(PYTHON) scripts/audit_ledger.py scan

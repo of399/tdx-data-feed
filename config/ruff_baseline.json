@@ -1,0 +1,358 @@
+{
+  "by_file_rule": {
+    "_archive/_v111_analysis.py": {
+      "F541": 4,
+      "UP032": 1
+    },
+    "_archive/tools/desktop_auto_clicker.py": {
+      "UP009": 1,
+      "UP045": 1
+    },
+    "quant/datafeed.py": {
+      "F401": 2
+    },
+    "quant/fetch_history.py": {
+      "F401": 1
+    },
+    "quant/multifactor/engine.py": {
+      "RUF100": 2
+    },
+    "quant/validate.py": {
+      "F401": 1,
+      "RUF046": 1
+    },
+    "scripts/akshare_industry_loader.py": {
+      "B905": 2,
+      "E402": 1
+    },
+    "scripts/audit_daily_history_depth.py": {
+      "F401": 1
+    },
+    "scripts/backfill_adj_etf.py": {
+      "B007": 1,
+      "F841": 1
+    },
+    "scripts/backfill_daily_history.py": {
+      "I001": 1
+    },
+    "scripts/backfill_minutes.py": {
+      "E402": 1,
+      "I001": 1
+    },
+    "scripts/batch_distill.py": {
+      "SIM115": 3
+    },
+    "scripts/bench_cls2000.py": {
+      "B905": 2,
+      "E702": 1,
+      "SIM115": 1
+    },
+    "scripts/bench_v567.py": {
+      "E402": 1,
+      "E702": 3,
+      "E731": 1,
+      "SIM115": 1
+    },
+    "scripts/bench_v7r.py": {
+      "E402": 1,
+      "E702": 3,
+      "E731": 1,
+      "SIM115": 1
+    },
+    "scripts/build_small_val.py": {
+      "B007": 1
+    },
+    "scripts/compare_6year.py": {
+      "B007": 1,
+      "F841": 1,
+      "RUF059": 1
+    },
+    "scripts/compare_plan_e_signals.py": {
+      "B905": 1,
+      "F401": 1
+    },
+    "scripts/create_concept_skeletons.py": {
+      "F401": 1
+    },
+    "scripts/distill_outputs.py": {
+      "SIM115": 2
+    },
+    "scripts/download_universe.py": {
+      "E702": 10,
+      "I001": 1
+    },
+    "scripts/download_valuation.py": {
+      "B007": 1,
+      "I001": 1,
+      "RUF013": 1,
+      "RUF100": 1
+    },
+    "scripts/factor_engine.py": {
+      "SIM115": 1
+    },
+    "scripts/feature_engineering.py": {
+      "B905": 1,
+      "SIM113": 1
+    },
+    "scripts/finalize_eval.py": {
+      "B905": 3,
+      "E702": 2,
+      "SIM102": 1,
+      "SIM115": 4
+    },
+    "scripts/find_d_signal_5d.py": {
+      "I001": 1
+    },
+    "scripts/find_double_up_hfq.py": {
+      "RUF005": 1,
+      "RUF046": 1,
+      "RUF100": 1
+    },
+    "scripts/greedy_feature_selection.py": {
+      "RUF005": 2
+    },
+    "scripts/llm_signal_plan_e.py": {
+      "E402": 1,
+      "E702": 3,
+      "I001": 1
+    },
+    "scripts/monitor_plan_e_live.py": {
+      "F841": 1,
+      "SIM108": 1
+    },
+    "scripts/oracle_plan_e_ceiling.py": {
+      "F401": 2
+    },
+    "scripts/plan_e_confidence.py": {
+      "B007": 2,
+      "E402": 3,
+      "F401": 1,
+      "SIM113": 1
+    },
+    "scripts/plan_e_sim_live.py": {
+      "SIM108": 1
+    },
+    "scripts/recompute_pnl_labels.py": {
+      "E402": 2
+    },
+    "scripts/redo_finalize.py": {
+      "B905": 3,
+      "E702": 4,
+      "SIM115": 3
+    },
+    "scripts/sim_daily_compare.py": {
+      "E702": 2,
+      "E731": 3,
+      "F841": 1,
+      "SIM108": 1
+    },
+    "scripts/stage1_baseline.py": {
+      "B905": 3,
+      "E402": 2,
+      "RUF005": 1
+    },
+    "scripts/stage1_optuna.py": {
+      "B007": 1,
+      "B904": 1,
+      "B905": 2,
+      "E402": 4,
+      "RUF005": 1
+    },
+    "scripts/top_n_sensitivity.py": {
+      "B007": 2,
+      "RUF059": 1
+    },
+    "scripts/train_pnl_huber_industry.py": {
+      "F841": 1,
+      "RUF005": 1
+    },
+    "scripts/train_pnl_huber_market.py": {
+      "F841": 1,
+      "RUF005": 1
+    },
+    "scripts/train_pnl_proxy.py": {
+      "RUF005": 2,
+      "RUF059": 1,
+      "SIM113": 1
+    },
+    "scripts/v3_premarket_top.py": {
+      "F841": 1,
+      "SIM115": 1
+    },
+    "scripts/v3_simulate.py": {
+      "F841": 1,
+      "SIM108": 1
+    },
+    "scripts/verify_obsidian_links.py": {
+      "F541": 3,
+      "RUF005": 1
+    },
+    "scripts/verify_obsidian_metadata.py": {
+      "F401": 1,
+      "F541": 5
+    },
+    "scripts/verify_v2.py": {
+      "SIM108": 2
+    },
+    "tdxfeed/__init__.py": {
+      "I001": 1,
+      "RUF022": 1
+    },
+    "tdxfeed/adj_factor_history.py": {
+      "UP034": 1
+    },
+    "tdxfeed/amount_fix.py": {
+      "SIM105": 1
+    },
+    "tdxfeed/backfill_history.py": {
+      "SIM115": 1
+    },
+    "tdxfeed/daban/limit_price.py": {
+      "I001": 1
+    },
+    "tdxfeed/date_utils.py": {
+      "UP037": 1
+    },
+    "tdxfeed/execution/__init__.py": {
+      "I001": 1,
+      "RUF022": 1
+    },
+    "tdxfeed/execution/single.py": {
+      "UP035": 1
+    },
+    "tdxfeed/features_5d.py": {
+      "UP037": 2
+    },
+    "tdxfeed/freshness.py": {
+      "I001": 1
+    },
+    "tdxfeed/full_sync.py": {
+      "E402": 4
+    },
+    "tdxfeed/incremental.py": {
+      "B905": 1,
+      "SIM108": 1
+    },
+    "tdxfeed/sources/mootdx_source.py": {
+      "B904": 1,
+      "RUF100": 2,
+      "SIM108": 1,
+      "UP037": 1
+    },
+    "tdxfeed/writers.py": {
+      "B905": 1
+    },
+    "tests/test_adj_factor_history.py": {
+      "RUF005": 1
+    },
+    "tests/test_adjusted_frame.py": {
+      "E702": 3
+    },
+    "tests/test_akshare_volume_unit.py": {
+      "E402": 2
+    },
+    "tests/test_amount_ledger.py": {
+      "I001": 1
+    },
+    "tests/test_daban_hold_kernel.py": {
+      "I001": 1
+    },
+    "tests/test_daban_orderbook_log.py": {
+      "B015": 1
+    },
+    "tests/test_daban_paper.py": {
+      "B905": 2
+    },
+    "tests/test_daily_history_depth_no_cap_truncation.py": {
+      "E402": 1
+    },
+    "tests/test_data_layer.py": {
+      "RUF043": 1
+    },
+    "tests/test_distill_failure_is_loud.py": {
+      "RUF012": 2,
+      "RUF059": 2,
+      "RUF100": 1,
+      "SIM105": 1
+    },
+    "tests/test_distill_think_filter.py": {
+      "UP032": 4
+    },
+    "tests/test_parquet_schema_contract.py": {
+      "B905": 1
+    },
+    "tests/test_predict_price_basis.py": {
+      "E702": 1
+    },
+    "tests/test_single_factor_authority.py": {
+      "SIM102": 1,
+      "SIM114": 1
+    },
+    "tests/test_stage1_wide_table_basis.py": {
+      "E702": 4,
+      "F841": 1
+    },
+    "tests/test_wide_table_label_source.py": {
+      "B905": 2,
+      "RUF005": 3
+    },
+    "tests/test_write_atomicity.py": {
+      "SIM115": 5
+    },
+    "training/eval/eval_v4_vs_v7r.py": {
+      "B905": 3,
+      "E702": 8,
+      "I001": 1,
+      "SIM105": 1
+    },
+    "v5/tests/test_d4_ontology.py": {
+      "E402": 1
+    },
+    "v5/tests/test_llm_ollama.py": {
+      "E402": 1
+    },
+    "v5/tests/test_math_sympy.py": {
+      "E402": 7
+    }
+  },
+  "by_rule": {
+    "B007": 9,
+    "B015": 1,
+    "B904": 2,
+    "B905": 27,
+    "E402": 32,
+    "E702": 44,
+    "E731": 5,
+    "F401": 11,
+    "F541": 12,
+    "F841": 9,
+    "I001": 13,
+    "RUF005": 14,
+    "RUF012": 2,
+    "RUF013": 1,
+    "RUF022": 2,
+    "RUF043": 1,
+    "RUF046": 2,
+    "RUF059": 5,
+    "RUF100": 7,
+    "SIM102": 2,
+    "SIM105": 3,
+    "SIM108": 8,
+    "SIM113": 3,
+    "SIM114": 1,
+    "SIM115": 23,
+    "UP009": 1,
+    "UP032": 5,
+    "UP034": 1,
+    "UP035": 1,
+    "UP037": 4,
+    "UP045": 1
+  },
+  "created": "2026-11-01",
+  "files": 82,
+  "measured_at": "dab26a8",
+  "ruff_version": "ruff 0.16.7",
+  "total": 252,
+  "updated": "2026-11-01",
+  "version": 1
+}
