@@ -26,6 +26,7 @@ import datetime as dt
 import json
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,10 +35,16 @@ sys.path.insert(0, str(ROOT))
 import pandas as pd  # noqa: E402
 
 from tdxfeed.history_paging import PAGE_CAP, PageRequestError, http_page  # noqa: E402
-from tdxfeed.symbols import a_share_symbols, sym_of_a_share  # noqa: E402
+from tdxfeed.symbols import (  # noqa: E402,F401  # sym_of_a_share 为再导出（tests/test_history_depth_gap_plan.py 直接断言）
+    a_share_symbols,
+    sym_of_a_share,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import daily_dir, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY = daily_dir()
 UNIVERSE = universe_path()
@@ -97,8 +104,10 @@ def audit_one(sym: str, target: int, probe=None) -> dict:
         rows = probe(sym)
         first = int(str(rows[0][0]).replace("-", "")) if rows else None
     except PageRequestError as e:
+        _ERROR_COUNT['audit_one'] += 1
         first, err = -1, f"PageRequestError:{str(e)[:120]}"
     except Exception as e:            # 网络/解析异常一律 unknown，不掩盖
+        _ERROR_COUNT['audit_one'] += 1
         first, err = -1, f"{type(e).__name__}:{str(e)[:120]}"
     r = plan_gaps(lo, hi, first, target)
     r.update({"symbol": sym, "local_min": lo, "local_max": hi,

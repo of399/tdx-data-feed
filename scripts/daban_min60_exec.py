@@ -21,10 +21,14 @@ Part B：封板质量对「连板≥3 接力」有没有增量
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).resolve().parents[1]
 FEATURES = ROOT / "data/daban/min60_features_20261022.parquet"
@@ -491,6 +495,7 @@ def part_b(valid: pd.DataFrame) -> dict:
                 if len(only_r) else np.nan,
             }
         except Exception as exc:  # pragma: no cover - diagnostic only
+            _ERROR_COUNT['part_b'] += 1
             res["crosscheck"] = {"error": str(exc)}
     return res
 

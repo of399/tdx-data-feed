@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
@@ -51,6 +52,9 @@ from tdxfeed.daban.tencent_source import TQuote, fetch_tencent_map
 from tdxfeed.daban.ths_board import ConceptStrength, load_concept_snapshot, match_concepts
 from tdxfeed.date_utils import parse_date_series
 from tdxfeed.paths import universe_path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = [
     "Candidate",
@@ -217,9 +221,11 @@ def _read_daily(code: str, daily_dir: Path) -> pd.DataFrame | None:
     try:
         df = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume"])
     except Exception:
+        _ERROR_COUNT['_read_daily'] += 1
         try:
             df = pd.read_parquet(p)
         except Exception:
+            _ERROR_COUNT['_read_daily'] += 1
             return None
     if df is None or df.empty:
         return None
@@ -397,6 +403,7 @@ class Scanner:
             try:
                 self.tquotes = fetch_tencent_map(syms)
             except Exception:
+                _ERROR_COUNT['scan'] += 1
                 self.tquotes = {}
 
         # 板块强度（§A.1）：用全市场快照计算，候选股只是取用方

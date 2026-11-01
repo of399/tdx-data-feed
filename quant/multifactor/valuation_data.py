@@ -8,11 +8,15 @@
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 VAL_DIR = ROOT / "data" / "valuation"
@@ -51,6 +55,7 @@ class ValuationProvider:
                 if n >= self.cfg.min_real_codes:
                     return "real"
             except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                _ERROR_COUNT['_resolve_mode'] += 1
                 print(f"[WARN] swallowed: {e!r}")
         return "proxy"
 
@@ -62,6 +67,7 @@ class ValuationProvider:
             self._real_fund["date"] = pd.to_datetime(self._real_fund["date"])
             self.real_coverage_start = str(self._real_pepb["date"].min().date())
         except Exception:
+            _ERROR_COUNT['_load_real'] += 1
             self.mode = "proxy"
             self._real_pepb = None
             self._real_fund = None

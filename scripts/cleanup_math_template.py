@@ -12,11 +12,16 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections import Counter
 from pathlib import Path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 try:
     import yaml
 except ImportError:
+    _ERROR_COUNT['<module>'] += 1
     sys.stderr.write("✗ 缺少 PyYAML\n")
     sys.exit(2)
 
@@ -46,6 +51,7 @@ def main() -> None:
         try:
             data = yaml.safe_load(m.group(1))
         except yaml.YAMLError:
+            _ERROR_COUNT['main'] += 1
             continue
         if not isinstance(data, dict):
             continue

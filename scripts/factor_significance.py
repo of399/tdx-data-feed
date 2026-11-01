@@ -19,6 +19,7 @@
 """
 import argparse
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -40,6 +41,9 @@ from quant.multifactor.factors import (  # noqa: E402
     cross_sectional_projection,
     orthogonalize_factor_panel,
 )
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 def calc_factor_significance(df: pd.DataFrame, factor_col: str) -> dict:
@@ -75,6 +79,7 @@ def calc_factor_significance(df: pd.DataFrame, factor_col: str) -> dict:
         q1_pos_rate = q_stats['pos_rate'].iloc[0]
         spread = q5_pos_rate - q1_pos_rate
     except Exception:
+        _ERROR_COUNT['calc_factor_significance'] += 1
         q_stats = None
         monotonic = False
         q5_pos_rate = q1_pos_rate = spread = np.nan
@@ -374,6 +379,7 @@ def main():
                 md.append(f'| {qname} | {int(row["n"]):,} | {row["pos_rate"]*100:.2f}% | {row["mean_value"]:.3f} |')
             md.append('')
         except Exception:
+            _ERROR_COUNT['main'] += 1
             md.append('*分层失败*')
             md.append('')
 

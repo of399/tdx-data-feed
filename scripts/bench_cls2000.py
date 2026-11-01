@@ -27,6 +27,9 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 ROOT = Path("/home/jiuben/tdx-data-feed")
 SAMPLES = ROOT / "data" / "cls2000_samples.jsonl"
 OUT = ROOT / "data" / "bench_cls2000.json"
@@ -92,6 +95,7 @@ def bench_model(model_tag: str, samples: list[dict], opts: dict, concurrency: in
     try:
         call_ollama(model_tag, "你好", opts)
     except Exception as e:
+        _ERROR_COUNT['bench_model'] += 1
         print(f"  [warmup] {model_tag} 失败: {e}", flush=True)
 
     results: list[tuple] = [None] * len(samples)
@@ -101,6 +105,7 @@ def bench_model(model_tag: str, samples: list[dict], opts: dict, concurrency: in
         try:
             resp, _ = call_ollama(model_tag, p, opts)
         except Exception:
+            _ERROR_COUNT['bench_model'] += 1
             return (i, -2, "")
         return (i, parse_pred(resp), resp)
 

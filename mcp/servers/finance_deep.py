@@ -23,6 +23,7 @@ import socket
 import sys
 import time
 import warnings
+from collections import Counter
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -46,6 +47,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tdxfeed.paths import finance_deep_dir, finance_parquet, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 FIN_PARQUET = finance_parquet()
 DEEP_DIR = finance_deep_dir()
@@ -103,6 +107,7 @@ def _name_of(six: str) -> str:
     try:
         return json.loads(UNIVERSE_FILE.read_text(encoding="utf-8")).get(six, "")
     except Exception:
+        _ERROR_COUNT['_name_of'] += 1
         return ""
 
 
@@ -111,6 +116,7 @@ def _validate_on_demand(sym: str, six: str) -> None:
     try:
         universe = json.loads(UNIVERSE_FILE.read_text(encoding="utf-8"))
     except Exception:
+        _ERROR_COUNT['_validate_on_demand'] += 1
         return
     if universe and six not in universe:
         raise McpError(404, f"{sym} 不在股票池（data/all_a_stocks.json）")
@@ -143,6 +149,7 @@ def _num(v):
     try:
         return float(s)
     except ValueError:
+        _ERROR_COUNT['_num'] += 1
         return v
 
 
@@ -155,6 +162,7 @@ def _norm_date(v) -> str:
         if not pd.isna(ts):
             return ts.strftime("%Y%m%d")
     except Exception:
+        _ERROR_COUNT['_norm_date'] += 1
         pass
     return s
 
@@ -180,6 +188,7 @@ def _read_cache(symbol: str, kind: str) -> tuple[list[dict], dict] | None:
         meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
         return rows, meta
     except Exception as e:
+        _ERROR_COUNT['_read_cache'] += 1
         logging.warning("读取缓存 %s 失败：%s", data_path, e)
         return None
 
@@ -198,6 +207,7 @@ def _fresh(meta: dict) -> bool:
         t = datetime.fromisoformat(meta["fetched_at"])
         return (datetime.now() - t).days < CACHE_TTL_DAYS
     except Exception:
+        _ERROR_COUNT['_fresh'] += 1
         return False
 
 
@@ -575,8 +585,10 @@ def handle_request(req: dict) -> dict | None:
             return None
         raise McpError(-32601, f"未知方法：{method}")
     except McpError as e:
+        _ERROR_COUNT['handle_request'] += 1
         return {"jsonrpc": "2.0", "id": req_id, "error": {"code": e.code, "message": e.message}}
     except Exception as e:
+        _ERROR_COUNT['handle_request'] += 1
         logging.exception("handler error")
         return {"jsonrpc": "2.0", "id": req_id,
                 "error": {"code": -32603, "message": str(e)}}
@@ -594,6 +606,7 @@ def main():
             if resp is not None:
                 print(json.dumps(resp, ensure_ascii=False), flush=True)
         except json.JSONDecodeError as e:
+            _ERROR_COUNT['main'] += 1
             print(json.dumps({"jsonrpc": "2.0", "id": None,
                               "error": {"code": -32700, "message": str(e)}}), flush=True)
 

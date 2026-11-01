@@ -31,9 +31,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 # 板块类型 -> 中文名
 BLOCK_TYPES: dict[str, str] = {
@@ -122,6 +126,7 @@ def build_membership() -> dict[str, pd.DataFrame]:
             out[btype] = df
             logger.info("解析 %s: %d 条 个股→概念 记录", fp.name, len(df))
         except Exception as exc:  # 具体异常，避免裸 except
+            _ERROR_COUNT['build_membership'] += 1
             logger.error("解析 %s 失败: %s", fp.name, exc)
     return out
 

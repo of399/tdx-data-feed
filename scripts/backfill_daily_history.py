@@ -15,6 +15,7 @@ import argparse
 import glob
 import json
 import sys
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -22,8 +23,16 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tdxfeed.backfill_history import (  # noqa: E402
-    RESUME_PATH, acquire_run_lock, backfill_symbol, load_done, mark_done)
+    RESUME_PATH,
+    acquire_run_lock,
+    backfill_symbol,
+    load_done,
+    mark_done,
+)
 from tdxfeed.writers import Writers  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 BAD_RATIO_MAX = 0.05
 TARGET_DEFAULT = 20000101
@@ -52,6 +61,7 @@ def _run(sym: str, target: int, w: Writers) -> dict:
     try:
         return backfill_symbol(sym, target, writers=w)
     except Exception as e:  # 逐只隔离：一只坏不影响整轮，但计入 fail 与退出码
+        _ERROR_COUNT['_run'] += 1
         return {"symbol": sym, "error": f"{type(e).__name__}:{str(e)[:140]}"}
 
 

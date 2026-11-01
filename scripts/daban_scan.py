@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +49,9 @@ from tdxfeed.daban.pool import load_pool  # noqa: E402
 from tdxfeed.daban.realtime import fetch_quote_map  # noqa: E402
 from tdxfeed.daban.scanner import Scanner  # noqa: E402
 from tdxfeed.daban.seal_ratio import load_tdx_export  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DATA_DIR = _ROOT / "data"
 OUT_DIR = DATA_DIR / "daban"
@@ -107,6 +111,7 @@ def load_float_shares(path: str) -> dict[str, float]:
         try:
             out[parts[0].strip().zfill(6)] = float(parts[1])
         except ValueError:
+            _ERROR_COUNT['load_float_shares'] += 1
             continue
     return out
 
@@ -311,6 +316,7 @@ def main() -> int:
                 print(f"  ⚠ 撤单加速 {c.code} {c.name} {c.cancel_rate:.0f}万股/分")
             time.sleep(max(1.0, args.interval))
     except KeyboardInterrupt:
+        _ERROR_COUNT['main'] += 1
         print("\n[watch] 退出")
     return 0
 

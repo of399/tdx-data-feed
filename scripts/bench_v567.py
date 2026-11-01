@@ -21,6 +21,7 @@ import re
 import subprocess
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -85,6 +86,7 @@ class VramProbe:
                 if v > self.peak:
                     self.peak = v
             except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                _ERROR_COUNT['_loop'] += 1
                 print(f"[WARN] swallowed: {e!r}")
             time.sleep(0.3)
 
@@ -103,6 +105,9 @@ class VramProbe:
 # ---------- 输入构造 ----------
 # 统一日期解析：单一数据源见 tdxfeed/date_utils.to_date_str
 from _common import to_date_str as parse_date  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 def build_input_from_rows(rows) -> str:
@@ -219,6 +224,7 @@ def bench_model(model_tag: str, bleu_samples, cls_samples):
     try:
         call_ollama(model_tag, "你好", timeout=600)
     except Exception as e:
+        _ERROR_COUNT['bench_model'] += 1
         print(f"  [warmup] {model_tag} 失败: {e}", flush=True)
 
     bleu_sent, rouge_f1 = [], {"rouge1": [], "rouge2": [], "rougeL": []}
@@ -227,12 +233,14 @@ def bench_model(model_tag: str, bleu_samples, cls_samples):
         try:
             resp, wall, ev, _ = call_ollama(model_tag, prompt, timeout=600)
         except Exception as e:
+            _ERROR_COUNT['bench_model'] += 1
             print(f"  [bleu {i}] ERR {e}", flush=True)
             continue
         walls.append(wall); evals.append(ev)
         try:
             bleu_sent.append(sacrebleu.sentence_bleu(resp, [truth]).score)
         except Exception:
+            _ERROR_COUNT['bench_model'] += 1
             bleu_sent.append(0.0)
         rs = rouge.score(truth, resp)
         for k in rouge_f1:
@@ -246,6 +254,7 @@ def bench_model(model_tag: str, bleu_samples, cls_samples):
         try:
             resp, wall, ev, _ = call_ollama(model_tag, prompt, timeout=600)
         except Exception as e:
+            _ERROR_COUNT['bench_model'] += 1
             print(f"  [cls {i}] ERR {e}", flush=True)
             continue
         walls.append(wall); evals.append(ev)

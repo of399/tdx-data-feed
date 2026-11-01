@@ -15,6 +15,7 @@ mcp/servers/parquet_reader.py — MCP Server: Parquet 数据读取
 import json
 import logging
 import sys
+from collections import Counter
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -36,6 +37,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tdxfeed.paths import daily_dir, finance_parquet, xdxr_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY_DIR = daily_dir()
 FINANCE_PARQUET = finance_parquet()
@@ -291,8 +295,10 @@ def handle_request(req: dict) -> dict:
             return None
         raise McpError(-32601, f"未知方法：{method}")
     except McpError as e:
+        _ERROR_COUNT['handle_request'] += 1
         return {"jsonrpc": "2.0", "id": req_id, "error": {"code": e.code, "message": e.message}}
     except Exception as e:
+        _ERROR_COUNT['handle_request'] += 1
         logging.exception("handler error")
         return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32603, "message": f"内部错误：{e}"}}
 
@@ -310,6 +316,7 @@ def main():
             if resp is not None:
                 print(json.dumps(resp, ensure_ascii=False), flush=True)
         except json.JSONDecodeError as e:
+            _ERROR_COUNT['main'] += 1
             err = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": f"JSON 解析失败：{e}"}}
             print(json.dumps(err), flush=True)
 

@@ -29,9 +29,13 @@ from __future__ import annotations
 import csv
 import re
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = [
     "ConceptStrength",
@@ -97,6 +101,7 @@ def _parse_num(text: str) -> float:
     try:
         return float(s)
     except (TypeError, ValueError):
+        _ERROR_COUNT['_parse_num'] += 1
         return 0.0
 
 
@@ -151,6 +156,7 @@ def _fetch_one(name: str, retries: int = 2) -> ConceptStrength | None:
             )
             return cs
         except Exception:
+            _ERROR_COUNT['_fetch_one'] += 1
             time.sleep(0.3)
     return None
 

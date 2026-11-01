@@ -9,7 +9,12 @@
 """
 from __future__ import annotations
 
+from collections import Counter
+
 import akshare as ak
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 # 内置指数表：code -> (market, name)；沪市 market=1，深市 market=0
 # 覆盖主要宽基"大盘"指数（上证/上证50/沪深300/中证500/中证1000/科创50 + 深证/创业板）
@@ -56,6 +61,7 @@ def get_core_stocks() -> list[str]:
         df = ak.index_stock_cons_csindex(symbol="000300")
         return df["成分券代码"].tolist()
     except Exception:
+        _ERROR_COUNT['get_core_stocks'] += 1
         return ["600000", "000001", "600519"]
 
 
@@ -141,6 +147,7 @@ def get_security_list() -> list[str]:
         df = ak.stock_info_a_code_name()
         return df["code"].tolist()
     except Exception:
+        _ERROR_COUNT['get_security_list'] += 1
         return ["600000", "000001", "600519"]
 
 

@@ -1,6 +1,7 @@
 """daban Top-K 逐笔 PnL：T 日收盘信号 → T+1 开盘买入 → T+2 开盘卖出。"""
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 import numpy as np
@@ -11,6 +12,9 @@ from tdxfeed.execution.bars import date_str
 from tdxfeed.execution.costs import CostModel
 from tdxfeed.execution.hold import HoldPlan, settle_hold_trade
 from tdxfeed.execution.limits import LimitRule
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 def net_return(entry_price: float, exit_price: float, *, fee_bps: float = 2.5,
@@ -30,6 +34,7 @@ def _factor(df: pd.DataFrame, idx: int) -> float:
     try:
         v = float(v)
     except (TypeError, ValueError):
+        _ERROR_COUNT['_factor'] += 1
         return 1.0
     return v if np.isfinite(v) and v > 0 else 1.0
 

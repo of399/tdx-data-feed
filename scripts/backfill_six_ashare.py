@@ -14,6 +14,7 @@
 """
 import os
 import sys
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -23,6 +24,9 @@ from tdxfeed.paths import DATA_ROOT, daily_dir
 from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.writers import Writers
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 OUT_ROOT = str(DATA_ROOT)
 TARGETS = ["sh601238", "sh605303", "sh688496", "sz000016", "sz002731", "sz301139"]
@@ -52,6 +56,7 @@ def main():
                     bars, used = b, name
                     break
             except Exception as e:
+                _ERROR_COUNT['main'] += 1
                 print(f"  [{sym}] {name} 失败: {e!s}")
 
         if not bars:

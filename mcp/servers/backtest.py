@@ -71,6 +71,9 @@ from tdxfeed.features_5d import (  # noqa: E402
     is_open_limit_up,
 )
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 DEFAULT_FEE_BPS = 2.5
 DEFAULT_STAMP_BPS = 5.0
 DEFAULT_SLIP_BPS = 5.0
@@ -138,6 +141,7 @@ def _norm_date(value) -> str | None:
         ts = pd.to_datetime(s, errors="coerce")
         return None if pd.isna(ts) else ts.strftime("%Y%m%d")
     except Exception:
+        _ERROR_COUNT['_norm_date'] += 1
         return None
 
 
@@ -688,6 +692,7 @@ def _load_universe() -> dict[str, str]:
             if isinstance(raw, dict):
                 names = {str(k).zfill(6): str(v) for k, v in raw.items() if str(k).isdigit()}
         except Exception as e:
+            _ERROR_COUNT['_load_universe'] += 1
             logging.warning("股票池读取失败，回退扫描 parquet：%s", e)
     if not names:
         for fp in daily_files():
@@ -729,6 +734,7 @@ def _daban_scan_one(task: tuple[str, str]) -> dict:
     try:
         df = pd.read_parquet(fp)
     except Exception as e:
+        _ERROR_COUNT['_daban_scan_one'] += 1
         return {"code": six, "sym": sym, "status": "read_error", "detail": str(e)[:120]}
     if df.empty or not {"date", "open", "high", "low", "close"}.issubset(df.columns):
         return {"code": six, "sym": sym, "status": "missing"}
@@ -1026,8 +1032,10 @@ def handle_request(req: dict) -> dict | None:
             return None
         raise McpError(-32601, f"未知方法：{method}")
     except McpError as e:
+        _ERROR_COUNT['handle_request'] += 1
         return {"jsonrpc": "2.0", "id": req_id, "error": {"code": e.code, "message": e.message}}
     except Exception as e:
+        _ERROR_COUNT['handle_request'] += 1
         logging.exception("handler error")
         return {"jsonrpc": "2.0", "id": req_id,
                 "error": {"code": -32603, "message": str(e)}}
@@ -1045,6 +1053,7 @@ def main():
             if resp is not None:
                 print(json.dumps(resp, ensure_ascii=False), flush=True)
         except json.JSONDecodeError as e:
+            _ERROR_COUNT['main'] += 1
             print(json.dumps({"jsonrpc": "2.0", "id": None,
                               "error": {"code": -32700, "message": str(e)}}), flush=True)
 

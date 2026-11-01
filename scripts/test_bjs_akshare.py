@@ -19,8 +19,12 @@ test_bjs_akshare.py — 北交所 akshare 接口可行性测试
 """
 
 import json
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
@@ -40,6 +44,7 @@ def try_call(name, fn, *args, **kwargs):
         print(f"✓ rows={rows}, cols={list(df.columns)[:5] if hasattr(df, 'columns') else 'N/A'}")
         return True, df, rows
     except Exception as e:
+        _ERROR_COUNT['try_call'] += 1
         print(f"✗ {type(e).__name__}: {str(e)[:80]}")
         return False, str(e), 0
 
@@ -111,6 +116,7 @@ def main():
         import akshare as ak
         print(f"\nakshare 版本：{ak.__version__}")
     except ImportError:
+        _ERROR_COUNT['main'] += 1
         print("❌ akshare 未安装。请先：pip install akshare")
         return
 

@@ -7,6 +7,7 @@ T+1 开盘成交 / 剔除 ST·停牌·上市<60 日 等回测约束；风险/组
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +49,9 @@ from .portfolio import (  # noqa: E402
 )
 from .risk_model import IndustryMap, RiskModel, cov_diagnostics  # noqa: E402
 from .valuation_data import ValuationConfig, ValuationProvider  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 OUTPUT_DIR = ROOT / "data" / "plan_e"
 
@@ -277,7 +281,7 @@ def run_mf_backtest(cfg: MFConfig,
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 审计 P1 修复 (2026-10-17): 延迟 import 破循环(见文件头注释)
-    from plan_e_backtest import dsr_p_from_annual_sharpe  # noqa: E402
+    from plan_e_backtest import dsr_p_from_annual_sharpe
 
     # 1. 股票池 + 缓存（close/open/amount + 因子原始序列）
     # 仅纳入沪深 A 股个股（剔除指数 / ETF / 债券 / 北交所）；
@@ -386,6 +390,7 @@ def run_mf_backtest(cfg: MFConfig,
             else:
                 w = None
         except Exception:
+            _ERROR_COUNT['run_mf_backtest'] += 1
             w = None
         if w is None or len(w) != len(sel_codes):
             w = np.full(len(sel_codes), 1.0 / len(sel_codes))
@@ -618,7 +623,7 @@ def _benchmark_returns(cache: dict, start, end) -> pd.Series | None:
 
 def _build_report(metrics, holdings_hist, ic_records, yearly, cfg, valp, ts, ic_by_year_df=None):
     """审计 P1-3-4 补注: 汇总 metrics/持仓/IC 为 Markdown 报告。"""
-    from plan_e_backtest import DSR_N_TRIALS  # noqa: E402  # 审计 P1 修复: 延迟 import 破循环
+    from plan_e_backtest import DSR_N_TRIALS  # 审计 P1 修复: 延迟 import 破循环
     L = ["# 多因子组合回测报告（multifactor v1 · "
          f"{pd.Timestamp.now():%Y-%m-%d %H:%M}）\n", "## 一、核心指标\n",
          "| 指标 | 值 |\n|---|---|",

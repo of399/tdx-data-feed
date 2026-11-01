@@ -1,9 +1,13 @@
 """akshare 数据源（可靠主线）：Sina 主源，Eastmoney 回退，带退避重试。"""
 import time
+from collections import Counter
 
 import akshare as ak
 
 from tdxfeed.sources.base import DataSource
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 class AkshareSource(DataSource):
@@ -30,6 +34,7 @@ class AkshareSource(DataSource):
                     break
                 raise RuntimeError("Sina 返回空数据")
             except Exception as e:
+                _ERROR_COUNT['fetch_bars'] += 1
                 last_err = e
                 time.sleep(2 * (attempt + 1))
         # Eastmoney 回退：最多 2 轮，退避间隔 3/6 秒
@@ -43,6 +48,7 @@ class AkshareSource(DataSource):
                     if df is not None and not df.empty:
                         break
                 except Exception as e:
+                    _ERROR_COUNT['fetch_bars'] += 1
                     last_err = e
                     time.sleep(3 * (attempt + 1))
         if df is None or df.empty or "date" not in df.columns:

@@ -17,6 +17,7 @@ import argparse
 import logging
 import math
 import sys
+from collections import Counter
 from datetime import date
 from pathlib import Path
 
@@ -26,6 +27,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from _common import daily_dir  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY = daily_dir()
 SRC = ROOT / "data" / "double_up" / "d_signal_5d_features_vpnl.csv"
@@ -87,6 +91,7 @@ def main() -> int:
             try:
                 sig_idx = dates.index(d)
             except ValueError:
+                _ERROR_COUNT['main'] += 1
                 continue
             anchor = sig_idx - 1  # T-1 锚点（训练约定）
             if anchor < 4:
@@ -94,6 +99,7 @@ def main() -> int:
             try:
                 f = fp(df, code, sig_idx=anchor)
             except Exception:
+                _ERROR_COUNT['main'] += 1
                 continue
             if f is None:
                 continue

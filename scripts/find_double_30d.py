@@ -23,12 +23,16 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from _common import adj_factor_dir, daily_dir, universe_path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
@@ -60,6 +64,7 @@ def load_qfq(code: str) -> pd.DataFrame | None:
         df = pd.read_parquet(fp, columns=['date', 'close', 'high'])
         adj = pd.read_parquet(adj_fp, columns=['date', 'adj_factor'])
     except Exception:
+        _ERROR_COUNT['load_qfq'] += 1
         return None
     df['date'] = _to_dt(df['date'])
     adj['date'] = _to_dt(adj['date'])

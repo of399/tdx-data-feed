@@ -15,12 +15,16 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
 
 from tdxfeed.history_paging import fetch_history
 from tdxfeed.writers import Writers
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_ROOT = str(ROOT / "data")
@@ -57,6 +61,7 @@ def acquire_run_lock(path: str) -> object | None:
     try:
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
+        _ERROR_COUNT['acquire_run_lock'] += 1
         fh.close()
         return None
     fh.seek(0)

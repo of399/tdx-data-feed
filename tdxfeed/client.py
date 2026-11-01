@@ -1,6 +1,10 @@
 import time
+from collections import Counter
 
 from pytdx.hq import TdxHq_API
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 class TdxClient:
@@ -21,6 +25,7 @@ class TdxClient:
                     self.connected = True
                     return True
             except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                _ERROR_COUNT['connect'] += 1
                 print(f"[WARN] swallowed: {e!r}")
             self.current_server = (self.current_server + 1) % len(self.servers)
             time.sleep(1)
@@ -39,6 +44,7 @@ class TdxClient:
                 try:
                     self.api.get_security_count()
                 except Exception:
+                    _ERROR_COUNT['start_heartbeat'] += 1
                     self.reconnect()
                 time.sleep(30)
 

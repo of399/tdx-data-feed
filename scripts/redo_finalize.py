@@ -5,10 +5,14 @@ import json
 import os
 import re
 import time
+from collections import Counter
 
 import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 NOTE = "/home/jiuben/StockVault/05-知识库/模型蒸馏与LoRA训练-2026-09-26.md"
 LF = "/home/workbuddy/lf_project"
@@ -33,6 +37,7 @@ def final_loss():
         try:
             d = json.loads(line)
         except Exception:
+            _ERROR_COUNT['final_loss'] += 1
             continue
         if "loss" in d:
             last = d["loss"]
@@ -84,6 +89,7 @@ def hit(inp, o):
         c = rows[-1]["收盘"]
         return any(str(x) in o for x in [c, float(c), f"{float(c):.2f}"])
     except Exception:
+        _ERROR_COUNT['hit'] += 1
         return None
 
 def metrics(rows, prompts, outs, truth):

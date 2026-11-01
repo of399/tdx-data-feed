@@ -16,10 +16,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).parent.parent
 DU = ROOT / "data" / "double_up"
@@ -41,6 +45,7 @@ def spearman(x: np.ndarray, y: np.ndarray) -> float:
         r = spearmanr(x, y).correlation
         return float(r) if np.isfinite(r) else float("nan")
     except Exception:
+        _ERROR_COUNT['spearman'] += 1
         return float(pd.Series(x).corr(pd.Series(y), method="spearman"))
 
 
@@ -117,6 +122,7 @@ def main() -> None:
         try:
             rows.append(run(name, csv, kind, cutoff))
         except Exception as e:
+            _ERROR_COUNT['main'] += 1
             print(f"  [err] {name}: {e}", file=sys.stderr)
 
     df = pd.DataFrame(rows).sort_values("long_short", ascending=False).reset_index(drop=True)

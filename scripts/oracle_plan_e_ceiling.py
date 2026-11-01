@@ -14,10 +14,9 @@
 from __future__ import annotations
 
 import argparse
-import re
 
 import pandas as pd
-from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
+from _common import norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
 from plan_e_backtest import backtest, load_double_up
 
 THETA = 0.02

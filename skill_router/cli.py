@@ -21,9 +21,13 @@ skill_router/cli.py — 多 Agent 系统命令行入口
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 
 from skill_router.orchestrator import Orchestrator
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 # === 格式化输出 =============================================================
@@ -112,6 +116,7 @@ def repl(orch: Orchestrator) -> None:
         try:
             query = input("\n>>> ").strip()
         except (EOFError, KeyboardInterrupt):
+            _ERROR_COUNT['repl'] += 1
             print("\n再见")
             break
         if not query:
@@ -144,6 +149,7 @@ def repl(orch: Orchestrator) -> None:
             r = orch.handle(query, session_id=session_id)
             print(fmt_result(r))
         except Exception as e:
+            _ERROR_COUNT['repl'] += 1
             print(f"❌ 出错：{e}")
 
 

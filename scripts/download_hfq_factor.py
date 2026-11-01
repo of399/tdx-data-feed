@@ -22,6 +22,7 @@ import logging
 import socket
 import sys
 import time
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -35,6 +36,9 @@ import pandas as pd  # noqa: E402
 from _common import hfq_factor_dir, universe_path  # noqa: E402
 
 from tdxfeed.parquet_io import write_table  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 OUT_DIR = hfq_factor_dir()
 # OUT_DIR.mkdir() 随废弃一并移除：import 阶段不许有任何写盘动作（main() 在参数解析前
@@ -117,6 +121,7 @@ def fetch_one(bs, code: str, max_retries: int = 3) -> str:
             write_table(fp, merged[["code", "hfq_factor", "qfq_close", "hfq_close", "date"]])
             return "ok"
         except Exception as e:
+            _ERROR_COUNT['fetch_one'] += 1
             last_err = f"{type(e).__name__}:{str(e)[:60]}"
             time.sleep(2 ** attempt + 1)
     return f"fail:{last_err}"

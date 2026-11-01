@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import warnings
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -40,6 +41,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tdxfeed.paths import universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 UNIVERSE_FILE = universe_path()
 CACHE_TTL_SEC = 300
@@ -75,6 +79,7 @@ def _universe() -> dict[str, str]:
     try:
         return json.loads(UNIVERSE_FILE.read_text(encoding="utf-8"))
     except Exception as e:
+        _ERROR_COUNT['_universe'] += 1
         logging.warning("读取股票池失败：%s", e)
         return {}
 
@@ -109,6 +114,7 @@ def _parse_time(value) -> datetime | None:
             return None
         return ts.to_pydatetime()
     except Exception:
+        _ERROR_COUNT['_parse_time'] += 1
         return None
 
 
@@ -143,6 +149,7 @@ def search_stock_news(code: str, days: int = 7, limit: int = 20,
             try:
                 df = _ak().stock_news_em(symbol=q)
             except Exception as e:
+                _ERROR_COUNT['search_stock_news'] += 1
                 last_err = f"{type(e).__name__}: {e}"
                 logging.warning("stock_news_em(%s) 失败：%s", q, e)
                 continue
@@ -219,6 +226,7 @@ def search_announcements(code: str, days: int = 30, limit: int = 20,
             df = _ak().stock_zh_a_disclosure_report_cninfo(
                 symbol=six, market="沪深京", start_date=start, end_date=end)
         except Exception as e:
+            _ERROR_COUNT['search_announcements'] += 1
             msg = f"{type(e).__name__}: {e}"
             logging.warning("cninfo %s 失败：%s", sym, e)
             return {"ok": False, "code": sym, "name": name, "items": [], "count": 0,
@@ -290,6 +298,7 @@ def market_news(limit: int = 20, refresh: bool = False) -> dict:
                         "as_of": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "source": "caixin.stock_news_main_cx", "error": None}
         except Exception as e:
+            _ERROR_COUNT['market_news'] += 1
             logging.warning("stock_news_main_cx 失败：%s", e)
         # 回退：前一交易日新闻联播
         try:
@@ -317,6 +326,7 @@ def market_news(limit: int = 20, refresh: bool = False) -> dict:
                     "source": "cctv.news_cctv",
                     "error": None if items else "市场新闻源均不可用"}
         except Exception as e:
+            _ERROR_COUNT['market_news'] += 1
             msg = f"{type(e).__name__}: {e}"
             logging.warning("market_news 全部失败：%s", e)
             return {"ok": False, "items": [], "count": 0,
@@ -405,8 +415,10 @@ def handle_request(req: dict) -> dict | None:
             return None
         raise McpError(-32601, f"未知方法：{method}")
     except McpError as e:
+        _ERROR_COUNT['handle_request'] += 1
         return {"jsonrpc": "2.0", "id": req_id, "error": {"code": e.code, "message": e.message}}
     except Exception as e:
+        _ERROR_COUNT['handle_request'] += 1
         logging.exception("handler error")
         return {"jsonrpc": "2.0", "id": req_id,
                 "error": {"code": -32603, "message": str(e)}}
@@ -424,6 +436,7 @@ def main():
             if resp is not None:
                 print(json.dumps(resp, ensure_ascii=False), flush=True)
         except json.JSONDecodeError as e:
+            _ERROR_COUNT['main'] += 1
             print(json.dumps({"jsonrpc": "2.0", "id": None,
                               "error": {"code": -32700, "message": str(e)}}), flush=True)
 

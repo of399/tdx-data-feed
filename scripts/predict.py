@@ -72,6 +72,7 @@ import json
 import os
 import sys
 import warnings
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -191,6 +192,9 @@ from tdxfeed.daban.sector_features import (  # noqa: E402
 )
 from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
 from tdxfeed.names import is_st_name  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 def is_st(name: str) -> int:
@@ -355,6 +359,7 @@ def _compute_candidate_polars(df_raw: pd.DataFrame, code: str) -> dict | None:
         df_pl = pl.from_pandas(df_raw[cols].reset_index(drop=True))
         return compute_candidate_features(df_pl, code)
     except Exception:
+        _ERROR_COUNT['_compute_candidate_polars'] += 1
         return None
 
 
@@ -393,6 +398,7 @@ def compute_features(code: str, price_basis: str | None = None) -> dict:
         raw = pd.read_parquet(fp)
         df_raw = raw.copy()
     except Exception:
+        _ERROR_COUNT['compute_features'] += 1
         return None
 
     if len(df_raw) < 30:
@@ -410,6 +416,7 @@ def compute_features(code: str, price_basis: str | None = None) -> dict:
             print(f"[WARN] {code} 数据陈旧 {_stale_days} 天(最新 {_last_date.date()}), 剔除")
             return None
     except Exception as e:
+        _ERROR_COUNT['compute_features'] += 1
         print(f"[WARN] {code} date 列解析异常, freshness 检查跳过: {e!r}")
 
     # 计算 T-1 日的 adj_factor（仅用于 meta 展示 qfq_close；特征用 raw close）
@@ -424,6 +431,7 @@ def compute_features(code: str, price_basis: str | None = None) -> dict:
             merged = tmp.merge(adj_df[['date', 'adj_factor']], on='date', how='left')
             adj_factor_value = float(merged['adj_factor'].ffill().fillna(1.0).iloc[-1])
         except Exception:
+            _ERROR_COUNT['compute_features'] += 1
             adj_factor_value = 1.0
 
     frame_hfq = None
@@ -433,6 +441,7 @@ def compute_features(code: str, price_basis: str | None = None) -> dict:
             # 只有 stem 保证咽喉读到的正是 df_raw 那份日线（如 sh000001 指数）。
             frame_hfq = adjusted.frame(fp.stem, kind="hfq", strict=False)
         except Exception as e:
+            _ERROR_COUNT['compute_features'] += 1
             print(f"[WARN] {code} hfq 帧构建失败: {e!r}", file=sys.stderr)
             return None
         if frame_hfq.attrs.get("factor_cov", 0.0) < adjusted.MIN_FACTOR_COV:
@@ -530,6 +539,7 @@ def load_names() -> dict:
     except Exception as e:
         # 审计 Round3 修复: 原静默 pass 会致 ST 实时校验静默失效
         # (load_names 返回空 -> 名称二次校验被跳过 -> ST 股重新漏网)
+        _ERROR_COUNT['load_names'] += 1
         print(f"[WARN] 名称映射读取失败, 实时 ST 校验将失效: {e!r}")
     return {}
 
@@ -641,6 +651,7 @@ def launch_web(args):
         try:
             feat_df, high = run_predict(a)
         except Exception as e:
+            _ERROR_COUNT['launch_web'] += 1
             return [], f"❌ 错误: {e}"
         if feat_df is None:
             return [], "❌ 无可用数据"
@@ -782,6 +793,7 @@ def resolve_model(args):
     try:
         model = lgb.Booster(model_file=str(ACTIVE_MODEL_PATH))
     except Exception as e:
+        _ERROR_COUNT['resolve_model'] += 1
         print(f"  [WARN] 模型加载失败: {e!r}")
         if model_name != FALLBACK_MODEL:
             print(f"  [WARN] 自动回退到 {FALLBACK_MODEL}")

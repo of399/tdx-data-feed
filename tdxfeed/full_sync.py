@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 import time
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -22,6 +23,9 @@ from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.state import State
 from tdxfeed.symbols import INDICES, get_core_stocks, group, sym_of_index
 from tdxfeed.writers import Writers
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 OUT_ROOT = os.environ.get("TDX_OUT_ROOT", "/home/jiuben/tdx-data-feed/data")
 SLEEP = float(os.environ.get("TDX_SLEEP", "0.15"))
@@ -37,6 +41,7 @@ def get_all_codes():
         print(f"akshare 清单: {len(codes)} 个 A 股", flush=True)
         return codes
     except Exception as e:
+        _ERROR_COUNT['get_all_codes'] += 1
         print(f"akshare 清单失败: {e!s}，走 pytdx 兜底", flush=True)
     # 2) pytdx 分页（带重试 + 断点）
     try:
@@ -50,6 +55,7 @@ def get_all_codes():
             try:
                 count = api.get_security_count(market)
             except Exception as e:
+                _ERROR_COUNT['get_all_codes'] += 1
                 log.warning("分页读取异常，count 置 0: %s", e)
                 count = 0
             start = 0
@@ -62,6 +68,7 @@ def get_all_codes():
                         if lst:
                             break
                     except Exception as e:
+                        _ERROR_COUNT['get_all_codes'] += 1
                         log.warning("get_security_list 重试失败: %s", e)
                         pass
                     time.sleep(1)
@@ -77,6 +84,7 @@ def get_all_codes():
         print(f"pytdx 清单: {len(codes)} 个证券", flush=True)
         return codes
     except Exception as e:
+        _ERROR_COUNT['get_all_codes'] += 1
         print(f"pytdx 清单失败: {e!s}，回退样例", flush=True)
         return None
 
@@ -107,6 +115,7 @@ def download_indices(w: Writers, state: State, src: SinaSource):
             print("[index] mootdx 探测不可用，全程走 Sina 兜底", flush=True)
             pydx = None
     except Exception as e:
+        _ERROR_COUNT['download_indices'] += 1
         print(f"[index] mootdx 初始化/探测失败: {e!s}，全程走 Sina 兜底", flush=True)
     ok = fail = 0
     mootdx_hit = sina_hit = fallback = 0
@@ -120,6 +129,7 @@ def download_indices(w: Writers, state: State, src: SinaSource):
                 if ib:
                     bars, channel = ib, "mootdx"
             except Exception as e:
+                _ERROR_COUNT['download_indices'] += 1
                 print(f"[index] mootdx {name}({sym}) 失败: {e!s}", flush=True)
         # 2) Sina 兜底（fetch_bars 已 ÷100 转手，与 mootdx 主通道单位一致）
         if not bars:
@@ -128,6 +138,7 @@ def download_indices(w: Writers, state: State, src: SinaSource):
                 channel = "sina"
                 fallback += 1
             except Exception as e:
+                _ERROR_COUNT['download_indices'] += 1
                 print(f"[index] sina {name}({sym}) 失败: {e!s}", flush=True)
         if bars:
             n = w.merge_write(sym, bars, category="daily")
@@ -256,6 +267,7 @@ def main():
         print("[index] 指数日线同步开始（mootdx 主 + Sina 兜底）", flush=True)
         idx_stats = download_indices(w, state, src)
     except Exception as e:
+        _ERROR_COUNT['main'] += 1
         print(f"[index] 指数同步异常: {e!s}", flush=True)
         idx_stats = {"ok": 0, "fail": 0, "mootdx": 0, "sina": 0, "fallback": 0}
 
@@ -265,6 +277,7 @@ def main():
         print("[fin] 财务出数开始（核心300，断点续传）", flush=True)
         incremental()
     except Exception as e:
+        _ERROR_COUNT['main'] += 1
         print(f"[fin] 财务出数失败: {e!s}", flush=True)
 
     # 【阶段 0 加固 · 2026-10-10】写出同步质量汇总（含源失败率），供新鲜度校验消费

@@ -31,8 +31,12 @@ from __future__ import annotations
 import re
 import time
 import urllib.request
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = ["Quote", "fetch_quote_map", "fetch_quotes"]
 
@@ -97,6 +101,7 @@ def _to_float(text: str) -> float:
     try:
         return float(text)
     except (TypeError, ValueError):
+        _ERROR_COUNT['_to_float'] += 1
         return 0.0
 
 
@@ -185,6 +190,7 @@ def _fetch_batch(symbols: list[str], retries: int = 3) -> dict[str, Quote]:
                 return out
             last_err = RuntimeError("新浪返回空数据")
         except Exception as e:
+            _ERROR_COUNT['_fetch_batch'] += 1
             last_err = e
         time.sleep(0.5 * (attempt + 1))
     raise RuntimeError(f"新浪实时源失败: {last_err}")

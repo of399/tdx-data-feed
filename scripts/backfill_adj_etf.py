@@ -21,6 +21,7 @@ Schema：date, adj_factor, qfq_close, raw_close
 import argparse
 import time
 import warnings
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,9 @@ warnings.filterwarnings('ignore')
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
 from _common import adj_factor_dir, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 OUT = adj_factor_dir()
 OUT.mkdir(parents=True, exist_ok=True)
@@ -89,6 +93,7 @@ def fetch_etf_adj(code_short, retries=3):
                                 'qfq_close': qfq_close, 'raw_close': raw_close})
             return out
         except Exception as e:
+            _ERROR_COUNT['fetch_etf_adj'] += 1
             last_err = str(e)[:120]
             time.sleep(2)
     log(f'  ETF {code_short} 最终失败: {last_err}')

@@ -112,7 +112,7 @@ def compute_window_features(
     code: str,
     sig_idx: int = -1,
     frame_hfq: pd.DataFrame | None = None,
-) -> "dict | None":
+) -> dict | None:
     """对 df 中 sig_idx 行作为 T-1，计算 18 维特征。
 
     参数：
@@ -193,7 +193,7 @@ def compute_window_features_extended(
     code: str,
     sig_idx: int = -1,
     frame_hfq: pd.DataFrame | None = None,
-) -> "dict | None":
+) -> dict | None:
     """扩展 26 维：18 维基础 + 8 维工程化新特征（v9 模型使用）。
 
     8 维新特征:

@@ -14,9 +14,13 @@
 import ast
 import os
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -46,6 +50,7 @@ def _code_strings(text: str) -> str:
     try:
         tree = ast.parse(text)
     except SyntaxError:
+        _ERROR_COUNT['_code_strings'] += 1
         return text
     docstrings = set()
     for node in ast.walk(tree):
@@ -74,6 +79,7 @@ def _needs_data(path: Path) -> bool:
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
+        _ERROR_COUNT['_needs_data'] += 1
         return False
     lines = [line.rstrip() for line in text.splitlines()]
     if _OPT_IN_LINE in lines:

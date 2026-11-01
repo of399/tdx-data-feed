@@ -5,16 +5,20 @@
 import argparse
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd
 from pytdx.hq import TdxHq_API
 
-from tdxfeed.paths import daily_files, daily_path
 from tdxfeed.parquet_io import write_table
+from tdxfeed.paths import daily_files, daily_path
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.symbols import group
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 SRV = ("218.6.170.47", 7709)
 SLEEP = 0.2
@@ -33,6 +37,7 @@ def get_codes():
         try:
             count = api.get_security_count(market)
         except Exception:
+            _ERROR_COUNT['get_codes'] += 1
             count = 0
         start = 0; miss = 0
         while start < count and miss < 3:
@@ -41,6 +46,7 @@ def get_codes():
                 try:
                     lst = api.get_security_list(market, start); break
                 except Exception:
+                    _ERROR_COUNT['get_codes'] += 1
                     time.sleep(1)
             if not lst:
                 miss += 1; start += 1000; continue
@@ -73,6 +79,7 @@ def main():
         try:
             bars = src.fetch_bars(s, scale=240, datalen=1023)
         except Exception:
+            _ERROR_COUNT['main'] += 1
             time.sleep(1); continue
         if not bars:
             time.sleep(0.1); continue

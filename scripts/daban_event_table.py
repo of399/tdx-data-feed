@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -50,6 +51,9 @@ META = ROOT / "data/daban/event_table_min60_20261022.meta.json"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import get_limit, minute_dir  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 MIN60_DIR = minute_dir("min60")
 BARS = ("1030", "1130", "1400", "1500")
@@ -125,6 +129,7 @@ def _raw_min60(code: str) -> dict[str, dict[str, np.ndarray]] | None:
         m = pd.read_parquet(p, columns=["datetime", "open", "high", "low", "close",
                                         "volume", "amount"])
     except Exception:
+        _ERROR_COUNT['_raw_min60'] += 1
         return None
     if m.empty:
         return None
@@ -156,6 +161,7 @@ def _daily_history(code: str) -> pd.DataFrame | None:
     try:
         d = pd.read_parquet(p, columns=["date", "high", "low", "close", "volume", "amount"])
     except Exception:
+        _ERROR_COUNT['_daily_history'] += 1
         return None
     if d is None or d.empty:
         return None

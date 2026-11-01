@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,9 @@ import numpy as np
 import pandas as pd
 
 from tdxfeed.paths import daily_path, read_path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 SENT_DIR = ROOT / "data" / "sentiment"
@@ -62,6 +66,7 @@ def parse_daily(fp: Path) -> pd.DataFrame | None:
     try:
         df = pd.read_parquet(fp, columns=["date", "open", "high", "low", "close", "volume", "amount"])
     except Exception:
+        _ERROR_COUNT['parse_daily'] += 1
         return None
     if df.empty or "close" not in df.columns:
         return None
@@ -184,6 +189,7 @@ def load_lhb_trailing() -> dict[str, pd.Series]:
         try:
             d = pd.read_parquet(fp)
         except Exception:
+            _ERROR_COUNT['load_lhb_trailing'] += 1
             continue
         if "代码" not in d.columns or "上榜日" not in d.columns:
             continue
@@ -262,6 +268,7 @@ def build_factor_panel(raw: pd.DataFrame, date: pd.Timestamp,
             try:
                 rec["lhb_netbuy_ratio_20d"] = lhb[code].asof(date)
             except Exception:
+                _ERROR_COUNT['build_factor_panel'] += 1
                 rec["lhb_netbuy_ratio_20d"] = np.nan
         else:
             rec["lhb_netbuy_ratio_20d"] = np.nan

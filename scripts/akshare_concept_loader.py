@@ -48,11 +48,15 @@ import argparse
 import json
 import sys
 import time
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).parent.parent
 OUT_DIR = ROOT / "data" / "concept"
@@ -81,6 +85,7 @@ def _retry(callable_fn: Callable[[], pd.DataFrame], name: str, max_attempts: int
                 continue
             return df
         except Exception as e:
+            _ERROR_COUNT['_retry'] += 1
             wait = attempt ** 2  # 1, 4, 9
             print(f"  ❌ {name}: {type(e).__name__}: {e} (尝试 {attempt}/{max_attempts}, {wait}s 后重试)")
             if attempt < max_attempts:

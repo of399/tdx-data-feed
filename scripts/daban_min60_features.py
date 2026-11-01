@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -28,6 +29,9 @@ sys.path.insert(0, str(ROOT))
 from _common import daily_dir, minute_dir  # noqa: E402
 
 from tdxfeed.daban.scanner import daily_path, load_universe  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 MIN60_DIR = minute_dir("min60")
 DAILY_DIR = daily_dir()
@@ -53,6 +57,7 @@ def load_daily(code: str) -> pd.DataFrame | None:
     try:
         d = pd.read_parquet(p, columns=["date", "open", "high", "low", "close", "volume", "amount"])
     except Exception:
+        _ERROR_COUNT['load_daily'] += 1
         return None
     if d is None or d.empty:
         return None
@@ -75,6 +80,7 @@ def load_min60(code: str) -> pd.DataFrame | None:
     try:
         m = pd.read_parquet(p)
     except Exception:
+        _ERROR_COUNT['load_min60'] += 1
         return None
     if m is None or m.empty:
         return None

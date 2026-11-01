@@ -30,6 +30,7 @@ import argparse
 import json
 import math
 import sys
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -55,6 +56,9 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import daily_dir, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY_DIR = daily_dir()
 EVENTS_PATH = _ROOT / "data" / "daban" / "event_table_min60_20261022.parquet"
@@ -213,6 +217,7 @@ def build_panel(
                 p, columns=["date", "open", "high", "low", "close", "volume"]
             )
         except Exception:
+            _ERROR_COUNT['build_panel'] += 1
             continue
         df = df.sort_values("date").reset_index(drop=True)
         df["date"] = [str(d)[:10] for d in df["date"]]

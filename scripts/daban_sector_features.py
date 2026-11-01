@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -42,6 +43,9 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
 from tdxfeed.daban.sector import load_industry_map  # noqa: E402
 from tdxfeed.date_utils import parse_date_series  # noqa: E402
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 DAILY_DIR = daily_dir()
 OUT_DIR = _ROOT / "data" / "factors"
 COLS = ["date", "open", "high", "low", "close"]
@@ -55,6 +59,7 @@ def load_one(code: str) -> tuple[str, pd.DataFrame] | None:
     try:
         df = pd.read_parquet(p, columns=COLS)
     except Exception:
+        _ERROR_COUNT['load_one'] += 1
         return None
     if df is None or df.empty:
         return None

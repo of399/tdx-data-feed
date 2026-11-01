@@ -14,8 +14,12 @@ import logging
 import os
 import re
 import threading
+from collections import Counter
 
 from tdxfeed.sources.base import DataSource
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +27,7 @@ try:
     from mootdx.quotes import Quotes
     from pytdx.config.hosts import hq_hosts
 except Exception:  # pragma: no cover
+    _ERROR_COUNT['<module>'] += 1
     Quotes = None  # type: ignore[assignment]
     hq_hosts = []  # type: ignore[assignment]
 
@@ -42,7 +47,8 @@ def _run_with_timeout(func, *args, timeout=None, **kwargs):
     def _target():
         try:
             box["r"] = func(*args, **kwargs)
-        except BaseException as e:  # noqa: BLE001
+        except BaseException as e:
+            _ERROR_COUNT['_run_with_timeout'] += 1
             box["e"] = e
 
     th = threading.Thread(target=_target, daemon=True)
@@ -61,11 +67,12 @@ def _default_server() -> tuple[str, int] | None:
         try:
             return (hq_hosts[0][1], int(hq_hosts[0][2]))
         except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            _ERROR_COUNT['_default_server'] += 1
             print(f"[WARN] swallowed: {e!r}")
     return None
 
 
-def _norm_date(d) -> "datetime":  # noqa: F821
+def _norm_date(d) -> datetime:  # noqa: F821
     """mootdx 返回的 date 可能是 int(YYYYMMDD) 或字符串，统一转 datetime。"""
     from datetime import datetime
 
@@ -81,6 +88,7 @@ def _norm_date(d) -> "datetime":  # noqa: F821
     try:
         return datetime.strptime(s, "%Y%m%d")
     except Exception:
+        _ERROR_COUNT['_norm_date'] += 1
         return None
 
 
@@ -124,6 +132,7 @@ class MootdxSource(DataSource):
                     float(row.get("amount") or 0),
                 ])
             except (KeyError, ValueError, TypeError) as e:
+                _ERROR_COUNT['_collect'] += 1
                 log.warning("mootdx 行解析跳过: %s", e)
                 continue
         return bars
@@ -159,7 +168,8 @@ class MootdxSource(DataSource):
                 timeout=timeout,
             )
             return df is not None and not getattr(df, "empty", True)
-        except Exception:  # noqa: BLE001
+        except Exception:
+            _ERROR_COUNT['probe'] += 1
             return False
 
     def fetch_index_bars(self, market: int, code: str, count: int = 1023) -> list:

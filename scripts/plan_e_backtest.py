@@ -71,6 +71,7 @@
 import argparse
 import sys
 import warnings
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -105,6 +106,9 @@ from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402
 from tdxfeed.execution.costs import CostModel  # noqa: E402
 from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 _PARQUET_CACHE: dict[str, pd.DataFrame] = {}
 
 
@@ -117,6 +121,7 @@ def _get_df(code_clean: str):
         try:
             df = pd.read_parquet(f)
         except Exception:
+            _ERROR_COUNT['_get_df'] += 1
             return None
         df['date'] = parse_date(df['date'])
         _PARQUET_CACHE[code_clean] = df
@@ -150,6 +155,7 @@ def load_codes_from_file(path: str, comment_prefix: str = "#") -> list[str]:
     try:
         df = pd.read_csv(p, comment=None, skip_blank_lines=True, dtype=str)
     except Exception as e:
+        _ERROR_COUNT['load_codes_from_file'] += 1
         sys.exit(f"❌ --codes-file 读取失败: {p}\n  错误: {e}")
     # 1) header 列名校验
     if not df.columns.tolist() or df.columns[0] != "code":
@@ -903,6 +909,7 @@ def summarize(bt: pd.DataFrame, daily_records: list, hold: int, tp: float, sl: f
         dist = cut.value_counts().reindex(labels).fillna(0).astype(int).rename('笔数')
         dist_md = dist.to_markdown()
     except Exception:
+        _ERROR_COUNT['summarize'] += 1
         dist_md = 'N/A'
 
     # 胜率检验的基准说明：拿 50% 当原假设测的是赔付阶梯，不是本事

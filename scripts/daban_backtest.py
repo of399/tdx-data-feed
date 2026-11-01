@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -42,6 +43,9 @@ from tdxfeed.execution.costs import CostModel  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import adj_factor_dir, daily_dir  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
@@ -76,6 +80,7 @@ def load_adj(code: str) -> pd.Series | None:
     try:
         df = pd.read_parquet(p, columns=["date", "adj_factor"])
     except Exception:
+        _ERROR_COUNT['load_adj'] += 1
         return None
     if df is None or df.empty:
         return None
@@ -90,9 +95,11 @@ def load_daily(code: str) -> pd.DataFrame | None:
     try:
         df = pd.read_parquet(p, columns=COLS)
     except Exception:
+        _ERROR_COUNT['load_daily'] += 1
         try:
             df = pd.read_parquet(p)
         except Exception:
+            _ERROR_COUNT['load_daily'] += 1
             return None
     if df is None or df.empty:
         return None

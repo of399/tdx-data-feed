@@ -15,6 +15,7 @@ import json
 import math
 import os
 from bisect import bisect_right
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, fields
 from datetime import date as _date
@@ -40,6 +41,9 @@ from tdxfeed.daban.limit_price import (
 from tdxfeed.daban.scanner import UNIVERSE_PATH, daily_path, load_universe
 from tdxfeed.date_utils import parse_date, parse_date_series
 from tdxfeed.execution.costs import CostModel
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = [
     "JOURNAL_FIELDS",
@@ -133,10 +137,12 @@ def _num(value: Any, default: float = 0.0) -> float:
         if pd.isna(value):
             return default
     except (TypeError, ValueError):
+        _ERROR_COUNT['_num'] += 1
         pass
     try:
         v = float(value)
     except (TypeError, ValueError):
+        _ERROR_COUNT['_num'] += 1
         return default
     return v if math.isfinite(v) else default
 
@@ -149,6 +155,7 @@ def _is_blank(value: Any) -> bool:
     try:
         return bool(pd.isna(value))
     except (TypeError, ValueError):
+        _ERROR_COUNT['_is_blank'] += 1
         return False
 
 
@@ -803,6 +810,7 @@ def load_histories(
             raw = pd.read_parquet(path)
             frame = enrich_history(raw, code, name)
         except Exception:
+            _ERROR_COUNT['load_histories'] += 1
             continue
         if frame.empty:
             continue

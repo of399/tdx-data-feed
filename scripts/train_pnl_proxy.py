@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -39,6 +40,9 @@ from tdxfeed.adjusted import MIN_FACTOR_COV, frame as adj_frame  # noqa: E402
 from tdxfeed.execution.bars import as_bars  # noqa: E402
 from tdxfeed.execution.costs import CostModel  # noqa: E402
 from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 SOURCE = ROOT / "data" / "double_up" / "d_signal_5d_features_v9.csv"
 FEATURE_BASE = [
@@ -123,6 +127,7 @@ def attach_pnl(df: pd.DataFrame, max_workers: int = 8,
                 try:
                     results[i] = fut.result()
                 except Exception:
+                    _ERROR_COUNT['attach_pnl'] += 1
                     results[i] = None
                 done += 1
                 if done % 500 == 0 or done == len(rows):

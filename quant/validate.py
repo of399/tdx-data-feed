@@ -6,8 +6,6 @@ tool_trade_date_hist_sina() 计算应在市交易日，仅统计真正缺口。
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import akshare as ak
 import pandas as pd
 
@@ -38,7 +36,7 @@ def validate(df: pd.DataFrame, calendar: set[pd.Timestamp] | None = None) -> dic
     missing = sorted(expected - dts)
     na_rate = float(df[_CORE_COLS].isna().mean().mean())
     return {
-        "row_count": int(len(df)),
+        "row_count": len(df),
         "columns": list(df.columns),
         "date_range": (str(lo.date()), str(hi.date())),
         "expected_trading_days": len(expected),

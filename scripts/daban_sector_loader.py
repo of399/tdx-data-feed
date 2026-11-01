@@ -19,10 +19,14 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
@@ -64,6 +68,7 @@ def fetch_cons(symbol: str, retries: int = 3) -> pd.DataFrame | None:
                 return None
             return df
         except Exception as e:
+            _ERROR_COUNT['fetch_cons'] += 1
             last = e
             time.sleep(1.5 * (i + 1))
     print(f"[warn] 行业成分获取失败 {symbol}: {last}", file=sys.stderr)
@@ -81,6 +86,7 @@ def main() -> int:
     try:
         industries = fetch_industry_list()
     except Exception as e:
+        _ERROR_COUNT['main'] += 1
         print(f"[fail] 申万行业列表拉取失败: {e}", file=sys.stderr)
         return 1
 
@@ -134,6 +140,7 @@ def main() -> int:
                         try:
                             pct = float(str(r[c]).replace("%", ""))
                         except (TypeError, ValueError):
+                            _ERROR_COUNT['main'] += 1
                             pct = 0.0
                         break
                 rows.append(

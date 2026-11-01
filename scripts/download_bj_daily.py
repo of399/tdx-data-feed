@@ -4,6 +4,7 @@
 import socket
 import time
 import warnings
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,9 @@ socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
 
 from _common import daily_dir, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET_DIR = daily_dir()
 ALL_STOCKS = universe_path()
@@ -53,6 +57,7 @@ def fetch_one(code: str, max_retries: int = 3) -> str:
             return 'ok'
 
         except Exception as e:
+            _ERROR_COUNT['fetch_one'] += 1
             last_err = f'{type(e).__name__}: {str(e)[:50]}'
             time.sleep(2 ** attempt + 0.5)
 

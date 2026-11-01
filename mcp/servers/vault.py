@@ -22,12 +22,17 @@ import logging
 import math
 import re
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 try:
     import numpy as np
 except ImportError:  # numpy 缺失时向量检索不可用，自动退回词法
+    _ERROR_COUNT['<module>'] += 1
     np = None
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -73,6 +78,7 @@ def _embed_ollama(texts: list[str]) -> list[list[float]]:
             return embeddings
         logging.warning(f"embedding 数量不符（{len(embeddings)} != {len(texts)}），退回词法")
     except Exception as e:
+        _ERROR_COUNT['_embed_ollama'] += 1
         logging.warning(f"Ollama embedding 失败：{e}，本次查询退回关键词检索")
     return [[] for _ in texts]
 
@@ -118,6 +124,7 @@ class VectorStore:
                         if line:
                             self.docs.append(json.loads(line))
             except Exception as e:
+                _ERROR_COUNT['__init__'] += 1
                 logging.warning(f"读 store 失败：{e}")
         self._mat = None          # float32 (n_docs, dim)，行序与 self.docs 一致
         self._norms = None
@@ -139,6 +146,7 @@ class VectorStore:
             info = json.loads(manifest.read_text(encoding="utf-8"))
             mat = np.load(npy)
         except Exception as e:
+            _ERROR_COUNT['_load_vectors'] += 1
             self.semantic_hint = f"向量文件读取失败（{e}），已退回词法检索"
             logging.warning(self.semantic_hint)
             return
@@ -381,8 +389,10 @@ def handle_request(req: dict) -> dict:
             return None
         raise McpError(-32601, f"未知方法：{method}")
     except McpError as e:
+        _ERROR_COUNT['handle_request'] += 1
         return {"jsonrpc": "2.0", "id": req_id, "error": {"code": e.code, "message": e.message}}
     except Exception as e:
+        _ERROR_COUNT['handle_request'] += 1
         logging.exception("handler error")
         return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32603, "message": str(e)}}
 
@@ -399,6 +409,7 @@ def main():
             if resp is not None:
                 print(json.dumps(resp, ensure_ascii=False), flush=True)
         except json.JSONDecodeError as e:
+            _ERROR_COUNT['main'] += 1
             err = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": str(e)}}
             print(json.dumps(err), flush=True)
 

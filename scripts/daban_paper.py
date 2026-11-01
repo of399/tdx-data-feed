@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -36,6 +37,9 @@ import pandas as pd  # noqa: E402
 
 from tdxfeed.daban import paper  # noqa: E402
 from tdxfeed.daban.scanner import DAILY_DIR, UNIVERSE_PATH  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DEFAULT_PAPER_DIR = ROOT / "data/daban/paper"
 SIGNAL_FIELDS = [
@@ -98,6 +102,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         config = paper.init_paper(args.paper_dir, args.start_date,
                                   args.capital, overwrite=args.force)
     except FileExistsError as exc:
+        _ERROR_COUNT['cmd_init'] += 1
         print(f"错误: {exc}", file=sys.stderr)
         return 2
     print(f"纸盘已初始化: {args.paper_dir}")

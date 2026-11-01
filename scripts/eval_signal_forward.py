@@ -33,11 +33,15 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).parent.parent
 DU = ROOT / "data" / "double_up"
@@ -72,6 +76,7 @@ def spearman(x: np.ndarray, y: np.ndarray) -> float:
         r = spearmanr(x, y).correlation
         return float(r) if np.isfinite(r) else float("nan")
     except Exception:
+        _ERROR_COUNT['spearman'] += 1
         return float(pd.Series(x).corr(pd.Series(y), method="spearman"))
 
 
@@ -84,6 +89,7 @@ def evaluate(name: str, model_file: str, csv_name: str, kind: str,
     try:
         df = load_df(csv_name)
     except Exception as e:
+        _ERROR_COUNT['evaluate'] += 1
         print(f"  [skip] {name}: CSV 加载失败 {e}", file=sys.stderr)
         return None
 
@@ -100,6 +106,7 @@ def evaluate(name: str, model_file: str, csv_name: str, kind: str,
         model = lgb.Booster(model_file=str(mp))
         feats = model.feature_name()
     except Exception as e:
+        _ERROR_COUNT['evaluate'] += 1
         print(f"  [skip] {name}: 模型加载失败 {e}", file=sys.stderr)
         return None
     missing = [c for c in feats if c not in test.columns]
@@ -111,6 +118,7 @@ def evaluate(name: str, model_file: str, csv_name: str, kind: str,
     try:
         pred = np.asarray(model.predict(X)).ravel()
     except Exception as e:
+        _ERROR_COUNT['evaluate'] += 1
         print(f"  [skip] {name}: 预测失败 {e}", file=sys.stderr)
         return None
 
@@ -135,12 +143,14 @@ def evaluate(name: str, model_file: str, csv_name: str, kind: str,
         try:
             rec["auc_ispos"] = float(roc_auc_score(y_pos, pred))
         except Exception:
+            _ERROR_COUNT['evaluate'] += 1
             rec["auc_ispos"] = float("nan")
         rec["rank_auc_ispos"] = float("nan")
     else:
         try:
             rec["rank_auc_ispos"] = float(roc_auc_score(y_pos, pred))
         except Exception:
+            _ERROR_COUNT['evaluate'] += 1
             rec["rank_auc_ispos"] = float("nan")
         rec["auc_ispos"] = float("nan")
     return rec

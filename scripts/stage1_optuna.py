@@ -60,6 +60,7 @@ import json
 import logging
 import sys
 import time
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -82,6 +83,9 @@ from stage1_baseline import (  # noqa: E402
     _eval_fold,
     load_and_validate,
 )
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 # 复用 Step 3.5 的基础设施（单一来源，保证接口一致）
 
@@ -407,6 +411,7 @@ def main(argv=None) -> int:
                 optuna.delete_study(study_name=args.study_name, storage=STORAGE)
                 log.info("已清空旧 study: %s", args.study_name)
             except (KeyError, ValueError) as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                _ERROR_COUNT['main'] += 1
                 print(f"[WARN] swallowed: {e!r}")  # 尚不存在，无需删除
         study = optuna.create_study(
             study_name=args.study_name, direction="maximize",
@@ -466,8 +471,10 @@ def main(argv=None) -> int:
                 try:
                     fn(study).write_html(str(out_dir / f"stage1_optuna_{k}.html"))
                 except Exception as e:
+                    _ERROR_COUNT['main'] += 1
                     log.warning("可视化 %s 生成失败: %s", k, e)
         except Exception as e:
+            _ERROR_COUNT['main'] += 1
             log.warning("可视化模块加载失败: %s", e)
 
         # 报告
@@ -499,6 +506,7 @@ def main(argv=None) -> int:
         print(f"报告: {Path(args.report_dir) / 'stage1_optuna_report.md'}")
         return 0
     except Exception as e:
+        _ERROR_COUNT['main'] += 1
         log.error("Step 4 优化失败: %s", e, exc_info=True)
         print(f"\n❌ Step 4 优化失败: {e}", file=sys.stderr)
         return 1

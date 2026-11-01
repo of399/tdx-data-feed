@@ -33,10 +33,14 @@ import re
 import subprocess
 import sys
 import threading
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 # === 路径与日志 =============================================================
 LOG_FILE = Path(__file__).resolve().parents[1] / "logs" / "skill_router.log"
@@ -116,6 +120,7 @@ class McpClient:
                 if line and self.verbose:
                     print(f"  [{self.server_name}] {line}", file=sys.stderr)
         except Exception as e:
+            _ERROR_COUNT['_drain_stderr'] += 1
             log.warning("读取 MCP stderr 失败: %s", e)
 
     def _request(self, payload: dict[str, Any], timeout: float = 30) -> dict[str, Any]:
@@ -139,6 +144,7 @@ class McpClient:
                 self.proc.stdin.write(json.dumps({"jsonrpc": "2.0", **payload}) + "\n")
                 self.proc.stdin.flush()
             except Exception as e:
+                _ERROR_COUNT['_notify'] += 1
                 log.warning("写入 MCP stdin 失败: %s", e)
 
     def list_tools(self) -> list[dict[str, Any]]:
@@ -159,6 +165,7 @@ class McpClient:
         try:
             return json.loads(text)
         except json.JSONDecodeError:
+            _ERROR_COUNT['call_tool'] += 1
             return {"raw": text}
 
     def stop(self) -> None:
@@ -167,6 +174,7 @@ class McpClient:
                 self.proc.stdin.close()
                 self.proc.wait(timeout=2)
             except Exception:
+                _ERROR_COUNT['stop'] += 1
                 self.proc.kill()
             self.proc = None
 
@@ -205,6 +213,7 @@ class SkillRuntime:
                 if self.verbose:
                     print(f"[runtime] 加载 skill: {name}  ({path.name})")
             except Exception as e:
+                _ERROR_COUNT['load_all_skills'] += 1
                 log.warning(f"加载 {path} 失败：{e}")
         return loaded
 
@@ -257,6 +266,7 @@ class SkillRuntime:
                     rows = deep_rows
                     source = "tdx-finance-deep.get_metrics"
             except Exception as e:
+                _ERROR_COUNT['_finance_rows'] += 1
                 log.warning("finance-deep 回退失败 %s/%s：%s", code, metric, e)
         return sorted(rows, key=lambda r: str(r.get("report_date", "")), reverse=True), source
 
@@ -394,6 +404,7 @@ class SkillRuntime:
             from peft import PeftModel
             from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError:
+            _ERROR_COUNT['_ensure_llm'] += 1
             log.warning("transformers / peft 未装，无法加载 LLM")
             return False
 
@@ -416,6 +427,7 @@ class SkillRuntime:
             self.llm.eval()
             return True
         except Exception as e:
+            _ERROR_COUNT['_ensure_llm'] += 1
             log.exception(f"LLM 加载失败：{e}")
             return False
 
@@ -745,6 +757,7 @@ class SkillRuntime:
             return {"ok": False, "error": f"skill {name} 需要 LLM 但当前不可用，请用 indicator-match 替代"}
 
         except Exception as e:
+            _ERROR_COUNT['_execute_pure_tools'] += 1
             log.exception(f"执行 skill {name} 失败")
             out["ok"] = False
             out["error"] = str(e)
@@ -782,6 +795,7 @@ class SkillRuntime:
                 out["finance_note"] = payload["note"]
                 out["tools_used"] += payload["tools_used"]
             except Exception as e:
+                _ERROR_COUNT['_execute_with_llm'] += 1
                 return {"ok": False, "skill": name, "code": code,
                         "error": f"财务数据不可用：{e}"}
 
@@ -857,6 +871,7 @@ class SkillRuntime:
                 context_parts.append(f"MACD 最新：dif={macd['dif'][-1]:.3f} dea={macd['dea'][-1]:.3f}")
                 out["tools_used"] += ["tdx-calc.calc_ma", "tdx-calc.calc_macd"]
             except Exception as e:
+                _ERROR_COUNT['_execute_with_llm'] += 1
                 context_parts.append(f"（数据读取失败：{e}）")
 
         # 2. 拼 prompt（覆盖所有 skill yaml 中可能的变量）
@@ -877,6 +892,7 @@ class SkillRuntime:
             )
         except KeyError as e:
             # 还有未覆盖的变量，用通用兜底
+            _ERROR_COUNT['_execute_with_llm'] += 1
             log.warning(f"prompt_template 变量缺失：{e}，用通用兜底")
             prompt = f"### 指令:\n{inputs.get('query', f'分析 {code}')}\n\n### 输入:\n" + "\n".join(context_parts) + "\n\n### 回答:\n"
 
@@ -894,6 +910,7 @@ class SkillRuntime:
                         out["parsed"] = json.loads(m.group(1))
                 return out
             except Exception as e:
+                _ERROR_COUNT['_execute_with_llm'] += 1
                 return self._handle_llm_failure(skill, inputs, f"Ollama LLM 调用失败：{e}")
         import torch
         try:
@@ -917,6 +934,7 @@ class SkillRuntime:
                     out["parsed"] = json.loads(m.group(1))
             return out
         except Exception as e:
+            _ERROR_COUNT['_execute_with_llm'] += 1
             return self._handle_llm_failure(skill, inputs, f"LLM 推理失败：{e}")
 
     def _handle_llm_failure(self, skill: dict[str, Any], inputs: dict[str, Any],
@@ -977,6 +995,7 @@ class SkillRuntime:
             names = [m.get("name", "") for m in resp.json().get("models", [])
                      if m.get("name")]
         except Exception as e:
+            _ERROR_COUNT['_resolve_ollama_model'] += 1
             log.warning("读取 Ollama 模型列表失败：%s", e)
             names = []
         if requested:

@@ -23,10 +23,14 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = ["FILTER_CONFIG_PATH", "SectorFilter", "load_sector_features"]
 
@@ -71,6 +75,7 @@ class SectorFilter:
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            _ERROR_COUNT['load'] += 1
             return cls()
         return cls(
             min_sec=float(d.get("min_sec", 0.0)),

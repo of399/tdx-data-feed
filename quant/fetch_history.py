@@ -11,8 +11,6 @@ import argparse
 import logging
 from pathlib import Path
 
-import pandas as pd
-
 from quant.datafeed import DataFeed
 from quant.validate import validate
 

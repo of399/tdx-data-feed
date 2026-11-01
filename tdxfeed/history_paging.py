@@ -17,8 +17,12 @@ import datetime as dt
 import json
 import time
 import urllib.request
+from collections import Counter
 
 from tdxfeed.volume_units import to_hands
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 # 上限由服务端参数校验决定，不是区间里的自然日数：2000 可用、2100 被拒，
 # 取 1024 留一半余量（服务端哪天收紧阈值也不至于立刻变成静默空返回）。
@@ -77,6 +81,7 @@ def http_page(sym: str, end: str, count: int, adjust: str = "") -> list:
                         timeout=20) as r:
                     payload = json.loads(r.read().decode("utf-8"))
             except Exception as e:
+                _ERROR_COUNT['http_page'] += 1
                 last = e
                 time.sleep(WAF_COOLDOWN if getattr(e, "code", None) in WAF_CODES
                            else 2 * (attempt + 1))

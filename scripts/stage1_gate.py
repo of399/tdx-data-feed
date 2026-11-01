@@ -60,6 +60,7 @@ import json
 import logging
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -76,6 +77,9 @@ from stage1_baseline import (  # noqa: E402
     load_and_validate,
     walk_forward_eval,
 )
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 log = logging.getLogger("stage1_gate")
 
@@ -168,6 +172,7 @@ def compute_stability(trials_csv: Path, selected: list[str]) -> dict | None:
         try:
             chosen = set(json.loads(raw))
         except (json.JSONDecodeError, TypeError):
+            _ERROR_COUNT['compute_stability'] += 1
             continue
         n += 1
         for f in selected:
@@ -201,6 +206,7 @@ def run_parity_test(check: bool) -> dict:
             proc.stdout or proc.stderr) else ""
         return {"ran": True, "passed": passed, "detail": detail}
     except Exception as e:
+        _ERROR_COUNT['run_parity_test'] += 1
         log.warning("parity 测试执行异常: %s（不阻断，需人工确认）", e)
         return {"ran": False, "passed": True, "detail": f"执行异常: {e}（需人工确认 Step 1 已绿）"}
 
@@ -558,6 +564,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result, exit_code = run_gate(args)
     except Exception as e:
+        _ERROR_COUNT['main'] += 1
         log.error("闸门执行异常: %s", e, exc_info=True)
         print(f"\n❌ GATE_ERROR: 脚本无法完成: {e}", file=sys.stderr)
         print("GATE_RESULT=ERROR")

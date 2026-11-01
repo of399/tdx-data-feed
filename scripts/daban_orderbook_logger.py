@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
@@ -48,6 +49,9 @@ from tdxfeed.daban.orderbook_log import (  # noqa: E402
 )
 from tdxfeed.daban.pool import load_pool  # noqa: E402
 from tdxfeed.daban.scanner import Scanner  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,6 +103,7 @@ def make_daily_last_date_reader(daily_dir: Path):
                 if len(dates):
                     last = compact_date(dates.max())
             except Exception:
+                _ERROR_COUNT['make_daily_last_date_reader'] += 1
                 last = ""
         cache[code] = last
         return last
@@ -157,6 +162,7 @@ def load_float_shares(path: str) -> dict[str, float]:
         try:
             out[parts[0].strip().zfill(6)] = float(parts[1])
         except ValueError:
+            _ERROR_COUNT['load_float_shares'] += 1
             continue
     return out
 
@@ -205,6 +211,7 @@ def main() -> int:
                     tracker=tracker,
                 )
             except Exception as err:  # 网络抖动不能打断整天的记录
+                _ERROR_COUNT['main'] += 1
                 print(f"[warn] 第 {polls} 轮失败：{err}", file=sys.stderr)
                 if args.once:
                     return 1
@@ -229,6 +236,7 @@ def main() -> int:
                 return 0
             time.sleep(max(1.0, args.interval))
     except KeyboardInterrupt:
+        _ERROR_COUNT['main'] += 1
         print(f"\n[watch] 退出：{polls} 轮 / {total_rows} 行 → {last_path}")
     return 0
 

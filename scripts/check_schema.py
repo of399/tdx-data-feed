@@ -25,6 +25,9 @@ ROOT = Path(__file__).parent.parent
 
 from _common import adj_factor_files, daily_files  # noqa: E402
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 DAILY_EXPECTED_COLS = {"date", "open", "high", "low", "close", "volume", "amount"}
 ADJ_EXPECTED_COLS = {"code", "date", "adj_factor", "qfq_close", "raw_close"}
 DAILY_EXPECTED_DATE_TYPE = "date32[day]"
@@ -72,6 +75,7 @@ def scan_dir(paths: list[Path], expected_cols: set[str], expected_date_type: str
             else:
                 date_type_anomaly.append(f"{p.name}: date={date_type}")
         except StopIteration:
+            _ERROR_COUNT['scan_dir'] += 1
             date_type_anomaly.append(f"{p.name}: no 'date' field")
 
         if date_ok:

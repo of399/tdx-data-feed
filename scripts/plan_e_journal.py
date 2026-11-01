@@ -93,6 +93,7 @@ import fcntl
 import json
 import sys
 import warnings
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -119,6 +120,9 @@ from quant.execution.optimal_execution import (  # noqa: E402
 # KI-ATOMIC-002/003：账本与日志写入走原子落位 + 互斥锁，崩溃/并发下不丢行
 from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402
 from tdxfeed.execution.single import SingleTradePlan, check_exit  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 warnings.filterwarnings('ignore')
 
@@ -175,6 +179,7 @@ def get_execution_inputs(fp) -> tuple:
     try:
         df = pd.read_parquet(fp)
     except Exception:
+        _ERROR_COUNT['get_execution_inputs'] += 1
         return None, None
     if 'date' in df.columns:
         df = df.sort_values('date')
@@ -194,6 +199,7 @@ def get_last_close(fp) -> float:
         df = pd.read_parquet(fp)
         return float(df.sort_values('date')['close'].iloc[-1])
     except Exception:
+        _ERROR_COUNT['get_last_close'] += 1
         return 0.0
 
 
@@ -205,6 +211,7 @@ def format_execution_suggestion(code: str, side: str, qty: int, price: float,
     try:
         s = suggest_execution(qty, price, adv, dvol, T_days=1.0, lam=lam, n_buckets=n_buckets)
     except Exception as e:
+        _ERROR_COUNT['format_execution_suggestion'] += 1
         return f"  （{code} 拆单建议计算失败：{e}）"
     table = execution_table_markdown(s)
     return (
@@ -432,6 +439,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
                     })
                     print(f"SELL {code} {reason} {pnl_pct*100:+.1f}% ", end='')
             except Exception as e:
+                _ERROR_COUNT['simulate_one_month'] += 1
                 print(f"ERR {code}: {e} ", end='')
 
         for c in closed:
@@ -504,6 +512,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
                         print(f"BUY {code}@{open_price:.2f}×{qty} ", end='')
                         break
                     except Exception:
+                        _ERROR_COUNT['simulate_one_month'] += 1
                         continue
 
         # 日终状态
@@ -547,6 +556,7 @@ def simulate_one_month(start_date: str, end_date: str, capital: float = INITIAL_
                     'signal_date': p['signal_date'],
                 })
             except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                _ERROR_COUNT['simulate_one_month'] += 1
                 print(f"[WARN] swallowed: {e!r}")
 
     # 保存（模拟交易写入独立的 journal_sim.csv，与实盘 journal.csv 完全分离）
@@ -718,6 +728,7 @@ def load_latest_predict_list(top_n: int = 50, threshold: float = 0.7,
     try:
         df = pd.read_csv(latest)
     except Exception as e:
+        _ERROR_COUNT['load_latest_predict_list'] += 1
         sys.exit(f"❌ --from-predict-list 读取失败: {latest}\n  错误: {e}")
     if score_col not in df.columns:
         sys.exit(f"❌ --from-predict-list: {latest.name} 缺列 '{score_col}'")
@@ -789,6 +800,7 @@ def mode_from_predict_list(mode: str, top_n: int = 50, threshold: float = 0.7):
                 mode_buy(code, price, qty)
                 n_buys += 1
             except SystemExit as e:
+                _ERROR_COUNT['mode_from_predict_list'] += 1
                 print(f"  ⚠ {code} 买入失败: {e}")
                 continue
     print(f"\n✓ 完成: {n_buys}/{len(picks)} 只成交,模式={mode}")

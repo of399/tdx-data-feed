@@ -39,6 +39,9 @@ DEFAULT_MODEL = ROOT / "data/double_up/d_signal_5d_model_daban.txt"
 
 from _common import adj_factor_dir, daily_dir  # noqa: E402
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 DAILY_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
 META_COLS = ["date", "code", "consecutive_boards", "label", "label_buyable"]
@@ -92,6 +95,7 @@ def load_prices(code6: str, cache: dict[str, pd.DataFrame | None]):
             df["adj_factor"] = df["factor"].ffill().bfill().fillna(1.0)
             df = df.drop(columns=["factor"])
         except Exception:
+            _ERROR_COUNT['load_prices'] += 1
             df["adj_factor"] = 1.0
     else:
         df["adj_factor"] = 1.0

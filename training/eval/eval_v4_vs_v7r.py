@@ -23,10 +23,14 @@ import json
 import os
 import re
 import time
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 V4_TEST = ROOT / "data/v4/test.jsonl"
@@ -127,6 +131,7 @@ def eval_direction(tok, model, samples: list, batch_size: int = 8, max_new_token
                          "elapsed_sec": elapsed, "rate_per_sec": rate}, ensure_ascii=False),
                         encoding="utf-8")
                 except Exception:
+                    _ERROR_COUNT['eval_direction'] += 1
                     pass
     arr_p = np.array([p if p is not None else 0 for p in preds])
     arr_r = np.array([r if r is not None else 0 for r in reals])

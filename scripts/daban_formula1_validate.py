@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -42,6 +43,9 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
     limit_up_price,
 )
 from tdxfeed.paths import DATA_ROOT, daily_dir, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DATA = DATA_ROOT
 DAILY = daily_dir()
@@ -60,11 +64,13 @@ def external_pools(day: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     try:
         import akshare as ak
     except Exception as exc:  # pragma: no cover
+        _ERROR_COUNT['external_pools'] += 1
         print(f"akshare 不可用: {exc}", file=sys.stderr)
         return pd.DataFrame(), pd.DataFrame()
     try:
         zt = ak.stock_zt_pool_em(date=day)
     except Exception as exc:
+        _ERROR_COUNT['external_pools'] += 1
         print(f"涨停池 {day} 失败: {type(exc).__name__} {exc}", file=sys.stderr)
         zt = pd.DataFrame()
     zb = pd.DataFrame()
@@ -76,6 +82,7 @@ def external_pools(day: str) -> tuple[pd.DataFrame, pd.DataFrame]:
             zb = fn(date=day)
             break
         except Exception as exc:
+            _ERROR_COUNT['external_pools'] += 1
             print(f"炸板池 {fname} {day} 失败: {type(exc).__name__} {exc}", file=sys.stderr)
     return zt if zt is not None else pd.DataFrame(), zb
 

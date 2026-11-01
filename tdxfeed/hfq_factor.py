@@ -24,6 +24,7 @@ import os
 import socket
 import sys
 import time
+from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 
@@ -32,6 +33,9 @@ import pyarrow.parquet as pq
 
 from tdxfeed.freshness import CN_HOLIDAYS, last_trading_day
 from tdxfeed.paths import hfq_factor_dir
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 socket.setdefaulttimeout(30)
 
@@ -75,6 +79,7 @@ def _rebase_needed(old: pd.DataFrame, hfq: list[list]) -> bool:
     try:
         new_val = float(by_date[last_day])
     except (TypeError, ValueError):
+        _ERROR_COUNT['_rebase_needed'] += 1
         return False
     old_val = float(old["hfq_close"].iloc[-1])
     return abs(new_val - old_val) > 1e-6 * max(1.0, abs(old_val))
@@ -103,6 +108,7 @@ def needs_build(path: Path) -> bool:
         if pq.read_metadata(p).num_rows == 0:
             return True
     except Exception:  # 坏文件按需要重建处理
+        _ERROR_COUNT['needs_build'] += 1
         return True
     return any(c not in schema.names for c in COLUMNS)
 
@@ -167,6 +173,7 @@ def _query_retry(bs, code: str, start: str, end: str, adjustflag: str,
         try:
             return _query(bs, code, start, end, adjustflag)
         except Exception as e:
+            _ERROR_COUNT['_query_retry'] += 1
             last = e
             time.sleep(2 ** i)
     raise last  # type: ignore[misc]
@@ -229,6 +236,7 @@ def update_one(bs, code: str, out_dir: Path, today: str) -> str:
             return "fail:shrink"
         write_atomic(path, merged)
     except Exception as e:  # 单只失败不应中断整轮
+        _ERROR_COUNT['update_one'] += 1
         return f"fail:{type(e).__name__}:{str(e)[:60]}"
     if rebased:
         return f"rebase:+{len(merged)}"

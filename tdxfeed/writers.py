@@ -7,12 +7,16 @@
 import os
 import struct
 import threading
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
 
 from tdxfeed.amount_fix import fill_missing_amount_marked, ledger_path_for, merge_estimated
 from tdxfeed.parquet_io import write_table
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 class Writers:
@@ -121,6 +125,7 @@ class Writers:
                         print(f'[单位告警] {symbol}: 新vol中位={nm:,.0f} vs 旧={om:,.0f} '
                               f'相差{ratio:.0f}倍，疑似 volume 单位不一致，请核对')
             except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                _ERROR_COUNT['merge_write'] += 1
                 print(f"[WARN] swallowed: {e!r}")
             merged = pd.concat([old, new], ignore_index=True)
             # 用稳定排序（mergesort）：new 追加在 old 之后，并列日期下

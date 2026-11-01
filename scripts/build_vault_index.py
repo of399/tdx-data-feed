@@ -19,7 +19,11 @@ import re
 import sys
 import time
 import urllib.request
+from collections import Counter
 from pathlib import Path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 DEFAULT_VAULTS = [
@@ -115,9 +119,11 @@ def pdf_reader():
     try:
         import pymupdf
     except ImportError:
+        _ERROR_COUNT['pdf_reader'] += 1
         try:
             import fitz as pymupdf  # PyMuPDF 1.x 的旧名
         except ImportError:
+            _ERROR_COUNT['pdf_reader'] += 1
             return None
 
     def read(path: Path) -> str:
@@ -146,6 +152,7 @@ def iter_documents(vault: Path, read_pdf):
             else:
                 text = path.read_text(encoding="utf-8")
         except Exception as e:  # 坏 PDF / 编码异常 / 权限：跳过单篇，不中断整库
+            _ERROR_COUNT['iter_documents'] += 1
             print(f"  跳过 {path}: {e}", file=sys.stderr)
             continue
         if not text.strip():

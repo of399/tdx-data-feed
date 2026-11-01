@@ -23,6 +23,7 @@
 - 涨停限制（10%/20%/30%）
 """
 import argparse
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -40,7 +41,11 @@ RANDOM_SEED = 42
 
 # 涨停限制与 18 维特征：单一数据源见 tdxfeed/features_5d（与 predict.py 共用）
 from _common import compute_window_features  # noqa: E402
+
 from tdxfeed.adjusted import MIN_FACTOR_COV, frame as adj_frame  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 def load_one(code: str) -> pd.DataFrame:
@@ -50,6 +55,7 @@ def load_one(code: str) -> pd.DataFrame:
     try:
         df = pd.read_parquet(fp, columns=['date', 'open', 'high', 'low', 'close', 'volume', 'amount'])
     except Exception:
+        _ERROR_COUNT['load_one'] += 1
         return pd.DataFrame()
     if df['date'].dtype in ('int64', 'int32'):
         df['date'] = pd.to_datetime(df['date'].astype(str), format='%Y%m%d')
@@ -141,6 +147,7 @@ def build_dataset(universe_path=V1_DETAIL, price_basis: str = "raw"):
         try:
             idx = np.random.randint(30, len(df) - 5)  # 避免边界
         except ValueError:
+            _ERROR_COUNT['build_dataset'] += 1
             continue
         sig_date = df.iloc[idx]['date']
         neg_samples.append({'code': code, 'start_date': sig_date})

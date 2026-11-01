@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +23,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 log = logging.getLogger('analyze_pre90')
 
 from _common import adj_factor_dir, daily_dir, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
@@ -53,6 +57,7 @@ def load_stock(code: str):
         df = pd.read_parquet(fp, columns=['date', 'open', 'high', 'low', 'close', 'volume', 'amount'])
         adj = pd.read_parquet(adj_fp, columns=['date', 'adj_factor'])
     except Exception as e:
+        _ERROR_COUNT['load_stock'] += 1
         log.warning('load fail %s: %s', code, e)
         return None
     df['date'] = _to_dt(df['date'])

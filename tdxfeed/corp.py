@@ -10,8 +10,12 @@ argument），一旦 akshare 网络恢复也永远拿不到数据。修正：无
 akshare 断连时返回空列表并记录日志，不阻塞主流程（计划书 §8）。
 """
 import time
+from collections import Counter
 
 import akshare as ak
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 def fetch_xdxr(symbol):
@@ -25,6 +29,7 @@ def fetch_xdxr(symbol):
                 return sub.to_dict('records')
             return []
         except Exception as e:
+            _ERROR_COUNT['fetch_xdxr'] += 1
             print(f"xdxr {symbol} 第{attempt+1}次失败: {str(e)[:60]}", flush=True)
             time.sleep(2 * (attempt + 1))
     return []

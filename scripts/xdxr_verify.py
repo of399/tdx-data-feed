@@ -25,6 +25,7 @@ xdxr_verify.py — 计划书 §10-7 xdxr 复权专项对账
 
 import argparse
 import json
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -33,6 +34,9 @@ import pandas as pd
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
 from _common import daily_dir, xdxr_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY_DIR = daily_dir()
 XDXR_PARQUET = xdxr_path()
@@ -167,6 +171,7 @@ def main():
             mark = "✓" if r.get("status") == "ok" and r.get("pass") else "✗"
             print(f"  {mark} {code}: {r.get('result', '')}")
         except Exception as e:
+            _ERROR_COUNT['main'] += 1
             print(f"  ✗ {code}: {e}")
             results.append({"code": code, "status": "error", "result": str(e)})
 

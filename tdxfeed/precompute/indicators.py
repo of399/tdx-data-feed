@@ -30,6 +30,7 @@ tdxfeed/precompute/indicators.py — 离线技术指标 / 形态 / 相似 K线 �
 import argparse
 import json
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -39,6 +40,9 @@ import pandas as pd
 # === 路径 =================================================================
 from tdxfeed.parquet_io import write_table
 from tdxfeed.paths import daily_dir, daily_files, derived_dir
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY_DIR = daily_dir()
 DERIVED_DIR = derived_dir()
@@ -231,6 +235,7 @@ def main() -> int:
         try:
             out = process_one(args.code, force=args.force)
         except Exception as e:
+            _ERROR_COUNT['main'] += 1
             print(f"  ✗ {args.code}: {e}", file=sys.stderr)
             return 1
         print(f"[{args.code}] → {out}")

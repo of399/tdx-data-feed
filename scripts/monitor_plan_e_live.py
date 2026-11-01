@@ -46,6 +46,7 @@ import argparse
 import hashlib
 import json
 import sys
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import numpy as np
 import pandas as pd
 from _common import daily_path, parse_date
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).parent.parent
 LIVE_DIR = ROOT / "data" / "plan_e" / "live"
@@ -135,6 +139,7 @@ def _load_price_series(code: str) -> pd.Series | None:
     try:
         df = pd.read_parquet(f)
     except Exception:
+        _ERROR_COUNT['_load_price_series'] += 1
         return None
     df["date"] = parse_date(df["date"])
     s = df.set_index("date")["close"]
@@ -150,6 +155,7 @@ def _journal_sha(path: Path) -> tuple[str | None, float | None]:
         data = path.read_bytes()
         return hashlib.sha256(data).hexdigest()[:16], round(path.stat().st_mtime, 1)
     except Exception:
+        _ERROR_COUNT['_journal_sha'] += 1
         return None, None
 
 
@@ -221,6 +227,7 @@ def build_trades(journal: pd.DataFrame) -> tuple[list[dict], list[dict]]:
                     "qty": int(p.get("qty", 0)), "entry_price": float(p.get("entry_price", 0)),
                 }
         except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            _ERROR_COUNT['build_trades'] += 1
             print(f"[WARN] swallowed: {e!r}")
     for _, b in buys.iterrows():
         c = str(b["code"]).zfill(6)
@@ -727,6 +734,7 @@ def main() -> None:
         try:
             baseline.update(json.loads(Path(args.baseline).read_text(encoding="utf-8")))
         except Exception as e:
+            _ERROR_COUNT['main'] += 1
             print(f"⚠ 基线文件读取失败，用默认: {e}")
 
     journal = load_journal()

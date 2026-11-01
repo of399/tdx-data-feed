@@ -124,7 +124,7 @@ def screen_series(
             dropped.append({
                 **rec,
                 "suspect_date": pd.Timestamp(inside[0]).strftime("%Y-%m-%d"),
-                "n_suspect": int(len(inside)),
+                "n_suspect": len(inside),
                 "exclude_reason": "suspect_up_jump",
             })
         else:
@@ -180,7 +180,7 @@ def main(argv=None) -> int:
             hits, dropped, st = screen_one(
                 code, name=name, is_st="ST" in name.upper(), start=args.start,
                 window=args.window, ratio_threshold=args.ratio)
-        except Exception as e:  # noqa: BLE001 —— 单票坏数据不打断全表
+        except Exception as e:
             status["error"] += 1
             log.warning("跳过 %s：%s", code, e)
             continue

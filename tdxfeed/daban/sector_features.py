@@ -15,9 +15,13 @@
 """
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = ["EXTRA_FEATURE_COLS", "SectorFeatureLookup", "build_lookup"]
 
@@ -62,6 +66,7 @@ class SectorFeatureLookup:
         try:
             row = self._table.loc[(ind, dt)]
         except KeyError:
+            _ERROR_COUNT['get'] += 1
             return None
         if isinstance(row, pd.DataFrame):
             row = row.iloc[0]
@@ -81,6 +86,7 @@ def build_lookup(path: Path | str | None = None) -> SectorFeatureLookup | None:
     try:
         df = pd.read_parquet(p) if p.suffix == ".parquet" else pd.read_csv(p)
     except Exception:
+        _ERROR_COUNT['build_lookup'] += 1
         return None
     if df is None or df.empty:
         return None

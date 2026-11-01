@@ -18,6 +18,7 @@ CLI bypass：
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -25,8 +26,10 @@ import numpy as np
 import pandas as pd
 
 from tdxfeed.execution.limits import normalize_code
-
 from tdxfeed.paths import daily_dir
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DEFAULT_PARQUET_DIR = daily_dir()
 
@@ -51,6 +54,7 @@ def _last_date_from_parquet(fp: Path) -> pd.Timestamp | None:
     try:
         df = pd.read_parquet(fp, columns=["date"])
     except Exception:
+        _ERROR_COUNT['_last_date_from_parquet'] += 1
         return None
     if df.empty:
         return None

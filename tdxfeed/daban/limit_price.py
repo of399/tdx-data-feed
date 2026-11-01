@@ -33,6 +33,7 @@ from decimal import Decimal
 
 from tdxfeed.execution import limits as _limits
 from tdxfeed.names import is_st_name as _is_st_name
+
 # 入参自带 sh/sz/bj 时以入参为准：不可先 normalize 再重推，
 # 否则 sh000001（上证指数）会被指到 sz000001（平安银行）。
 from tdxfeed.paths import exchange_prefix

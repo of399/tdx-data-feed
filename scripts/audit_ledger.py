@@ -20,12 +20,16 @@ from __future__ import annotations
 
 import argparse
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).resolve().parent.parent
 LEDGER_PATH = ROOT / "config" / "known_issues.yaml"
@@ -215,6 +219,7 @@ def _count_matches(files: list[Path], pattern: str, multiline: bool,
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")
         except OSError:
+            _ERROR_COUNT['_count_matches'] += 1
             continue
         if section:
             sub = "\n".join(_section_lines(text, section))

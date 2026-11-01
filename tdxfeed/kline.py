@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import time
+from collections import Counter
 
 import requests as _req
 
@@ -27,6 +28,9 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from tdxfeed.paths import parquet_root  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 OUT_ROOT = str(parquet_root())
 MAX_RETRY = 5
@@ -59,6 +63,7 @@ def fetch_min(symbol, period, start_dt, end_dt):
                 return df
             return None
         except Exception as e:
+            _ERROR_COUNT['fetch_min'] += 1
             last_err = e
             wait = SLEEP_BASE * attempt
             print(f"    [retry {attempt}/{MAX_RETRY}] {symbol} {start_dt}~{end_dt}: {str(e)[:60]} (等 {wait}s)", flush=True)
@@ -88,6 +93,7 @@ def fetch_history(symbol, period='5', start='2001-01-01', end=None, month_step=1
             if df is not None and len(df):
                 frames.append(df)
         except RuntimeError as ex:
+            _ERROR_COUNT['fetch_history'] += 1
             print(f"  [skip段] {symbol} {s}~{e}: {str(ex)[:80]}", flush=True)
         cur = nxt
         time.sleep(0.3)
@@ -146,6 +152,7 @@ def fetch_sina(symbol, scale=15, datalen=1023):
                 })
             return out
         except Exception as e:
+            _ERROR_COUNT['fetch_sina'] += 1
             if attempt == 2:
                 print(f"    [sina retry x3] {symbol} scale={scale}: {str(e)[:60]}", flush=True)
                 return None

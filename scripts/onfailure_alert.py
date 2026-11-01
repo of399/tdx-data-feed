@@ -23,8 +23,12 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_URL = os.environ.get("TDX_ALERT_URL", "http://127.0.0.1:5002/pushplus")
@@ -63,6 +67,7 @@ def _run(argv: list[str]) -> str:
     try:
         return subprocess.run(argv, capture_output=True, text=True, timeout=10).stdout
     except (subprocess.SubprocessError, OSError):
+        _ERROR_COUNT['_run'] += 1
         return ""
 
 
@@ -114,9 +119,11 @@ def post_alert(payload: dict, url: str = DEFAULT_URL, timeout: int = 5) -> tuple
         with urllib.request.urlopen(request, timeout=timeout) as resp:
             return True, resp.read().decode("utf-8", "replace")[:200]
     except urllib.error.HTTPError as exc:      # 桥在，但它拒了
+        _ERROR_COUNT['post_alert'] += 1
         body = exc.read().decode("utf-8", "replace")[:200] if hasattr(exc, "read") else ""
         return False, f"HTTP {exc.code}: {body}"
     except Exception as exc:                   # URLError / 超时 / 桥没起
+        _ERROR_COUNT['post_alert'] += 1
         return False, f"{type(exc).__name__}: {exc}"
 
 

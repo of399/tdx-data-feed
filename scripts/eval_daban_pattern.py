@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -48,6 +49,9 @@ from features_5d import (  # noqa: E402
 )
 from train_daban_model import SPLIT_DATE, iter_stock_files  # noqa: E402
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 MODEL_DIR = ROOT / "data" / "double_up"          # 模型仍读生产目录（只读）
 OUT_DIR = ROOT / "data" / "daban"                 # 产物写本线专属目录（不再污染 data/double_up）
 DEFAULT_MODELS = f"live={MODEL_DIR / 'd_signal_5d_model_daban.txt'}"
@@ -58,6 +62,7 @@ def process_stock(item: tuple) -> pd.DataFrame | None:
     try:
         df = pd.read_parquet(fp)
     except Exception:
+        _ERROR_COUNT['process_stock'] += 1
         return None
     if len(df) < 40:
         return None

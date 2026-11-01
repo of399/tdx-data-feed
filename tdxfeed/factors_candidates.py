@@ -15,13 +15,19 @@
 """
 from __future__ import annotations
 
+from collections import Counter
+
 import numpy as np
 import polars as pl
 from scipy import stats
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 try:
     import akquant.talib as tb
 except Exception:  # pragma: no cover - akquant 未装时降级（理论不应发生）
+    _ERROR_COUNT['<module>'] += 1
     tb = None
 
 __all__ = ["CANDIDATE_NAMES", "compute_candidate_features"]

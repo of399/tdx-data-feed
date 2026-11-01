@@ -31,9 +31,8 @@ for _p in (ROOT, ROOT / 'tdxfeed'):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from kline import fetch_sina, save_rows_parquet
-
 from _common import parquet_root  # noqa: E402
+from kline import fetch_sina, save_rows_parquet
 
 OUT = parquet_root()
 

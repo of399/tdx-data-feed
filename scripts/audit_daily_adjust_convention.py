@@ -32,6 +32,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 from _common import adj_factor_dir, daily_dir  # noqa: E402
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 DAILY = daily_dir()
 ADJ = adj_factor_dir()
 OUT = DAILY / "_audit_adjust_convention.csv"
@@ -65,6 +68,7 @@ def main() -> int:
             d = _norm_date(d).filter(pl.col("raw_close").is_not_null())
             adj_map[c] = d
         except Exception as e:  # pragma: no cover
+            _ERROR_COUNT['main'] += 1
             log.debug("adj 读取失败 %s: %s", af.name, e)
     log.info("adj_factor 载入: %d", len(adj_map))
 

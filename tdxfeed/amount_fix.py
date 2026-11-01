@@ -16,10 +16,14 @@ import json
 import os
 import shutil
 import threading
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 _LEDGER_LOCK = threading.RLock()
 _LEDGER_CACHE: dict[Path, dict[str, list[int]]] = {}
@@ -84,6 +88,7 @@ def _read_ledger_file(p: Path) -> dict[str, list[int]]:
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
+        _ERROR_COUNT['_read_ledger_file'] += 1
         return {}
     if not isinstance(raw, dict):
         return {}
@@ -93,6 +98,7 @@ def _read_ledger_file(p: Path) -> dict[str, list[int]]:
             try:
                 out[str(k)] = sorted({int(x) for x in v})
             except (TypeError, ValueError):
+                _ERROR_COUNT['_read_ledger_file'] += 1
                 continue
     return out
 
@@ -167,6 +173,7 @@ def _flush_at_exit() -> None:
         try:
             flush_estimated(p)
         except Exception:
+            _ERROR_COUNT['_flush_at_exit'] += 1
             pass
 
 
@@ -194,6 +201,7 @@ def _backfill_one(path: Path, dry_run: bool, update_day: bool,
     try:
         df = pd.read_parquet(path)
     except Exception as e:
+        _ERROR_COUNT['_backfill_one'] += 1
         return 0, f"{path.name}: {e!r}"
     filled, n, est = fill_missing_amount_marked(df, start_date=start_date)
     if n == 0:

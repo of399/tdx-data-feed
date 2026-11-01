@@ -10,8 +10,12 @@ import json
 import re
 import time
 import urllib.request
+from collections import Counter
 
 from tdxfeed.sources.base import DataSource
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 class SinaSource(DataSource):
@@ -47,6 +51,7 @@ class SinaSource(DataSource):
                     ])
                 return bars
             except Exception as e:
+                _ERROR_COUNT['fetch_bars'] += 1
                 last_err = e
                 time.sleep(2 * (attempt + 1))
         raise RuntimeError('Sina源失败: ' + str(last_err))

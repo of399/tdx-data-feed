@@ -20,6 +20,7 @@ v3 提前版盘前实时打分（每日开盘前自动跑）
 """
 import argparse
 import json
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +29,9 @@ import pandas as pd
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
 from _common import adj_factor_dir, daily_dir, get_limit, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
@@ -171,6 +175,7 @@ def main():
             if feat:
                 records.append(feat)
         except Exception:
+            _ERROR_COUNT['main'] += 1
             continue
 
         if (i + 1) % 1000 == 0:

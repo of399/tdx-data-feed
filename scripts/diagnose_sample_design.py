@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -36,6 +37,9 @@ from features_5d import (  # noqa: E402
     is_yizi,
 )
 from train_daban_model import iter_stock_files  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 def _bucket_len(n: int) -> str:
@@ -62,6 +66,7 @@ def diag_one(item: tuple) -> dict | None:
     try:
         df = pd.read_parquet(fp)
     except Exception as e:
+        _ERROR_COUNT['diag_one'] += 1
         print(f"[WARN] {code} 读取失败: {e!r}")
         return None
     if len(df) < 30:

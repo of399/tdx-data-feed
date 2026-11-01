@@ -12,15 +12,20 @@ import datetime as _dt
 import glob
 import os
 import sys
+from collections import Counter
 
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tdxfeed.paths import DATA_ROOT, daily_dir
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 try:
     from tdxfeed.symbols import INDICES, group
 except Exception:  # pragma: no cover
+    _ERROR_COUNT['<module>'] += 1
     def group(code: str) -> str:
         return "other"
     INDICES = {}
@@ -34,6 +39,7 @@ def to_int(d) -> int:
     try:
         return int(s[:8])
     except Exception:
+        _ERROR_COUNT['to_int'] += 1
         return 0
 
 
@@ -58,6 +64,7 @@ def source_failure_block(root: str) -> list[str]:
         with open(path, encoding="utf-8") as fh:
             s = json.load(fh)
     except Exception as e:
+        _ERROR_COUNT['source_failure_block'] += 1
         return ["## 源失败率（同步质量）", "", f"> ⚠️ 读取汇总失败: {e!s}", ""]
 
     rate = s.get("source_failure_rate_pct", 0.0)
@@ -101,6 +108,7 @@ def main():
             df = pd.read_parquet(f, columns=["date"])
             last = int(df["date"].map(to_int).max()) if not df.empty else 0
         except Exception:
+            _ERROR_COUNT['main'] += 1
             last = -1
         last_dates.append(last)
         core = code[2:] if code[:2] in ("sh", "sz") else code

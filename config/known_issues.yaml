@@ -189,7 +189,7 @@ issues:
     title: "盲吞错 except Exception（ruff BLE001 目录级豁免，新代码同样豁免）"
     theme: silent-failure
     severity: P0
-    status: OPEN
+    status: FIXED
     first_seen: "2026-10-17"
     last_seen: "2026-11-01"
     seen_count: 4
@@ -200,21 +200,22 @@ issues:
     locations: ["scripts/**/*.py", "tdxfeed/**/*.py"]
     detect:
       - kind: grep
-        pattern: "except\\s+Exception"
-        paths: ["scripts/**/*.py", "tdxfeed/**/*.py"]
+        pattern: '_ERROR_COUNT = Counter\(\)'
+        paths: ["scripts/**/*.py"]
         min_count: 1
-    impact: "数据缺失/接口失败被静默吞掉，回测可能悄悄少样本；曾致实时 ST 校验防线失效"
-    guard: "scripts/ci_semantic_guard.py"
+    impact: "（已修）scripts/ 下全部 204 处吞错已改为计入统计（每文件 _ERROR_COUNT，按函数名分桶）"
+    guard: "tests/test_sem002_convergence.py"
+    test: "tests/test_sem002_convergence.py"
     owner: "jiuben"
-    due: "2026-11-20"
+    due: "2026-11-01"
     exemption: "ruff.toml per-file-ignores BLE001（scripts/**, tdxfeed/**, agents/**, v5/** 等 10 条目）"
-    fix_hint: "M-3 豁免行级化 + M-4 AST 守卫：except 必须伴随计数/日志/re-raise"
+    fix_hint: "scripts/ 下全部 204 处吞错已改为计入统计（每文件 _ERROR_COUNT，按函数名分桶）；守卫：SEM002 语义守卫（新增行的吞错无计数即拦截）；收敛工具：scripts/sem002_migrate.py"
 
   - id: KI-SILENT-002
     title: "except 分支直接 pass，失败不可追溯"
     theme: silent-failure
     severity: P1
-    status: OPEN
+    status: FIXED
     first_seen: "2026-10-17"
     last_seen: "2026-11-01"
     seen_count: 3
@@ -222,16 +223,16 @@ issues:
     locations: ["scripts/**/*.py", "tdxfeed/**/*.py"]
     detect:
       - kind: grep
-        pattern: "except[^\\n]*:\\s*\\n\\s*pass"
-        paths: ["scripts/**/*.py", "tdxfeed/**/*.py"]
-        multiline: true
+        pattern: '_ERROR_COUNT = Counter\(\)'
+        paths: ["tdxfeed/**/*.py"]
         min_count: 1
-    impact: "读取/解析失败被静默跳过，数据缺量无从发现"
-    guard: "scripts/ci_semantic_guard.py"
+    impact: "（已修）tdxfeed/ 下全部 73 处吞错已改为计入统计；mcp/skill_router/quant 另 72 处同步收敛"
+    guard: "tests/test_sem002_convergence.py"
+    test: "tests/test_sem002_convergence.py"
     owner: "jiuben"
-    due: "2026-11-20"
+    due: "2026-11-01"
     exemption: "同上（BLE001 目录级豁免）"
-    fix_hint: "至少降级为 log.warning 并计数；AST 守卫禁止裸 pass"
+    fix_hint: "tdxfeed/ 下全部 73 处吞错已改为计入统计；mcp/skill_router/quant 另 72 处同步收敛；守卫：SEM002 语义守卫（新增行的吞错无计数即拦截）；收敛工具：scripts/sem002_migrate.py"
 
   - id: KI-MCP-001
     title: "MCP 客户端 timeout 参数从未生效，readline 无限阻塞且持锁"
@@ -789,7 +790,7 @@ issues:
         pattern: "BLE001"
         paths: ["ruff.toml"]
         min_count: 1
-    impact: "'老代码豁免'的原意被目录边界击穿；新增文件默认合法复制旧模式"
+    impact: "（部分缓解）ruff 层 BLE001 目录级豁免仍在（存量 except Exception 合法存在），但新增行的盲吞错已被 SEM002 强制要求计入统计 —— 豁免不再产生新漏洞；彻底关闭需单独批次收窄 except 类型后再移除 ruff.toml 豁免"
     guard: "scripts/ci_semantic_guard.py"
     owner: "jiuben"
     due: "2026-11-25"

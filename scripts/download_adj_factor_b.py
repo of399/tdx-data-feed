@@ -8,6 +8,7 @@ import sys
 import time
 import traceback
 import warnings
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +18,9 @@ warnings.filterwarnings("ignore")
 socket.setdefaulttimeout(30)
 
 from _common import adj_factor_dir, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 OUT_DIR = adj_factor_dir()
 OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -102,6 +106,7 @@ def fetch_one(bs, code_short: str, max_retries: int = 3):
             merged.to_parquet(cache_fp, index=False)
             return 'ok'
         except Exception as e:
+            _ERROR_COUNT['fetch_one'] += 1
             last_err = f"{type(e).__name__}: {str(e)[:80]}"
             time.sleep(2 ** attempt + 1)
     return f'fail:{last_err}'

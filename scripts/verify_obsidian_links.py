@@ -27,12 +27,16 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 try:
     import yaml
 except ImportError:
+    _ERROR_COUNT['<module>'] += 1
     sys.stderr.write("✗ 缺少依赖: PyYAML (pip install pyyaml)\n")
     sys.exit(2)
 
@@ -205,10 +209,10 @@ def main() -> int:
         }, ensure_ascii=False, indent=2))
         return 1 if (hard_broken or uniq_cycles) else 0
 
-    print(f"# Obsidian 链接完整性校验")
+    print("# Obsidian 链接完整性校验")
     print(f"vault: {vault}")
     print(f"扫描文件: {len(files)}  提取 wikilink(去代码块): {total_links}  唯一目标: {len(unique_targets)}")
-    print(f"---")
+    print("---")
     print(f"硬断链(内容模块, 笔记名不存在): {len(hard_broken)}")
     print(f"工作空间断链(模板/草稿, 非内容): {len(working_broken)}")
     print(f"软缺失(日期链接→日记未建): {len(soft_date_missing)}")
@@ -240,7 +244,7 @@ def main() -> int:
         for b in soft_date_missing[:5]:
             print(f"  [{b['file']}] -> [[{b['target']}]]")
 
-    print(f"---")
+    print("---")
     if not hard_broken and not uniq_cycles:
         print(f"✓ 链接校验通过（硬断链 0；循环依赖 0；软缺失 {len(soft_date_missing)} 为按需创建）")
         return 0

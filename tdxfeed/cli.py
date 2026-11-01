@@ -7,6 +7,7 @@
 """
 import os
 import sys
+from collections import Counter
 from datetime import datetime
 
 import yaml
@@ -16,6 +17,9 @@ from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.state import State
 from tdxfeed.writers import Writers
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 CONFIG_PATH = '/home/jiuben/tdx-data-feed/config.yaml'
 
@@ -50,6 +54,7 @@ def cmd_sync(symbol):
                 print(f'sync ok [{name}]', symbol, n, '行, 末日期:', last)
                 return
         except Exception as e:
+            _ERROR_COUNT['cmd_sync'] += 1
             last_err = e
             continue
     print('sync failed:', symbol, '| all sources down:', str(last_err)[:80])

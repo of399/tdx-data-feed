@@ -11,10 +11,14 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +27,7 @@ try:
 
     HAS_OAS = True
 except Exception:  # pragma: no cover - sklearn 为可选依赖
+    _ERROR_COUNT['<module>'] += 1
     OAS = None
     HAS_OAS = False
 
@@ -45,6 +50,7 @@ class IndustryMap:
                 code = raw.zfill(6)
                 self.map[code] = str(row.get("industry_name", "未知"))
         except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            _ERROR_COUNT['__init__'] += 1
             print(f"[WARN] swallowed: {e!r}")
 
     def get(self, code: str) -> str:
@@ -106,6 +112,7 @@ def cov_diagnostics(Sigma: np.ndarray) -> dict:
         max_eig = float(ev[-1])
         cond = float(max_eig / min_eig) if min_eig > 0 else float("inf")
     except np.linalg.LinAlgError:
+        _ERROR_COUNT['cov_diagnostics'] += 1
         min_eig = max_eig = cond = float("nan")
     return {"cond": cond, "min_eig": min_eig, "max_eig": max_eig, "n": n}
 
@@ -150,6 +157,7 @@ class RiskModel:
             try:
                 return np.asarray(OAS().fit(F).covariance_, dtype=float)
             except Exception:
+                _ERROR_COUNT['_factor_cov'] += 1
                 logger.warning("OAS 估计失败，回退 Ledoit-Wolf")
         if cov_method == "ewma":
             return _ewma_cov(F, ewma_lambda)
@@ -188,6 +196,7 @@ class RiskModel:
             w = np.clip(w, 1e-8, None)
             Sigma = V @ np.diag(w) @ V.T
         except np.linalg.LinAlgError:
+            _ERROR_COUNT['estimate_cov'] += 1
             Sigma = np.diag(np.clip(np.diag(Sigma), 1e-8, None))
         diag = cov_diagnostics(Sigma)
         logger.debug("estimate_cov method=%s n=%d cond=%.3g min_eig=%.3g",

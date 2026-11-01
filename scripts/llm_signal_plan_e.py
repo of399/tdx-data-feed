@@ -32,6 +32,7 @@ import re
 import sys
 import time
 import urllib.request
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -49,8 +50,11 @@ from eval_v4_vs_v7r import parse_output  # noqa: E402
 
 # 复用方案E 翻倍 universe 加载
 sys.path.insert(0, str(ROOT / "scripts"))
-from plan_e_backtest import get_first_double_date, load_double_up  # noqa: E402
 from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
+from plan_e_backtest import get_first_double_date, load_double_up  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 # ---------- 日期 / 窗口重建（与 transform/v4_gen.py 完全一致）----------
@@ -76,6 +80,7 @@ def unit_mult(amount, volume, close) -> int:
     try:
         a, v, c = float(amount), float(volume), float(close)
     except (TypeError, ValueError):
+        _ERROR_COUNT['unit_mult'] += 1
         return 100
     if a <= 0 or v <= 0 or c <= 0:
         return 100
@@ -214,6 +219,7 @@ def gen_signals(model: str, out_csv: Path, limit: int | None, dry: bool, resume:
         try:
             resp = call_ollama_chat(model, instruction, inp)
         except Exception as e:
+            _ERROR_COUNT['gen_signals'] += 1
             print(f"  [ERR] {code} {as_of}: {e}", flush=True)
             rows.append({"code": code, "signal_date": as_of, "direction": None,
                          "parsed_ok": 0, "response_head": f"ERR:{e}"})

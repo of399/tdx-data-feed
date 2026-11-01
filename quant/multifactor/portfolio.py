@@ -11,9 +11,13 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass
 
 import numpy as np
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +217,7 @@ def solve_erc_cvxpy(cov: np.ndarray, codes: list[str], industry_of: dict[str, st
     try:
         import cvxpy as cp
     except Exception:
+        _ERROR_COUNT['solve_erc_cvxpy'] += 1
         return None
     n = len(codes)
     if n == 0 or w_base is None or w_base.shape[0] != n:
@@ -251,6 +256,7 @@ def solve_erc_cvxpy(cov: np.ndarray, codes: list[str], industry_of: dict[str, st
     try:
         cp.Problem(obj, cons).solve(solver=cp.CLARABEL)
     except Exception:
+        _ERROR_COUNT['solve_erc_cvxpy'] += 1
         return None
     if w.value is None or (w.value is not None and not (True)):
         return None
@@ -258,6 +264,7 @@ def solve_erc_cvxpy(cov: np.ndarray, codes: list[str], industry_of: dict[str, st
     try:
         _assert_constraints(wv, codes, industry_of, cfg, prev_w, prev_codes)
     except AssertionError:
+        _ERROR_COUNT['solve_erc_cvxpy'] += 1
         return None
     return wv
 
@@ -300,6 +307,7 @@ def solve_erc(cov: np.ndarray, codes: list[str],
             w = _project_max_weight(w, cfg.max_weight)
             w = _project_industry_cap(w, codes, industry_of, cfg.max_industry_exposure)
     except Exception:
+        _ERROR_COUNT['solve_erc'] += 1
         w = np.full(n, 1.0 / n)
         w = _project_industry_cap(w, codes, industry_of, cfg.max_industry_exposure)
 

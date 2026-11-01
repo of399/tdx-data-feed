@@ -21,13 +21,16 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from collections import defaultdict
-from datetime import datetime
+from collections import Counter, defaultdict
 from pathlib import Path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 try:
     import yaml
 except ImportError:
+    _ERROR_COUNT['<module>'] += 1
     sys.stderr.write("✗ 缺少依赖: PyYAML (pip install pyyaml)\n")
     sys.exit(2)
 
@@ -88,6 +91,7 @@ def parse_frontmatter(text: str) -> tuple[dict | None, str | None]:
     try:
         data = yaml.safe_load(m.group(1))
     except yaml.YAMLError as e:
+        _ERROR_COUNT['parse_frontmatter'] += 1
         return None, f"YAML 解析错误: {e}"
     if not isinstance(data, dict):
         return None, "frontmatter 非字典"
@@ -212,15 +216,15 @@ def main() -> int:
         return 1 if err_count else 0
 
     # 文本报告
-    print(f"# Obsidian 元数据完整性校验")
+    print("# Obsidian 元数据完整性校验")
     print(f"vault: {vault}")
     print(f"扫描笔记: {total}")
-    print(f"---")
-    print(f"各模块笔记数:")
+    print("---")
+    print("各模块笔记数:")
     for mod in ["标的", "框架", "回测", "知识库", "数学", "数据", "模板", "日记", "收件箱", "其他"]:
         if counts.get(mod):
             print(f"  {mod}: {counts[mod]}")
-    print(f"---")
+    print("---")
     print(f"错误(字段/格式/去重): {err_count}")
     print(f"警告(skeleton 等): {warn_count}")
 
@@ -239,7 +243,7 @@ def main() -> int:
         for it in warnings[:args.max_issues]:
             print(f"  [{it['file']}] {it['field']}: {it['problem']}")
 
-    print(f"---")
+    print("---")
     if err_count == 0:
         print(f"✓ 元数据校验通过（错误 0；警告 {warn_count}；重复 {dup_count}）")
         return 0

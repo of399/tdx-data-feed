@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -20,6 +21,9 @@ from _common import daily_dir, daily_files, get_limit, universe_path
 
 from tdxfeed.execution.limits import limit_ratio
 from tdxfeed.names import is_st_name
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 ALL_STOCKS = universe_path()
@@ -60,6 +64,7 @@ def read_one(fp: Path) -> pd.DataFrame | None:
     try:
         df = pd.read_parquet(fp, columns=['date', 'open', 'high', 'low', 'close', 'volume', 'amount'])
     except Exception:
+        _ERROR_COUNT['read_one'] += 1
         return None
     # date 兼容：int 20210802 或 datetime
     if df['date'].dtype == 'int64' or df['date'].dtype == 'int32':
@@ -84,6 +89,7 @@ def load_previous_sample() -> pd.DataFrame | None:
     try:
         return pd.read_csv(DOUBLE_UP_DETAIL)
     except Exception:
+        _ERROR_COUNT['load_previous_sample'] += 1
         return None
 
 

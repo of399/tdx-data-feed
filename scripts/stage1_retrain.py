@@ -57,6 +57,7 @@ import logging
 import os
 import shutil
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -74,6 +75,9 @@ from stage1_baseline import (  # noqa: E402
     _eval_fold,
     load_and_validate,
 )
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 log = logging.getLogger("stage1_retrain")
 
@@ -112,6 +116,7 @@ def backup_old_model(old_path: Path, enabled: bool) -> Path | None:
         try:
             os.chmod(bak, 0o644)  # 先解除可能存在的只读位
         except OSError as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            _ERROR_COUNT['backup_old_model'] += 1
             print(f"[WARN] swallowed: {e!r}")
     shutil.copyfile(old_path, bak)
     os.chmod(bak, 0o644)  # 备份保持可写，便于下次覆盖
@@ -131,6 +136,7 @@ def protect_old_model(old_path: Path, enabled: bool) -> None:
         log.info("旧模型已设为只读(0444): %s（还原: chmod 644 %s）",
                  old_path.name, old_path)
     except OSError as e:
+        _ERROR_COUNT['protect_old_model'] += 1
         log.warning("旧模型只读保护失败（不影响安全守卫）: %s", e)
 
 
@@ -419,6 +425,7 @@ def _latest_gate_passed() -> bool | None:
         data = json.loads(jsons[-1].read_text(encoding="utf-8"))
         return bool(data.get("passed"))
     except Exception:
+        _ERROR_COUNT['_latest_gate_passed'] += 1
         return None
 
 
@@ -506,10 +513,12 @@ def main(argv: list[str] | None = None) -> int:
         return RETRAIN_OK
 
     except PermissionError as e:  # 安全守卫触发
+        _ERROR_COUNT['main'] += 1
         log.error("安全守卫拦截: %s", e)
         print(f"\n❌ RETRAIN_FAIL: {e}", file=sys.stderr)
         return RETRAIN_FAIL
     except Exception as e:
+        _ERROR_COUNT['main'] += 1
         log.error("重训异常: %s", e, exc_info=True)
         print(f"\n❌ RETRAIN_ERROR: {e}", file=sys.stderr)
         return RETRAIN_ERROR

@@ -39,6 +39,9 @@ from _common import adj_factor_dir, daily_dir  # noqa: E402
 
 from tdxfeed.parquet_io import write_table  # noqa: E402
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 DAILY_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
 EXPECTED_DATE_TYPE = "date32[day]"
@@ -67,6 +70,7 @@ def _date_field_type(p: Path) -> str | None:
     try:
         schema = pq.read_schema(p)
     except Exception:
+        _ERROR_COUNT['_date_field_type'] += 1
         return None
     dt = next((f.type for f in schema if f.name == "date"), None)
     return str(dt) if dt is not None else None

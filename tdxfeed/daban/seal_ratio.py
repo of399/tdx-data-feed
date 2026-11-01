@@ -18,11 +18,15 @@
 from __future__ import annotations
 
 import csv
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 from tdxfeed.execution.limits import normalize_code
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = [
     "SealRatio",
@@ -152,6 +156,7 @@ def _num(text: str) -> float:
     try:
         return float(str(text).replace(",", "").replace("%", "").strip())
     except (TypeError, ValueError):
+        _ERROR_COUNT['_num'] += 1
         return 0.0
 
 

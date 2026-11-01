@@ -1,6 +1,10 @@
 """增量状态管理：manifest.json 记录每 symbol 的 last_date 与条数。"""
 import json
 import os
+from collections import Counter
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 class State:
@@ -14,6 +18,7 @@ class State:
                 with open(self.state_file, encoding='utf-8') as f:
                     return json.load(f)
             except Exception:
+                _ERROR_COUNT['_load'] += 1
                 return {}
         return {}
 

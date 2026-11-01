@@ -12,7 +12,12 @@
 """
 from __future__ import annotations
 
+from collections import Counter
+
 import pandas as pd
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = ["parse_date", "parse_date_series", "to_date_str"]
 
@@ -26,7 +31,7 @@ def _parse_series(s: pd.Series) -> pd.Series:
     return pd.to_datetime(s)
 
 
-def parse_date(value) -> "pd.Series | pd.Timestamp":
+def parse_date(value) -> pd.Series | pd.Timestamp:
     """解析单个值或 Series 为 pd.Timestamp / 归一化 Series。
 
     支持：pd.Timestamp、datetime.date/time、int/float/numpy 标量 YYYYMMDD、
@@ -43,6 +48,7 @@ def parse_date(value) -> "pd.Series | pd.Timestamp":
             return pd.Timestamp(int(s[:4]), int(s[4:6]), int(s[6:8]))
         return pd.Timestamp(s) if s.strip() else pd.NaT
     except (TypeError, ValueError):
+        _ERROR_COUNT['parse_date'] += 1
         if isinstance(value, str):
             s = value.strip()
             if len(s) == 8 and s.isdigit():
@@ -68,6 +74,7 @@ def to_date_str(value) -> str:
     try:
         num = int(value)
     except (TypeError, ValueError):
+        _ERROR_COUNT['to_date_str'] += 1
         return str(value)[:10]
     s = str(num)
     return f"{s[:4]}-{s[4:6]}-{s[6:8]}" if len(s) == 8 else s

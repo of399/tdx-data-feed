@@ -10,10 +10,10 @@ P = exp(logprob)，单位 0–1（亦以百分比标注）。
 """
 import json
 import math
-import re
 import sys
 import time
 import urllib.request
+from collections import Counter
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +23,9 @@ for _p in (_ROOT / "scripts", _ROOT / "training" / "eval"):
 from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
 from llm_signal_plan_e import build_window
 from plan_e_backtest import backtest, load_double_up
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 OLLAMA_URL = "http://127.0.0.1:11434"
@@ -84,6 +87,7 @@ def main():
         try:
             chosen, p = call_conf(model, ci, inp)
         except Exception:
+            _ERROR_COUNT['main'] += 1
             rows.append((code, as_of, None, float("nan")))
             continue
         rows.append((code, as_of, chosen, p))

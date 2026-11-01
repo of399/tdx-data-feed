@@ -8,6 +8,7 @@ import re
 import socket
 import time
 import warnings
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -19,6 +20,9 @@ socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
 
 from _common import daily_dir, get_limit, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
@@ -39,6 +43,7 @@ def get_industry(code: str) -> dict:
                 'product': str(row.get('产品类型', ''))[:100]
             }
     except Exception as e:
+        _ERROR_COUNT['get_industry'] += 1
         return {'main': f'(获取失败: {type(e).__name__})', 'product': ''}
     return {'main': 'N/A', 'product': ''}
 

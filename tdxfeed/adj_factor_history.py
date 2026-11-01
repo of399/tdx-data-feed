@@ -45,7 +45,7 @@ def derive_factor(raw_rows, hfq_rows):
     if not common:
         raise ValueError("两条序列没有任何一天重合，无法反推因子")
     lo, hi = common[0], common[-1]
-    holes = sorted((d for d in (set(raw) | set(adj)) if lo < d < hi and d not in common))
+    holes = sorted(d for d in (set(raw) | set(adj)) if lo < d < hi and d not in common)
     if holes:
         raise ValueError(
             f"交集内部有洞（{len(holes)} 天，例 {holes[:3]}）：两条序列在这段对不齐，"

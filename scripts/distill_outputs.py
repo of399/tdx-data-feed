@@ -5,6 +5,10 @@ import re
 import sys
 import time
 import urllib.request
+from collections import Counter
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 BASE = os.environ.get("TDX_OLLAMA_URL", "http://127.0.0.1:11434")
 # 教师模型必须显式指定。这里曾写死一个 tag——本机现在没有它，而仓库里也没有任何生产者
@@ -47,6 +51,7 @@ def call(prompt):
             r = urllib.request.urlopen(BASE + "/api/generate", data=req, timeout=180)
             text = clean(json.loads(r.read()).get("response", ""))
         except Exception as e:
+            _ERROR_COUNT['call'] += 1
             last = e
             time.sleep(2)
             continue
@@ -94,6 +99,7 @@ def main():
     except DistillError as e:
         # 排队中的 prompt 全部取消：教师已经死了，让剩下几千条各重试三遍只是空转。
         # 已写出的行留在原地——续跑按行数跳过，不会重复也不会漏。
+        _ERROR_COUNT['main'] += 1
         ex.shutdown(wait=False, cancel_futures=False)
         fout.close()
         sys.exit(f"DISTILL_FAILED 本次已写 {written} 行后中止：{e}")

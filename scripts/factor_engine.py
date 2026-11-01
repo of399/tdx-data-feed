@@ -30,6 +30,7 @@ import json
 import re
 import sys
 import time
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -39,6 +40,9 @@ import pandas as pd
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
 from _common import daily_files, daily_path, get_limit, read_path, universe_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ALL_STOCKS = universe_path()
 DOUBLE_UP = ROOT / 'data/double_up/double_up_hfq_2020_2026_detail.csv'
@@ -83,6 +87,7 @@ def parse_daily(fp: Path) -> pd.DataFrame | None:
     try:
         df = pd.read_parquet(fp, columns=['date', 'open', 'high', 'low', 'close', 'volume', 'amount'])
     except Exception:
+        _ERROR_COUNT['parse_daily'] += 1
         return None
     if df.empty or 'close' not in df.columns:
         return None
@@ -326,6 +331,7 @@ def main():
         try:
             factors = calc_window_factors(df_full, code)
         except Exception:
+            _ERROR_COUNT['main'] += 1
             continue
         cache[code] = (df_full, factors)
 
@@ -376,6 +382,7 @@ def main():
                     try:
                         fp = resolve_parquet(code)
                     except FileNotFoundError:
+                        _ERROR_COUNT['main'] += 1
                         continue
                     df_full = parse_daily(fp)
                     if df_full is None or len(df_full) < 60:
@@ -383,6 +390,7 @@ def main():
                     try:
                         factors = calc_window_factors(df_full, code)
                     except Exception:
+                        _ERROR_COUNT['main'] += 1
                         continue
                     cache[code] = (df_full, factors)
 

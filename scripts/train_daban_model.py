@@ -19,6 +19,7 @@ import argparse
 import json
 import random
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -50,6 +51,9 @@ from tdxfeed.features_5d import (  # noqa: E402
     is_limit_up_ret,
     is_open_limit_up,
 )
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 OUT_DIR = ROOT / "data" / "double_up"
@@ -110,6 +114,7 @@ def build_dataset(
         try:
             df = pd.read_parquet(fp)
         except Exception:
+            _ERROR_COUNT['build_dataset'] += 1
             continue
         if len(df) < 30:
             continue

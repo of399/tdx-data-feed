@@ -42,6 +42,7 @@ import argparse
 import json
 import logging
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -55,6 +56,9 @@ if str(ROOT) not in sys.path:
 
 from tdxfeed.factors_candidates import CANDIDATE_NAMES  # 9 候选因子名
 from tdxfeed.stage1_wide_table import FEAT26_ORDER  # 26 基础维顺序（权威）
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 log = logging.getLogger("stage1_baseline")
 
@@ -155,6 +159,7 @@ def _spearman(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         r, _ = spearmanr(y_pred, y_true)
         return float(r)
     except Exception:
+        _ERROR_COUNT['_spearman'] += 1
         return float(pd.Series(y_pred).corr(pd.Series(y_true), method="spearman"))
 
 
@@ -416,6 +421,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"JSON: {out_json}")
         return 0
     except Exception as e:
+        _ERROR_COUNT['main'] += 1
         log.error("基线评测失败: %s", e, exc_info=True)
         print(f"\n❌ 基线评测失败: {e}", file=sys.stderr)
         return 1

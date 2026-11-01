@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,9 @@ from tdxfeed.daban.order import (  # noqa: E402
     build_intents,
     condition_order_text,
 )
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 class FakeCandidate:
@@ -107,6 +111,7 @@ def main() -> int:
         QmtBroker(user_data_path="/tmp/nonexistent_qmt")
         print("  ⚠ 意外：QmtBroker 构造成功（本机不应如此）")
     except RuntimeError as e:
+        _ERROR_COUNT['main'] += 1
         print(f"  预期报错: {e}")
 
     print("\n[OK] 下单流程联调全部通过")

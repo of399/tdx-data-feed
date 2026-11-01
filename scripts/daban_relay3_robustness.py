@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -26,6 +27,9 @@ from tdxfeed.date_utils import parse_date_series  # noqa: E402
 TRADES = ROOT / "data/daban/relay_hold1_20261022/daban_backtest_20200101_20261019.csv"
 
 from _common import daily_dir  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY_DIR = daily_dir()
 OUT = ROOT / "docs/archive/DABAN_RELAY3_ROBUSTNESS_20261022.md"
@@ -65,6 +69,7 @@ def market_intraday() -> pd.Series:
         try:
             df = pd.read_parquet(p, columns=["date", "open", "close"])
         except Exception:
+            _ERROR_COUNT['market_intraday'] += 1
             return None
         if df is None or df.empty:
             return None

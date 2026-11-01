@@ -1,9 +1,13 @@
 import json
 import os
 import sys
+from collections import Counter
 
 import pandas as pd
 from _common import daily_files
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 OUT = '/home/jiuben/tdx-data-feed/data/distill/skeleton.jsonl'
 WINDOW = 20
@@ -14,6 +18,7 @@ def unit_mult(amount, volume, close):
     try:
         a, v, c = float(amount), float(volume), float(close)
     except (TypeError, ValueError):
+        _ERROR_COUNT['unit_mult'] += 1
         return 100
     if a <= 0 or v <= 0 or c <= 0:
         return 100

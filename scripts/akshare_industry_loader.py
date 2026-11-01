@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -52,6 +53,9 @@ CACHE_TTL_SECONDS = 30 * 24 * 3600  # 30 天
 
 import akshare as ak
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 
 def _retry(callable_fn, name: str, max_attempts: int = 3) -> pd.DataFrame | None:
     """指数退避重试 akshare 接口。"""
@@ -63,6 +67,7 @@ def _retry(callable_fn, name: str, max_attempts: int = 3) -> pd.DataFrame | None
                 continue
             return df
         except Exception as e:
+            _ERROR_COUNT['_retry'] += 1
             wait = 2 ** (attempt - 1)
             print(f"  ❌ {name}: {type(e).__name__}: {e} (尝试 {attempt}/{max_attempts}, {wait}s 后重试)")
             if attempt < max_attempts:

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -25,6 +26,9 @@ from _common import daily_dir  # noqa: E402
 from tdxfeed.daban.limit_price import limit_ratio, limit_up_price  # noqa: E402
 from tdxfeed.date_utils import parse_date_series  # noqa: E402
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 DAILY_DIR = daily_dir()
 ALPHA = _ROOT / "data" / "daban" / "alpha_sources_20200101_20261019.parquet"
 
@@ -37,6 +41,7 @@ def consecutive_of(code: str, end_date: str, upto: int = 8) -> int:
     try:
         df = pd.read_parquet(p, columns=["date", "close"])
     except Exception:
+        _ERROR_COUNT['consecutive_of'] += 1
         return 0
     if df is None or df.empty:
         return 0

@@ -26,14 +26,15 @@ CLI
   - _download_report.json: 探测/下载报告 (status/probe/coverage/fails)
 """
 import argparse
+import concurrent.futures as _cf
 import json
 import os
 import socket
+import threading
 import time
 import traceback
-import concurrent.futures as _cf
-import threading
 import warnings
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -48,6 +49,9 @@ socket.setdefaulttimeout(25)
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
 from _common import daily_dir  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY_DIR = daily_dir()
 VAL_DIR = ROOT / "data" / "valuation"
@@ -97,7 +101,8 @@ def _call_timeout(fn, timeout, *args, **kwargs):
     def runner():
         try:
             box["r"] = fn(*args, **kwargs)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
+            _ERROR_COUNT['_call_timeout'] += 1
             err["e"] = e
     th = threading.Thread(target=runner, daemon=True)
     th.start()
@@ -117,11 +122,13 @@ def with_retry(fn, *args, timeout=30, **kwargs):
         try:
             return _call_timeout(fn, timeout, *args, **kwargs)
         except _cf.TimeoutError:
+            _ERROR_COUNT['with_retry'] += 1
             last = TimeoutError(f"timeout>{timeout}s")
             continue
         except RetryExhausted:
             raise
         except Exception as e:
+            _ERROR_COUNT['with_retry'] += 1
             last = e
     raise RetryExhausted(f"{type(last).__name__}: {str(last)[:120]}")
 
@@ -159,6 +166,7 @@ def load_done_codes():
             df = pd.read_parquet(PE_PB_PATH, columns=["code"])
             done.update(df["code"].astype(str).tolist())
         except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            _ERROR_COUNT['load_done_codes'] += 1
             print(f"[WARN] swallowed: {e!r}")
     return done
 
@@ -186,11 +194,13 @@ def fetch_valuation(ak, code: str):
         pe = with_retry(ak.stock_zh_valuation_baidu, symbol=code,
                         indicator="市盈率(TTM)", period=BAIDU_PERIOD)
     except RetryExhausted:
+        _ERROR_COUNT['fetch_valuation'] += 1
         pe = None
     try:
         pb = with_retry(ak.stock_zh_valuation_baidu, symbol=code,
                         indicator="市净率", period=BAIDU_PERIOD)
     except RetryExhausted:
+        _ERROR_COUNT['fetch_valuation'] += 1
         pb = None
 
     if pe is None and pb is None:
@@ -222,6 +232,7 @@ def fetch_fundamentals(ak, code: str):
         df = with_retry(ak.stock_financial_analysis_indicator,
                         symbol=code, start_year="2020")
     except RetryExhausted:
+        _ERROR_COUNT['fetch_fundamentals'] += 1
         return None
     if df is None or len(df) == 0:
         return None
@@ -282,6 +293,7 @@ def do_probe():
                 }
                 break
         except RetryExhausted:
+            _ERROR_COUNT['do_probe'] += 1
             continue
     report["interfaces"]["stock_zh_valuation_baidu"] = {
         "available": baidu_ok,
@@ -311,6 +323,7 @@ def do_probe():
                 }
                 break
         except RetryExhausted:
+            _ERROR_COUNT['do_probe'] += 1
             continue
     report["interfaces"]["stock_financial_analysis_indicator"] = {
         "available": fund_ok,
@@ -361,6 +374,7 @@ def _try_baidu(ak, code: str) -> bool:
                         indicator="市盈率(TTM)", period=BAIDU_PERIOD)
         return df is not None and len(df) > 0
     except RetryExhausted:
+        _ERROR_COUNT['_try_baidu'] += 1
         return False
 
 
@@ -396,6 +410,7 @@ def download_all(mode: str, limit: int = None):
         try:
             pe_df = fetch_valuation(ak, code)
         except Exception as e:
+            _ERROR_COUNT['download_all'] += 1
             log(f"  [{i+1}/{len(codes)}] {code} valuation ERR {type(e).__name__}: {str(e)[:80]}")
         if pe_df is not None and len(pe_df):
             pe_rows.append(pe_df)
@@ -415,6 +430,7 @@ def download_all(mode: str, limit: int = None):
             if fund_df is not None and len(fund_df):
                 fund_rows.append(fund_df)
         except Exception as e:
+            _ERROR_COUNT['download_all'] += 1
             log(f"  [{i+1}/{len(codes)}] {code} fundamentals ERR {type(e).__name__}: {str(e)[:80]}")
 
         # 增量检查点: 每 BATCH 只 flush 一次 parquet, 实现真正断点续传
@@ -493,6 +509,7 @@ def write_report(report: dict):
         with REPORT_PATH.open("w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
     except Exception as e:
+        _ERROR_COUNT['write_report'] += 1
         log(f"report 写入失败: {e}")
 
 

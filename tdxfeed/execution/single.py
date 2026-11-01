@@ -11,8 +11,9 @@ sim_live 在信号日次日开盘入场）。调用方算好 entry_idx，内核�
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Literal
 
 import pandas as pd
 

@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -55,6 +56,9 @@ UNIVERSE_FILE = universe_path()
 # sim_live 用相同的 DataFrame + LightGBM predict,模型自动按特征顺序匹配。
 
 from _common import daily_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 OUTPUT_DIR = ROOT / "data" / "plan_e"
 
@@ -186,6 +190,7 @@ def _preload(codes: list[str], max_workers: int) -> dict[str, pd.DataFrame]:
                     if not df.empty:
                         cache[code] = df
                 except Exception:
+                    _ERROR_COUNT['_preload'] += 1
                     continue
                 if done % 500 == 0:
                     print(f"    预加载进度: {done}/{len(codes)} 有效: {len(cache)}", flush=True)
@@ -196,6 +201,7 @@ def _preload(codes: list[str], max_workers: int) -> dict[str, pd.DataFrame]:
                 if not df.empty:
                     cache[code] = df
             except Exception:
+                _ERROR_COUNT['_preload'] += 1
                 continue
             if i % 500 == 0:
                 print(f"    预加载进度: {i}/{len(codes)} 有效: {len(cache)}", flush=True)

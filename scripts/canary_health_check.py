@@ -28,6 +28,7 @@ import json
 import os
 import subprocess
 import sys
+from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -42,6 +43,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件�
 from _common import adj_factor_dir, daily_dir, derived_dir, hfq_factor_dir  # noqa: E402
 
 from tdxfeed.freshness import sample_latest_date, stale_threshold  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 # 阈值
 OLLAMA_TIMEOUT = 5           # 秒
@@ -80,9 +84,11 @@ def check_ollama() -> dict:
             result['status'] = 'error'
             result['message'] = f'HTTP {r.status_code}'
     except requests.exceptions.ConnectionError:
+        _ERROR_COUNT['check_ollama'] += 1
         result['status'] = 'error'
         result['message'] = 'connection refused (ollama not running)'
     except Exception as e:
+        _ERROR_COUNT['check_ollama'] += 1
         result['status'] = 'error'
         result['message'] = str(e)[:200]
     return result
@@ -113,6 +119,7 @@ def _parse_systemd_ts(value: str):
     try:
         return datetime.strptime(' '.join(parts[-2:]), '%Y-%m-%d %H:%M:%S')
     except ValueError:
+        _ERROR_COUNT['_parse_systemd_ts'] += 1
         return None
 
 
@@ -146,6 +153,7 @@ def check_tdxfeed_sync() -> dict:
             result['status'] = 'warn'
             result['message'] = '; '.join(problems)
     except Exception as e:
+        _ERROR_COUNT['check_tdxfeed_sync'] += 1
         result['status'] = 'error'
         result['message'] = str(e)[:200]
     return result
@@ -288,6 +296,7 @@ def check_disk() -> dict:
             result['status'] = 'error'
             result['message'] = f'only {free_gb:.1f}GB free (< {DISK_MIN_FREE_GB}GB)'
     except Exception as e:
+        _ERROR_COUNT['check_disk'] += 1
         result['status'] = 'error'
         result['message'] = str(e)[:200]
     return result
@@ -316,6 +325,7 @@ def check_timers() -> dict:
             if out.stdout.strip() != 'active':
                 inactive.append(t)
         except Exception:
+            _ERROR_COUNT['check_timers'] += 1
             inactive.append(t)
     result['details'] = {'checked': [t for t, _ in timers], 'inactive': inactive}
     if inactive:
@@ -345,9 +355,11 @@ def check_gpu() -> dict:
                     result['message'] = f'GPU {parts[0]} util {util}% (likely stuck)'
                     break
     except FileNotFoundError:
+        _ERROR_COUNT['check_gpu'] += 1
         result['status'] = 'skip'
         result['message'] = 'nvidia-smi not found'
     except Exception as e:
+        _ERROR_COUNT['check_gpu'] += 1
         result['status'] = 'error'
         result['message'] = str(e)[:200]
     return result
@@ -381,9 +393,11 @@ def check_obsidian_sync() -> dict:
             result['status'] = 'ok'
             result['message'] = summary[0] if summary else 'ok'
     except subprocess.TimeoutExpired:
+        _ERROR_COUNT['check_obsidian_sync'] += 1
         result['status'] = 'error'
         result['message'] = 'verify script timeout'
     except Exception as e:
+        _ERROR_COUNT['check_obsidian_sync'] += 1
         result['status'] = 'error'
         result['message'] = f'check error: {str(e)[:200]}'
     return result

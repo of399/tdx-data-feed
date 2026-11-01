@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -18,6 +19,9 @@ import numpy as np
 import pandas as pd
 
 from tdxfeed.execution.costs import CostModel
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = [
     "ExecutionConfig",
@@ -56,6 +60,7 @@ def net_return(entry: float, exit_price: float, cfg: ExecutionConfig) -> float:
         entry = float(entry)
         exit_price = float(exit_price)
     except (TypeError, ValueError):
+        _ERROR_COUNT['net_return'] += 1
         return float("nan")
     if not np.isfinite(entry) or not np.isfinite(exit_price) or entry <= 0 or exit_price <= 0:
         return float("nan")

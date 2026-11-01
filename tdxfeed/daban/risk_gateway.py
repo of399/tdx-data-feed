@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import json
 import math
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 from tdxfeed.daban.phase import phase_params
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = [
     "Order",
@@ -122,6 +126,7 @@ def parse_cap(text: Any) -> float | None:
     try:
         v = float(s) / 100.0
     except (TypeError, ValueError):
+        _ERROR_COUNT['parse_cap'] += 1
         return None
     return max(0.0, min(v, 1.0))
 

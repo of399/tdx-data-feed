@@ -18,10 +18,14 @@ import csv
 import json
 import os
 import time
+from collections import Counter
 from dataclasses import dataclass, fields
 from pathlib import Path
 
 from tdxfeed.daban.order import OrderIntent, build_intents, condition_order_text
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 __all__ = [
     "BANNER",
@@ -127,6 +131,7 @@ def load_day(root: Path, trade_date: str) -> dict:
         payload = json.loads(fp.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         # 半写状态（理论上不会：写盘走 os.replace）。宁可当空账本重出，也不要把坏文件当已用额度。
+        _ERROR_COUNT['load_day'] += 1
         return _empty_day(trade_date)
     payload.setdefault("trade_date", trade_date)
     payload.setdefault("tickets", [])

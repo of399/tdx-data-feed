@@ -10,10 +10,14 @@ import os
 import re
 import sys
 import time
+from collections import Counter
 
 import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 NOTE      = "/home/jiuben/StockVault/05-知识库/模型蒸馏与LoRA训练-2026-09-26.md"
 LF        = "/home/workbuddy/lf_project"
@@ -53,6 +57,7 @@ def extract_final():
                 d = json.loads(lines[-1])
                 loss = d.get("loss") or d.get("train_loss")
             except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+                _ERROR_COUNT['extract_final'] += 1
                 print(f"[WARN] swallowed: {e!r}")
     ckpts = sorted(glob.glob(OUTDIR + "/checkpoint-*"),
                    key=lambda p: int(re.search(r"(\d+)", os.path.basename(p)).group(1)))
@@ -108,6 +113,7 @@ def close_hit(inp_json, out):
         cs = [str(c), str(float(c)), f"{float(c):.2f}"]
         return any(x in out for x in cs)
     except Exception:
+        _ERROR_COUNT['close_hit'] += 1
         return None
 
 def build_tests():

@@ -24,6 +24,7 @@ import argparse
 import csv
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +32,9 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from tdxfeed.daban import trial  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 COLUMNS = [
     "code", "ticket_price", "ticket_shares", "filled", "fill_price", "shares",
@@ -44,6 +48,7 @@ def _find_ticket(root: Path, code: str) -> tuple[str, dict] | None:
         try:
             payload = json.loads(fp.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
+            _ERROR_COUNT['_find_ticket'] += 1
             continue
         for t in payload.get("tickets", []):
             if str(t.get("code")) == code:
@@ -56,6 +61,7 @@ def _codes_of_latest_day(root: Path) -> list[str]:
         try:
             payload = json.loads(fp.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
+            _ERROR_COUNT['_codes_of_latest_day'] += 1
             continue
         codes = [str(t.get("code")) for t in payload.get("tickets", [])]
         if codes:
@@ -95,6 +101,7 @@ def _net(row: dict) -> tuple[float, float] | None:
         sell_price = float(row["sell_price"])
         fee_sell = float(row["fee_sell"])
     except (TypeError, ValueError, KeyError):
+        _ERROR_COUNT['_net'] += 1
         return None
     cost = fill_price * shares + fee_buy
     principal = fill_price * shares
@@ -164,6 +171,7 @@ def _ticket_rows(root: Path) -> list[dict]:
         try:
             payload = json.loads(fp.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
+            _ERROR_COUNT['_ticket_rows'] += 1
             continue
         for t in payload.get("tickets", []):
             out.append({"trade_date": str(payload.get("trade_date")), "code": str(t.get("code"))})

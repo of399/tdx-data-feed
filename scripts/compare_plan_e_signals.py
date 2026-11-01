@@ -13,11 +13,14 @@ walk-forward：按翻倍事件年份拆分，逐年报告 baseline 与「排除�
 from __future__ import annotations
 
 import argparse
-import re
+from collections import Counter
 
 import pandas as pd
 from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
 from plan_e_backtest import backtest, get_first_double_date, load_double_up
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 THETA = 0.02
 
@@ -64,6 +67,7 @@ def main():
         year_map = {norm_code(r["code"]): pd.Timestamp(r["signal_date"]).year
                    for _, r in fd.iterrows()}
     except Exception as e:
+        _ERROR_COUNT['main'] += 1
         print(f"[warn] 年份映射失败: {e}")
         year_map = {}
     bt["year"] = bt["code_n"].map(year_map).fillna(0).astype(int)

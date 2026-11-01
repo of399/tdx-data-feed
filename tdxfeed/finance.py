@@ -5,8 +5,12 @@ pytdx 的 get_finance_info 依赖行情数据层（当前实测不可用），
 不阻塞主流程。
 """
 import time
+from collections import Counter
 
 import akshare as ak
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 def fetch_finance(symbol):
@@ -19,6 +23,7 @@ def fetch_finance(symbol):
                 return df.to_dict("records")
             return []
         except Exception as e:
+            _ERROR_COUNT['fetch_finance'] += 1
             print(f"finance {symbol} 第{attempt+1}次失败: {str(e)[:60]}", flush=True)
             time.sleep(2 * (attempt + 1))
     return []

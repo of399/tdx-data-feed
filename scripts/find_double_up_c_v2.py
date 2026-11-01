@@ -19,12 +19,16 @@
 """
 import json
 import re
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from _common import adj_factor_dir, daily_dir, get_limit, universe_path
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
@@ -63,6 +67,7 @@ def screen_one_qfq(code: str, name_map: dict, st_set: set) -> list:
         df = pd.read_parquet(fp, columns=['date', 'open', 'high', 'low', 'close', 'volume', 'amount'])
         adj = pd.read_parquet(adj_fp, columns=['date', 'adj_factor'])
     except Exception:
+        _ERROR_COUNT['screen_one_qfq'] += 1
         return []
 
     if df['date'].dtype in ('int64', 'int32'):

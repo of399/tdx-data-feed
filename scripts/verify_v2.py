@@ -29,6 +29,7 @@ import json
 import logging
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -36,6 +37,9 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from _common import adj_factor_dir, daily_dir, hfq_factor_dir, minute_dir  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
@@ -67,8 +71,10 @@ def run_subprocess(cmd: list[str], timeout: int = 300) -> dict:
             "stderr_tail": r.stderr[-800:] if r.stderr else "",
         }
     except subprocess.TimeoutExpired:
+        _ERROR_COUNT['run_subprocess'] += 1
         return {"status": "timeout", "stdout_tail": "", "stderr_tail": f"timeout {timeout}s"}
     except Exception as e:
+        _ERROR_COUNT['run_subprocess'] += 1
         return {"status": "error", "stderr_tail": str(e)[:200]}
 
 
@@ -169,6 +175,7 @@ def print_text_report(report: dict) -> None:
                 print(f"  {k:12s}: 文件={rep.get('total_files')} 合规率={rep.get('compliant_pct')}% "
                       f"date分布={rep.get('date_type_distribution')}")
         except Exception:
+            _ERROR_COUNT['print_text_report'] += 1
             print(f"  (解析失败): {sc['stdout_tail'][:200]}")
     else:
         print(f"  status={sc.get('status')} stderr={sc.get('stderr_tail','')[:200]}")

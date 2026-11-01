@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -57,6 +58,9 @@ NEG_RATIO = 5
 LIVE_MODEL = _ROOT / "data" / "double_up" / "d_signal_5d_model_daban.txt"
 
 from _common import daily_dir  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 
@@ -112,6 +116,7 @@ def build_samples(code: str, recent: int, sample_space: str = "limit_up") -> pd.
     try:
         df = pd.read_parquet(fp)
     except Exception:
+        _ERROR_COUNT['build_samples'] += 1
         return None
     if df is None or len(df) < 30:
         return None

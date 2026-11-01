@@ -25,6 +25,7 @@ import argparse
 import logging
 import sys
 import time
+from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -37,6 +38,9 @@ from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.writers import Writers
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY_DIR = daily_dir()
 
@@ -88,6 +92,7 @@ def fetch_range(symbol: str, start: date, end: date) -> list | None:
             log.debug("tencent ok %s [%s~%s] %d bars", symbol, s, e, len(bars))
             return bars
     except Exception as ex:
+        _ERROR_COUNT['fetch_range'] += 1
         log.debug("tencent fail %s: %s", symbol, ex)
     # 2) Akshare (Eastmoney 支持 start_date)
     try:
@@ -96,6 +101,7 @@ def fetch_range(symbol: str, start: date, end: date) -> list | None:
             log.debug("akshare ok %s [%s~%s] %d bars", symbol, s, e, len(bars))
             return bars
     except Exception as ex:
+        _ERROR_COUNT['fetch_range'] += 1
         log.debug("akshare fail %s: %s", symbol, ex)
     # 3) Sina 兜底：拉最近 1023 根 → 过滤 start 之后
     try:
@@ -107,6 +113,7 @@ def fetch_range(symbol: str, start: date, end: date) -> list | None:
                 log.debug("sina ok %s filter %d/%d bars", symbol, len(filtered), len(bars))
                 return filtered
     except Exception as ex:
+        _ERROR_COUNT['fetch_range'] += 1
         log.debug("sina fail %s: %s", symbol, ex)
     return None
 

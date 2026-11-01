@@ -20,6 +20,7 @@ import multiprocessing as mp
 import os
 import shutil
 import sys
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,9 @@ from tdxfeed.hfq_factor import (  # noqa: E402
     write_atomic,
 )
 from tdxfeed.paths import hfq_factor_dir  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 GATE_TOL = 0.005
 START = "1990-01-01"
@@ -178,6 +182,7 @@ def backfill_one(bs, code: str, out_dir: Path, today: str, backup_dir: Path) -> 
         write_atomic(path, merged)
         added = len(merged) - len(old)
     except Exception as e:                 # 逐只隔离：一只坏不中断整轮
+        _ERROR_COUNT['backfill_one'] += 1
         return f"fail:{type(e).__name__}:{str(e)[:120]}"
     if action == "rebase":
         return f"rebase:+{added}:{detail}"
@@ -202,6 +207,7 @@ def _worker(code: str, out_dir: str, today: str, backup_dir: str):
     try:
         return code, backfill_one(_get_bs(), code, Path(out_dir), today, Path(backup_dir))
     except Exception as e:
+        _ERROR_COUNT['_worker'] += 1
         return code, f"fail:{type(e).__name__}:{str(e)[:120]}"
 
 
@@ -251,6 +257,7 @@ def main(argv=None) -> int:
             try:
                 code, r = fut.result()
             except Exception as e:
+                _ERROR_COUNT['main'] += 1
                 code, r = futs[fut], f"fail:{type(e).__name__}"
             if r.startswith("ok:") or r.startswith("rebase:"):
                 ok += 1

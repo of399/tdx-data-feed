@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +27,9 @@ import pandas as pd
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
 from _common import daily_path  # noqa: E402
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 SRC = ROOT / "data" / "v4"
 CODE_RE = re.compile(r"对股票\s+(\d{6})")
@@ -39,6 +43,7 @@ def load_parquet(code_clean: str) -> pd.DataFrame | None:
     try:
         df = pd.read_parquet(p)
     except Exception:
+        _ERROR_COUNT['load_parquet'] += 1
         return None
     # schema 漂移：date 为 int64 YYYYMMDD
     if str(df["date"].dtype).startswith("int"):

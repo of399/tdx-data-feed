@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -37,6 +38,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import compute_window_features_extended
 from find_d_signal_5d import load_one
+
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
 
 ROOT = Path(__file__).parent.parent
 SOURCE = ROOT / "data" / "double_up" / "d_signal_5d_features.csv"
@@ -120,6 +124,7 @@ def _process_code_samples(args: tuple) -> list[dict]:
         try:
             sig_match = df.index[df["date"] == sig_date]
         except Exception:
+            _ERROR_COUNT['_process_code_samples'] += 1
             continue
         if len(sig_match) == 0:
             continue

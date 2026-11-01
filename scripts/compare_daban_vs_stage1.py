@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -49,6 +50,9 @@ from train_daban_model import SPLIT_DATE, iter_stock_files  # noqa: E402
 
 from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+_ERROR_COUNT: Counter[str] = Counter()
+
 MODEL_STAGE1 = ROOT / "data" / "double_up" / "d_signal_5d_model_vpnl_huber_stage1.txt"
 MODEL_DABAN = ROOT / "data" / "double_up" / "d_signal_5d_model_daban.txt"
 
@@ -61,6 +65,7 @@ def process_stock(item: tuple) -> dict | None:
     try:
         df = pd.read_parquet(fp)
     except Exception as e:
+        _ERROR_COUNT['process_stock'] += 1
         print(f"[WARN] {code} 读取失败: {e!r}")
         return None
     if len(df) < 30:
