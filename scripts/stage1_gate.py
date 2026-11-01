@@ -69,7 +69,6 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
 # 复用 Step 3.5 基础设施（单一来源）
 from stage1_baseline import (  # noqa: E402
     ALL35,
@@ -77,6 +76,8 @@ from stage1_baseline import (  # noqa: E402
     load_and_validate,
     walk_forward_eval,
 )
+
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -573,9 +574,8 @@ def main(argv: list[str] | None = None) -> int:
     # 写 JSON + MD
     out_json = out_dir / f"stage1_gate_{ts}.json"
     out_md = out_dir / f"stage1_gate_{ts}.md"
-    out_json.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str),
-                        encoding="utf-8")
-    out_md.write_text(build_report(result), encoding="utf-8")
+    atomic_write_text(out_json, json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    atomic_write_text(out_md, build_report(result), encoding="utf-8")
 
     # 控制台摘要
     print("\n=== Step 5 闸门结果 ===")

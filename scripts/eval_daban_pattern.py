@@ -40,7 +40,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 sys.path.insert(0, str(ROOT / "scripts"))
-
 from features_5d import (  # noqa: E402
     compute_window_features_extended,
     get_limit,
@@ -48,6 +47,8 @@ from features_5d import (  # noqa: E402
     is_open_limit_up,
 )
 from train_daban_model import SPLIT_DATE, iter_stock_files  # noqa: E402
+
+from tdxfeed.atomic import atomic_write_parquet  # noqa: E402  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -288,7 +289,7 @@ def main() -> int:
             if df[c].dtype == float:
                 df[c] = df[c].astype("float32")
         out_fp.parent.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(out_fp, index=False)
+        atomic_write_parquet(df, out_fp, index=False)
         print(f"\n明细落盘: {out_fp} ({len(df):,} 行)")
 
     score_cols = {}

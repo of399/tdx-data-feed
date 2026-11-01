@@ -19,11 +19,15 @@ ETF adj_factor 抓取脚本（备用，当前 akshare 东财接口故障）【�
 Schema：date, adj_factor, qfq_close, raw_close
 """
 import argparse
+import sys
 import time
 import warnings
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 
 warnings.filterwarnings('ignore')
 
@@ -118,7 +122,7 @@ def save_one(code_short, rows):
     df['code'] = code_short
     df = df[['code', 'date', 'adj_factor', 'qfq_close', 'raw_close']]
     fp = OUT / f'{code_short}.parquet'
-    df.to_parquet(fp, index=False)
+    atomic_write_parquet(df, fp, index=False)
     return True
 
 

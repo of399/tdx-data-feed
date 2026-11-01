@@ -55,6 +55,9 @@ from pathlib import Path
 
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
+
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
@@ -124,12 +127,12 @@ def _write_meta(n_rows: int) -> None:
         "count": int(n_rows),
         "source": "ak.stock_board_concept_name_ths",
     }
-    CONCEPT_META_JSON.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(CONCEPT_META_JSON, json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def save_concept_list(df: pd.DataFrame) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_csv(CONCEPT_LIST_CSV, index=False, encoding="utf-8-sig")
+    atomic_write_frame(df, CONCEPT_LIST_CSV, index=False, encoding="utf-8-sig")
     _write_meta(len(df))
     print(f"  ✅ 概念列表 → {CONCEPT_LIST_CSV} ({len(df)} 条)")
 

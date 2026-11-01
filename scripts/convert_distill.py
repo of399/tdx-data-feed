@@ -4,6 +4,11 @@
 import argparse
 import json
 import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+
 
 SRC = "/home/jiuben/tdx-data-feed/data/distill/full.jsonl"
 LF_DATA = "/home/workbuddy/lf_project/data"
@@ -27,8 +32,9 @@ def main():
             rows.append({"instruction": d["instruction"], "input": d["input"], "output": d["output"]})
     print(f"读取 {SRC}: 有效 {len(rows)} 条, 空 output 跳过 {empty} 条")
     out_json = os.path.join(LF_DATA, name + ".json")
-    with open(out_json, "w", encoding="utf-8") as f:
+    with open(f"{out_json}.tmp", "w", encoding="utf-8") as f:
         json.dump(rows, f, ensure_ascii=False, indent=1)
+    os.replace(f"{out_json}.tmp", out_json)
     print("写出 ->", out_json, f"({len(rows)} 条)")
     with open(INFO_JSON, encoding="utf-8") as f:
         info = json.load(f)
@@ -37,8 +43,9 @@ def main():
         "formatting": "alpaca",
         "columns": {"prompt": "instruction", "query": "input", "response": "output"},
     }
-    with open(INFO_JSON, "w", encoding="utf-8") as f:
+    with open(f"{INFO_JSON}.tmp", "w", encoding="utf-8") as f:
         json.dump(info, f, ensure_ascii=False, indent=2)
+    os.replace(f"{INFO_JSON}.tmp", INFO_JSON)
     print("已注册 dataset_info.json ->", name)
 
 if __name__ == "__main__":

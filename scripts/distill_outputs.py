@@ -1,4 +1,5 @@
 import concurrent.futures as cf
+import fcntl
 import json
 import os
 import re
@@ -75,13 +76,16 @@ def main():
     if LIMIT:
         rows = rows[:LIMIT]
     done = 0
+    # 读-改-写必须加锁：两个进程同时续跑会读到同一个 done 行数 → 重复或丢行
+    fout = open(OUT, 'a+', encoding='utf-8')
+    fcntl.flock(fout.fileno(), fcntl.LOCK_EX)
     if os.path.exists(OUT):
         with open(OUT, encoding='utf-8') as f:
             for _ in f:
                 done += 1
     print(f"total={len(rows)} done={done} conc={CONC} num_predict={NUM_PREDICT}")
     rows = rows[done:]
-    fout = open(OUT, 'a', encoding='utf-8')
+    fout.seek(0, os.SEEK_END)
     prompts = [r['instruction'] + "\n" + r['input'] for r in rows]
     t0 = time.time()
     ex = cf.ThreadPoolExecutor(max_workers=CONC)

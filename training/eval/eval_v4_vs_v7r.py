@@ -22,12 +22,16 @@ import argparse
 import json
 import os
 import re
+import sys
 import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -126,10 +130,9 @@ def eval_direction(tok, model, samples: list, batch_size: int = 8, max_new_token
                   f"({elapsed:.0f}s, {rate:.2f}样本/s)", flush=True)
             if status_path:
                 try:
-                    Path(status_path).write_text(json.dumps(
+                    atomic_write_text(Path(status_path), json.dumps(
                         {"done": done, "n": n, "cur_dir_acc": cur_acc, "cur_parse_fail": cur_fail,
-                         "elapsed_sec": elapsed, "rate_per_sec": rate}, ensure_ascii=False),
-                        encoding="utf-8")
+                         "elapsed_sec": elapsed, "rate_per_sec": rate}, ensure_ascii=False), encoding="utf-8")
                 except Exception:
                     _ERROR_COUNT['eval_direction'] += 1
                     pass
@@ -211,7 +214,7 @@ def main():
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         EVAL_OUT_DIR.mkdir(parents=True, exist_ok=True)
         jf = EVAL_OUT_DIR / f"metrics_{args.single_name}_{ts}.json"
-        jf.write_text(json.dumps(r, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(jf, json.dumps(r, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\n[单模型指标] {jf}")
         print(f"  方向准确率={r['direction_accuracy']:.4f} 格式遵循率={r['format_compliance_rate']:.4f} "
               f"解析失败率={r['parse_fail_rate']:.4f} 样本={r['n_samples']}")
@@ -226,7 +229,7 @@ def main():
            "delta_fmt": ra["format_compliance_rate"] - rb["format_compliance_rate"]}
     EVAL_OUT_DIR.mkdir(parents=True, exist_ok=True)
     jf = EVAL_OUT_DIR / f"compare_{ts}.json"
-    jf.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(jf, json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print("\n" + "=" * 60)
     print("v4 测试集 双模型方向/格式对比")

@@ -20,11 +20,15 @@ v3 提前版盘前实时打分（每日开盘前自动跑）
 """
 import argparse
 import json
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
@@ -199,11 +203,11 @@ def main():
     # 写文件
     date_str = today.strftime('%Y%m%d')
     top5_fp = SIGNALS_DIR / f'top5_premarket_{date_str}.csv'
-    top5.to_csv(top5_fp, index=False)
+    atomic_write_frame(top5, top5_fp, index=False)
     print(f'\n  Top 5% 候选: {top5_fp}')
 
     buy_fp = SIGNALS_DIR / f'top10_buy_{date_str}.csv'
-    buy_list.to_csv(buy_fp, index=False)
+    atomic_write_frame(buy_list, buy_fp, index=False)
     print(f'  今日买入清单: {buy_fp}')
 
     # 生成盘前报告
@@ -256,7 +260,7 @@ def main():
     md.append('脚本: `scripts/v3_premarket_top.py`  ')
 
     md_fp = DAILY_DIR / f'premarket_{date_str}.md'
-    md_fp.write_text('\n'.join(md), encoding='utf-8')
+    atomic_write_text(md_fp, '\n'.join(md), encoding='utf-8')
     print(f'  盘前报告: {md_fp}')
 
     # 控制台简短输出

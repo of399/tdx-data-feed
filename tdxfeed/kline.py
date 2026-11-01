@@ -26,7 +26,7 @@ except ImportError as e:
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
-
+from tdxfeed.atomic import atomic_write_parquet  # noqa: E402  # SEM001 原子写
 from tdxfeed.paths import parquet_root  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -115,7 +115,7 @@ def save_parquet(symbol, df, period):
         '成交额': 'amount', '涨跌幅': 'pct_chg', '涨跌额': 'chg',
         '振幅': 'amplitude', '换手率': 'turnover',
     })
-    out.to_parquet(path, index=False)
+    atomic_write_parquet(out, path, index=False)
     return path
 
 
@@ -167,5 +167,5 @@ def save_rows_parquet(symbol, rows, scale):
     os.makedirs(out_dir, exist_ok=True)
     df = pd.DataFrame(rows)
     path = os.path.join(out_dir, symbol + '.parquet')
-    df.to_parquet(path, index=False)
+    atomic_write_parquet(df, path, index=False)
     return path

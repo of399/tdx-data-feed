@@ -32,7 +32,7 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
+from tdxfeed.atomic import atomic_write_frame  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.limit_price import exchange_prefix, is_st, limit_ratio  # noqa: E402
 from tdxfeed.paths import DATA_ROOT, daily_dir, universe_path  # noqa: E402
 
@@ -83,7 +83,7 @@ def main() -> int:
         print(frame.head(30).to_string(index=False))
         out = DATA / "daban"
         out.mkdir(parents=True, exist_ok=True)
-        frame.to_csv(out / "band_check_stale_labels.csv", index=False)
+        atomic_write_frame(frame, out / "band_check_stale_labels.csv", index=False)
         print(f"\n已写出 {out / 'band_check_stale_labels.csv'}")
     return 0
 

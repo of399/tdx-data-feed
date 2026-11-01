@@ -44,6 +44,8 @@ from tdxfeed.execution.costs import CostModel  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import adj_factor_dir, daily_dir  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_frame  # noqa: E402  # SEM001 原子写
+
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
@@ -504,7 +506,7 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     detail = out_dir / f"daban_backtest_{args.start}_{args.end}.csv"
-    pd.DataFrame([asdict(t) for t in trades]).to_csv(detail, index=False, encoding="utf-8-sig")
+    atomic_write_frame(pd.DataFrame([asdict(t) for t in trades]), detail, index=False, encoding="utf-8-sig")
 
     print("\n=== 总体（逐笔） ===")
     for k, v in summarize(trades).items():

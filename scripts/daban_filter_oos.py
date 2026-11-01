@@ -24,7 +24,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.sector import load_industry_map  # noqa: E402
 
 DEFAULT_TRADES = ROOT / "data/daban/unfiltered_limit_20261022/daban_backtest_20200101_20261019.csv"
@@ -183,7 +183,7 @@ def main() -> int:
     if args.out:
         p = Path(args.out)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text, encoding="utf-8")
+        atomic_write_text(p, text, encoding="utf-8")
         print(f"[ok] {p}")
     return 0
 

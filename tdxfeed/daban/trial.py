@@ -17,11 +17,14 @@ import copy
 import csv
 import json
 import os
+import sys
 import time
 from collections import Counter
 from dataclasses import dataclass, fields
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 from tdxfeed.daban.order import OrderIntent, build_intents, condition_order_text
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -260,7 +263,7 @@ def _atomic_write(fp: Path, text: str, keep_backup: bool) -> None:
     if keep_backup and fp.exists():
         # data/ 在 .gitignore 里：就地覆写前留带日期备份，git 救不回来。
         bak = fp.with_name(f"{fp.name}.bak-{time.strftime('%Y%m%d_%H%M%S')}")
-        bak.write_text(fp.read_text(encoding="utf-8"), encoding="utf-8")
+        atomic_write_text(bak, fp.read_text(encoding="utf-8"), encoding="utf-8")
     tmp = fp.with_name(f"{fp.name}.tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, fp)
@@ -347,7 +350,7 @@ def write_marker(root: Path, text: str) -> Path:
     fp = marker_path(root)
     fp.parent.mkdir(parents=True, exist_ok=True)
     body = text.rstrip() + f"\n\n写于 {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-    fp.write_text(body, encoding="utf-8")
+    atomic_write_text(fp, body, encoding="utf-8")
     return fp
 
 

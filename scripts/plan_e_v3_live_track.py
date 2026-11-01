@@ -37,17 +37,25 @@
 """
 import argparse
 import json
+import os
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
+
 ROOT = Path('/home/jiuben/tdx-data-feed')
 LIVE_DIR = ROOT / 'data/plan_e/live_v3'
 FACTOR_FP = ROOT / 'data/factors/event_factors_with_sentiment.parquet'
 
 from _common import daily_dir, universe_path  # noqa: E402
+
+# 子进程调用最长允许时长（秒）
+SUBPROCESS_TIMEOUT = 600
 
 ALL_STOCKS = universe_path()
 PARQUET = daily_dir()
@@ -94,7 +102,7 @@ def load_journal() -> pd.DataFrame:
 
 
 def save_journal(df: pd.DataFrame):
-    df.to_csv(LIVE_DIR / 'journal.csv', index=False)
+    atomic_write_frame(df, LIVE_DIR / 'journal.csv', index=False)
 
 
 def load_positions() -> dict:
@@ -107,8 +115,9 @@ def load_positions() -> dict:
 
 def save_positions(p: dict):
     p['last_update'] = datetime.now().isoformat()
-    with open(LIVE_DIR / 'positions.json', 'w') as f:
+    with open(f"{LIVE_DIR / 'positions.json'}.tmp", 'w') as f:
         json.dump(p, f, indent=2, ensure_ascii=False)
+    os.replace(f"{LIVE_DIR / 'positions.json'}.tmp", LIVE_DIR / 'positions.json')
 
 
 def load_config() -> dict:
@@ -120,8 +129,9 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict):
-    with open(LIVE_DIR / 'config.json', 'w') as f:
+    with open(f"{LIVE_DIR / 'config.json'}.tmp", 'w') as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
+    os.replace(f"{LIVE_DIR / 'config.json'}.tmp", LIVE_DIR / 'config.json')
 
 
 def calc_composite_score(df: pd.DataFrame, top_factors: list[str]) -> pd.Series:
@@ -362,7 +372,7 @@ def cmd_daily(args):
     print('\n[4/5] 生成日报...')
     daily_md = generate_daily_report(today, signals, positions, actions, anomalies, cfg)
     daily_fp = LIVE_DIR / 'daily_reports' / f'daily_{today.strftime("%Y%m%d")}.md'
-    daily_fp.write_text(daily_md, encoding='utf-8')
+    atomic_write_text(daily_fp, daily_md, encoding='utf-8')
     print(f'  日报: {daily_fp}')
 
     # 5. 保存持仓
@@ -437,7 +447,7 @@ def main():
         cmd = ['venv/bin/python', 'scripts/v3_premarket_top.py',
                '--date', args.date or '', '--top-n', str(args.top_n)]
         cmd = [c for c in cmd if c]
-        subprocess.run(cmd)
+        subprocess.run(cmd, timeout=SUBPROCESS_TIMEOUT)
     elif args.mode == 'weekly':
         print('周报模式 - 即将实现')
     elif args.mode == 'monthly':

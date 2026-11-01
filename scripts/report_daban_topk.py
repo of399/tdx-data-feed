@@ -22,12 +22,16 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA = ROOT / "data/double_up/daban_pattern_eval_20261022.parquet"
@@ -267,7 +271,7 @@ def main() -> int:
         ROOT / "docs" / f"DABAN_TOPK_REPORT_{datetime.now():%Y%m%d}.md")
     if not args.no_write:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(report, encoding="utf-8")
+        atomic_write_text(out_path, report, encoding="utf-8")
         print(f"报告已写入：{out_path}")
     print(f"样本 {len(df):,} 行 / {df['date'].nunique()} 日，基准率 {_pct(base_all)}")
     for name in models:

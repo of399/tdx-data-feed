@@ -16,8 +16,12 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 __all__ = [
     "PHASE_PARAMS",
@@ -93,7 +97,7 @@ def write_phase(stats: PhaseStats, out_dir: str | Path, phase: str | None = None
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"market_phase_{stats.trade_date or 'latest'}.json"
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
 
 

@@ -34,7 +34,7 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.limit_price import (  # noqa: E402
     board_label,
     exchange_prefix,
@@ -332,9 +332,9 @@ def main() -> int:
 
     OUT.mkdir(parents=True, exist_ok=True)
     csv = OUT / f"formula1_screen_{day}.csv"
-    frame.to_csv(csv, index=False, encoding="utf-8-sig")
+    atomic_write_frame(frame, csv, index=False, encoding="utf-8-sig")
     js = OUT / f"formula1_screen_{day}.json"
-    js.write_text(json.dumps({"date": date_str, "funnel": funnel, "reconcile": check,
+    atomic_write_text(js, json.dumps({"date": date_str, "funnel": funnel, "reconcile": check,
                              "n_rows": len(frame), "limit": args.limit},
                             ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n已写出 {csv} 和 {js}")

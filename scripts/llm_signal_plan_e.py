@@ -53,6 +53,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
 from plan_e_backtest import get_first_double_date, load_double_up  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_frame  # noqa: E402  # SEM001 原子写
+
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
@@ -237,7 +239,7 @@ def gen_signals(model: str, out_csv: Path, limit: int | None, dry: bool, resume:
             break
 
     out_csv.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(out_csv, index=False, encoding="utf-8-sig")
+    atomic_write_frame(pd.DataFrame(rows), out_csv, index=False, encoding="utf-8-sig")
     print(f"[完成] 信号写出: {out_csv}  共 {len(rows)} 行（有效方向 {n_ok}，跳过北交所 {n_skip_bj}）", flush=True)
 
 

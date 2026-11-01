@@ -12,10 +12,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
-
 import pandas as pd
 from _common import daily_files  # noqa: E402
 from train_pnl_proxy import OUT_DATA, attach_pnl
+
+from tdxfeed.atomic import atomic_write_frame  # noqa: E402  # SEM001 原子写
 
 OUT_HFQ = OUT_DATA.with_name("d_signal_5d_features_vpnl_hfq.csv")
 
@@ -76,7 +77,7 @@ def main(argv=None) -> int:
               f"（已申报 {args.expect_drop}）：确认都是缺因子的票", file=sys.stderr)
     tmp = out.with_name(out.name + ".tmp")
     try:
-        renamed.to_csv(tmp, index=False)
+        atomic_write_frame(renamed, tmp, index=False)
         tmp.replace(out)
     except Exception:
         tmp.unlink(missing_ok=True)

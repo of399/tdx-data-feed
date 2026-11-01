@@ -36,7 +36,7 @@
       "assignment": 3,
       "attr-defined": 8,
       "misc": 1,
-      "union-attr": 13
+      "union-attr": 7
     },
     "tdxfeed/daban/scanner.py": {
       "arg-type": 1,
@@ -66,7 +66,7 @@
     "mcp/",
     "tdxfeed/execution/"
   ],
-  "total": 70,
+  "total": 64,
   "updated": "2026-11-01",
   "version": 1
 }

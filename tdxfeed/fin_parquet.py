@@ -15,7 +15,7 @@ import pandas as pd
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
-
+from tdxfeed.atomic import atomic_write_parquet  # noqa: E402  # SEM001 原子写
 from tdxfeed.paths import parquet_root  # noqa: E402
 
 OUT = str(parquet_root())
@@ -53,7 +53,7 @@ def convert():
     print("[convert] finance jsonl → parquet...")
     df = jsonl_to_df(FIN_JSON)
     if df is not None:
-        df.to_parquet(FIN_PQ, index=False)
+        atomic_write_parquet(df, FIN_PQ, index=False)
         print(f"  finance.parquet: {len(df)} 行, 列 {list(df.columns)[:8]}...")
     else:
         print("  finance: 无数据")
@@ -61,7 +61,7 @@ def convert():
     print("[convert] xdxr jsonl → parquet...")
     dfx = jsonl_to_df(XDR_JSON)
     if dfx is not None:
-        dfx.to_parquet(XDR_PQ, index=False)
+        atomic_write_parquet(dfx, XDR_PQ, index=False)
         print(f"  xdxr.parquet: {len(dfx)} 行, 列 {list(dfx.columns)}")
     else:
         print("  xdxr: 无数据")
@@ -102,12 +102,14 @@ def incremental():
                         v = r.get(k)
                         if v is not None and str(v) not in ('', 'nan'):
                             recs.append({'report_date': str(k), 'option': opt, 'metric': metric, 'value': v})
-            with open(fin_p, 'w', encoding='utf-8') as f:
+            with open(f"{fin_p}.tmp", 'w', encoding='utf-8') as f:
                 for r in recs:
                     f.write(json.dumps(r, ensure_ascii=False, default=str) + '\n')
-            with open(xdr_p, 'w', encoding='utf-8') as f:
+            os.replace(f"{fin_p}.tmp", fin_p)
+            with open(f"{xdr_p}.tmp", 'w', encoding='utf-8') as f:
                 for r in xd:
                     f.write(json.dumps(r, ensure_ascii=False, default=str) + '\n')
+            os.replace(f"{xdr_p}.tmp", xdr_p)
             ok += 1
         except Exception as e:
             fail += 1

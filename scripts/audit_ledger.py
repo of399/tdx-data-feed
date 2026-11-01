@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
@@ -27,6 +28,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -127,11 +131,8 @@ class Ledger:
 
     def save(self, path: Path = LEDGER_PATH) -> None:
         data = {"meta": self.meta, "issues": [i.raw for i in self.issues]}
-        path.write_text(
-            yaml.safe_dump(data, allow_unicode=True, sort_keys=False,
-                           default_flow_style=False, width=100),
-            encoding="utf-8",
-        )
+        atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False,
+                           default_flow_style=False, width=100), encoding="utf-8")
 
     def validate(self) -> list[str]:
         """校验台账自身合法性，返回问题列表（空=合法）。"""
@@ -454,7 +455,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 
     text = "\n".join(out)
     if args.out:
-        Path(args.out).write_text(text, encoding="utf-8")
+        atomic_write_text(Path(args.out), text, encoding="utf-8")
         print(f"已写出：{args.out}")
     else:
         print(text)

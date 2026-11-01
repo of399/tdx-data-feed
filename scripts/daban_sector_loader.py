@@ -31,6 +31,7 @@ _ERROR_COUNT: Counter[str] = Counter()
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+from tdxfeed.atomic import atomic_write_frame  # noqa: E402  # SEM001 原子写
 
 OUT_DIR = _ROOT / "data" / "industry"
 NAME_CSV = OUT_DIR / "sector_name.csv"
@@ -162,13 +163,13 @@ def main() -> int:
     if CONS_CSV.exists() and not args.force:
         old = pd.read_csv(CONS_CSV, dtype=str)
         new = pd.concat([old, new], ignore_index=True)
-    new.to_csv(CONS_CSV, index=False, encoding="utf-8-sig")
+    atomic_write_frame(new, CONS_CSV, index=False, encoding="utf-8-sig")
 
     name_map = new[["code", "member_sector_name"]].rename(
         columns={"member_sector_name": "name"}
     )
     name_map = name_map.drop_duplicates(subset=["code"], keep="last")
-    name_map.to_csv(NAME_CSV, index=False, encoding="utf-8-sig")
+    atomic_write_frame(name_map, NAME_CSV, index=False, encoding="utf-8-sig")
 
     print(f"[ok] 成分股 {len(new)} 条，覆盖 {new['code'].nunique()} 只股票")
     print(f"[ok] {CONS_CSV}")

@@ -29,7 +29,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.execution_backtest import (  # noqa: E402
     ExecutionConfig,
     run_rule,
@@ -198,8 +198,7 @@ def main() -> int:
     args = ap.parse_args()
     events, threshold, stage1_passed = load_events(args.events, args.scores, args.seal_json)
     result = run(events, threshold, stage1_passed)
-    args.out.write_text(json.dumps(_jsonable(result), ensure_ascii=False, indent=2),
-                        encoding="utf-8")
+    atomic_write_text(args.out, json.dumps(_jsonable(result), ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[ok] {args.out}")
     g = result["gate"]
     print(f"[gate] Stage 2 {'PASS' if g['passed'] else 'FAIL'}；"

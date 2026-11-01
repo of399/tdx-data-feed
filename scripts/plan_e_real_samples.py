@@ -30,6 +30,12 @@ from pathlib import Path
 
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
+
+# 子进程调用最长允许时长（秒）
+SUBPROCESS_TIMEOUT = 600
+
 ROOT = Path(__file__).parent.parent
 LIVE_DIR = ROOT / 'data' / 'plan_e' / 'live'
 JOURNAL_CSV = LIVE_DIR / 'journal.csv'
@@ -124,17 +130,17 @@ def main():
     if args.clean:
         print("  → 先清理 journal.csv 中的模拟污染记录...")
         subprocess.run([sys.executable, 'scripts/plan_e_journal.py', '--mode', 'purge-sim'],
-                       cwd=ROOT, check=False)
+                       cwd=ROOT, check=False, timeout=SUBPROCESS_TIMEOUT)
     combined = build(Path(args.journal), Path(args.out))
 
     # 写回灌目标（累积）
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    combined.to_csv(Path(args.out), index=False, encoding='utf-8-sig')
+    atomic_write_frame(combined, Path(args.out), index=False, encoding='utf-8-sig')
     print(f"  ✓ 回灌: {args.out}")
 
     # 写单独维护的工作副本
     REAL_WORKING.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_csv(REAL_WORKING, index=False, encoding='utf-8-sig')
+    atomic_write_frame(combined, REAL_WORKING, index=False, encoding='utf-8-sig')
     print(f"  ✓ 工作副本: {REAL_WORKING}")
 
     # 摘要 + n≥30 进度

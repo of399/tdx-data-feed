@@ -12,12 +12,16 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('analyze_pre90')
@@ -198,7 +202,7 @@ def main() -> None:
     res = pd.DataFrame(out_rows)[cols]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     feat_path = OUT_DIR / 'double_30d_pre90_features.csv'
-    res.to_csv(feat_path, index=False, encoding='utf-8-sig')
+    atomic_write_frame(res, feat_path, index=False, encoding='utf-8-sig')
     log.info('✓ 特征 CSV: %s (%d 行)', feat_path, len(res))
 
     _write_report(res, t0, path_acc)
@@ -392,7 +396,7 @@ def _write_report(res: pd.DataFrame, t0: datetime, path_acc: dict) -> None:
     L.append('模型版本：数据驱动（非模型）')
     L.append(f'数据日期：{DATA_DATE.date()}')
 
-    md.write_text('\n'.join(L), encoding='utf-8')
+    atomic_write_text(md, '\n'.join(L), encoding='utf-8')
     log.info('✓ 报告: %s', md)
     log.info('耗时 %.0fs', (datetime.now() - t0).total_seconds())
 

@@ -20,6 +20,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
+
 DEFAULT_SRC = Path("/home/jiuben/桌面/财经七书学习讲义_模块精讲版.md")
 DEFAULT_OUT = Path("/home/jiuben/ObsidianVaults/tdx-data-feed/09-理论讲义")
 
@@ -196,7 +199,7 @@ def build(src: Path, out: Path, dry_run: bool) -> dict:
             )
             path = pdir / fname
             if not dry_run:
-                path.write_text(content, encoding="utf-8")
+                atomic_write_text(path, content, encoding="utf-8")
             written.append(str(path.relative_to(out.parent.parent)))
             sec_names.append((fname[:-3], sec_title))
 
@@ -213,7 +216,7 @@ def build(src: Path, out: Path, dry_run: bool) -> dict:
         )
         opath = pdir / "00-总览.md"
         if not dry_run:
-            opath.write_text(overview, encoding="utf-8")
+            atomic_write_text(opath, overview, encoding="utf-8")
         written.append(str(opath.relative_to(out.parent.parent)))
         toc.append((dirname, book, len(sec_names), skills))
 
@@ -235,7 +238,7 @@ def build(src: Path, out: Path, dry_run: bool) -> dict:
     )
     ipath = out / "00-讲义总览.md"
     if not dry_run:
-        ipath.write_text(index, encoding="utf-8")
+        atomic_write_text(ipath, index, encoding="utf-8")
     written.append(str(ipath.relative_to(out.parent.parent)))
 
     return {"notes": len(written), "parts": len(toc), "dry_run": dry_run,

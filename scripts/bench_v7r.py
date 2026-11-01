@@ -19,6 +19,7 @@ import json
 import random
 import re
 import subprocess
+import sys
 import threading
 import time
 from collections import Counter
@@ -27,6 +28,9 @@ from pathlib import Path
 import pandas as pd
 import sacrebleu
 from rouge_score import rouge_scorer
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
@@ -314,7 +318,7 @@ def main():
               flush=True)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(results, ensure_ascii=False, indent=2))
+    atomic_write_text(OUT, json.dumps(results, ensure_ascii=False, indent=2))
 
     # 对比表
     print("\n\n# F1 v5/v6/v7 推理对标对比\n")

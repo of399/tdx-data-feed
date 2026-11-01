@@ -6,6 +6,7 @@ baostock 不支持 920XXX → 改用 akshare.stock_zh_a_daily(symbol='bj920000',
 """
 import json
 import socket
+import sys
 import time
 import warnings
 from collections import Counter
@@ -14,6 +15,9 @@ from pathlib import Path
 
 import akshare as ak
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 
 socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
@@ -68,7 +72,7 @@ def fetch_one(code: str, max_retries: int = 3) -> str:
             merged['code'] = code
             merged = merged[['code', 'date', 'adj_factor', 'qfq_close', 'raw_close']]
 
-            merged.to_parquet(cache_fp, index=False)
+            atomic_write_parquet(merged, cache_fp, index=False)
             return 'ok'
 
         except Exception as e:

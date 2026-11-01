@@ -18,8 +18,12 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import sys
 from collections import Counter
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 
 def parse_args() -> argparse.Namespace:
@@ -75,10 +79,7 @@ def main() -> None:
 
     dst = Path(args.dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in sampled) + "\n",
-        encoding="utf-8",
-    )
+    atomic_write_text(dst, "\n".join(json.dumps(r, ensure_ascii=False) for r in sampled) + "\n", encoding="utf-8")
     print(f"✓ 小验证集: {dst} ({len(sampled)} 条, 占比 {len(sampled) / total:.1%})")
 
 

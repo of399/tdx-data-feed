@@ -16,7 +16,11 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 
 def _escape(cell) -> str:
@@ -73,7 +77,7 @@ class ReportBuilder:
         """写文件并返回路径。父目录自动创建。"""
         fp = Path(path)
         fp.parent.mkdir(parents=True, exist_ok=True)
-        fp.write_text("\n".join(self._lines), encoding="utf-8")
+        atomic_write_text(fp, "\n".join(self._lines), encoding="utf-8")
         return fp
 
     def render(self) -> str:

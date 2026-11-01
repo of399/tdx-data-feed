@@ -17,11 +17,11 @@ from tdxfeed.paths import daily_files
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
 
 # 审计 P1 修复 (2026-10-17): 原顶层 `from plan_e_backtest import DSR_N_TRIALS, ...`
 # 造成循环导入: plan_e_backtest -> quant.multifactor.__init__ -> engine -> plan_e_backtest
 # (后者初始化未完成, DSR_N_TRIALS 尚未定义)。改为函数内延迟 import, 调用方不受影响。
-
 from .cost_model import CostConfig, portfolio_turnover_cost  # noqa: E402
 from .cv_utils import (  # noqa: E402  # P0-1 补完
     ic_by_year,
@@ -567,12 +567,12 @@ def run_mf_backtest(cfg: MFConfig,
         out_df["nav"] = (1 + out_df["ret"]).cumprod()
     ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
     csv_fp = out_dir / f"plan_e_backtest_mf_v1_{ts}.csv"
-    out_df.to_csv(csv_fp, index=False, encoding="utf-8-sig")
+    atomic_write_frame(out_df, csv_fp, index=False, encoding="utf-8-sig")
     report = _build_report(metrics, holdings_hist, ic_records, metrics["yearly"],
                            cfg, valp, ts, metrics.get("ic_by_year"))
     md_fp = out_dir / f"plan_e_backtest_mf_v1_{ts}.md"
-    md_fp.write_text(report, encoding="utf-8")
-    (out_dir / "plan_e_backtest_mf_v1_latest.md").write_text(report, encoding="utf-8")
+    atomic_write_text(md_fp, report, encoding="utf-8")
+    atomic_write_text(out_dir / "plan_e_backtest_mf_v1_latest.md", report, encoding="utf-8")
     return out_df, metrics
 
 

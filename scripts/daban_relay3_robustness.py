@@ -20,7 +20,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.scanner import daily_path, load_universe  # noqa: E402
 from tdxfeed.date_utils import parse_date_series  # noqa: E402
 
@@ -186,7 +186,7 @@ def main() -> int:
     lines.append("")
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text("\n".join(lines), encoding="utf-8")
+    atomic_write_text(OUT, "\n".join(lines), encoding="utf-8")
     print("\n".join(lines[:40]))
     print(f"\n[ok] {OUT}")
     return 0

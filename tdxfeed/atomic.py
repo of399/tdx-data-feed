@@ -31,6 +31,7 @@ from typing import Any
 __all__ = [
     "atomic_write_bytes",
     "atomic_write_frame",
+    "atomic_write_parquet",
     "atomic_write_path",
     "atomic_write_text",
     "tmp_sibling",
@@ -101,6 +102,23 @@ def atomic_write_frame(df: Any, path: Path | str, *, encoding: str = "utf-8-sig"
     tmp = tmp_sibling(p)
     try:
         df.to_csv(tmp, index=index, encoding=encoding, **kwargs)
+        os.replace(tmp, p)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+    return p
+
+
+def atomic_write_parquet(df: Any, path: Path | str, *, index: bool = False,
+                         backup: bool = False, **kwargs: Any) -> Path:
+    """原子写 DataFrame 为 parquet（先写临时文件再 replace）。"""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if backup and p.exists():
+        _write_backup(p)
+    tmp = tmp_sibling(p)
+    try:
+        df.to_parquet(tmp, index=index, **kwargs)
         os.replace(tmp, p)
     finally:
         if tmp.exists():

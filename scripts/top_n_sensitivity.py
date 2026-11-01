@@ -22,6 +22,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
+
+# 子进程回测最长允许时长（秒）：超时会抛 TimeoutExpired，避免永久阻塞
+SUBPROCESS_TIMEOUT = 3600
+
 ROOT = Path(__file__).parent.parent
 OUT_DIR = ROOT / "data" / "plan_e"
 MODELS_DIR = ROOT / "data" / "double_up"
@@ -50,7 +56,8 @@ def run_sim_live(model_path: Path, top: int, threshold: float, start: str, end: 
         "--no-freshness-check",
     ]
     t0 = time.time()
-    proc = subprocess.run(cmd, cwd=str(ROOT / "scripts"), capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=str(ROOT / "scripts"), capture_output=True, text=True,
+                          timeout=SUBPROCESS_TIMEOUT)
     dt = time.time() - t0
     if proc.returncode != 0:
         return None, dt
@@ -212,7 +219,7 @@ def main():
     lines.append("- 选股 trade-off: 大 top-N → 多笔交易 → 分散风险但可能混入噪声股\n")
     lines.append("")
 
-    md_path.write_text("\n".join(lines), encoding="utf-8")
+    atomic_write_text(md_path, "\n".join(lines), encoding="utf-8")
     print(f"MD : {md_path}")
 
     # PNG

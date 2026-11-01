@@ -35,8 +35,8 @@ ROOT = Path(__file__).parent.parent
 # 直跑脚本时 sys.path[0] 是 scripts/，`tdxfeed` 不在其下（与 plan_e_journal:100-106 同一处理）
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
 from tdxfeed.adjusted import MIN_FACTOR_COV, frame as adj_frame  # noqa: E402
+from tdxfeed.atomic import atomic_write_frame  # noqa: E402  # SEM001 原子写
 from tdxfeed.execution.bars import as_bars  # noqa: E402
 from tdxfeed.execution.costs import CostModel  # noqa: E402
 from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
@@ -258,7 +258,7 @@ def main():
             valid_pnl = df["hypothetical_pnl"].notna().sum()
             print(f"\n  有效 PnL: {valid_pnl}/{len(df)}")
             print(f"  耗时: {(datetime.now()-t0).total_seconds():.0f}s")
-            df.to_csv(OUT_DATA, index=False)
+            atomic_write_frame(df, OUT_DATA, index=False)
     else:
         print("\n[Phase 1] 计算 hypothetical PnL (并行 8 进程)...")
         t0 = datetime.now()
@@ -266,7 +266,7 @@ def main():
         valid_pnl = df["hypothetical_pnl"].notna().sum()
         print(f"\n  有效 PnL: {valid_pnl}/{len(df)}")
         print(f"  耗时: {(datetime.now()-t0).total_seconds():.0f}s")
-        df.to_csv(OUT_DATA, index=False)
+        atomic_write_frame(df, OUT_DATA, index=False)
         print(f"\n  数据: {OUT_DATA}")
 
     if valid_pnl < 100:
@@ -278,7 +278,7 @@ def main():
     print(pnl_stats)
 
     # 保存带 PnL 的训练数据
-    df.to_csv(OUT_DATA, index=False)
+    atomic_write_frame(df, OUT_DATA, index=False)
     print(f"\n  数据: {OUT_DATA}")
 
     # 训练

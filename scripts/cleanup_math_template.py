@@ -15,6 +15,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
+
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
@@ -58,10 +61,7 @@ def main() -> None:
         if "模板" in data:
             del data["模板"]
             body = re.sub(r"^---\s*\n.*?\n---\s*(?:\n|$)", "", t, count=1, flags=re.DOTALL)
-            p.write_text(
-                "---\n" + yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip("\n") + "\n---\n" + body,
-                encoding="utf-8",
-            )
+            atomic_write_text(p, "---\n" + yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip("\n") + "\n---\n" + body, encoding="utf-8")
             n += 1
     print(f"已移除数学笔记误加 模板 字段: {n} 个")
 

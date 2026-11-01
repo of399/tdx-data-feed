@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +29,9 @@ import pandas as pd
 from sklearn.metrics import silhouette_score
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('cluster_pre90')
@@ -116,7 +120,7 @@ def main() -> None:
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     fp_csv = OUT / f'double_30d_clustered_{ts}.csv'
     out = feat.drop(columns=['_c'] if '_c' in feat.columns else [])
-    out.to_csv(fp_csv, index=False, encoding='utf-8-sig')
+    atomic_write_frame(out, fp_csv, index=False, encoding='utf-8-sig')
     log.info('✓ 聚类结果 CSV: %s (%d 行)', fp_csv, len(out))
 
     _write_report(feat, centers, label_map, sil, ts)
@@ -215,7 +219,7 @@ def _write_report(feat: pd.DataFrame, centers: pd.DataFrame,
     L.append(f"数据日期：{datetime.now().strftime('%Y-%m-%d')}")
 
     fp_md = OUT / f'double_30d_clusters_report_{ts}.md'
-    fp_md.write_text('\n'.join(L), encoding='utf-8')
+    atomic_write_text(fp_md, '\n'.join(L), encoding='utf-8')
     log.info('✓ 报告: %s', fp_md)
 
 

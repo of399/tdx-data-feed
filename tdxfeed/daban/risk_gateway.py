@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 from tdxfeed.daban.phase import phase_params
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -280,8 +283,7 @@ def record_result(
 def save_state(state: RiskState, path: str | Path) -> Path:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(state.to_dict(), ensure_ascii=False, indent=2),
-                 encoding="utf-8")
+    atomic_write_text(p, json.dumps(state.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
     return p
 
 

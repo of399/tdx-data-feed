@@ -40,7 +40,7 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.auction_log import append_auction_rows  # noqa: E402
 from tdxfeed.daban.limit_price import exchange_prefix  # noqa: E402
 from tdxfeed.daban.order import DryRunBroker, build_intents, condition_order_text  # noqa: E402
@@ -183,7 +183,7 @@ def write_outputs(result, out_dir: Path, top: int, write_blk: bool) -> None:
     csv_path = out_dir / f"scan_{stamp}.csv"
     frame = result.to_frame()
     if not frame.empty:
-        frame.to_csv(csv_path, index=False, encoding="utf-8-sig")
+        atomic_write_frame(frame, csv_path, index=False, encoding="utf-8-sig")
         print(f"[ok] 明细 CSV: {csv_path}")
     if write_blk and not frame.empty:
         blk_path = out_dir / f"candidates_{result.trade_date}.blk"
@@ -192,7 +192,7 @@ def write_outputs(result, out_dir: Path, top: int, write_blk: bool) -> None:
             sym = f"{exchange_prefix(c.code)}{c.code}"
             if sym not in codes:
                 codes.append(sym)
-        blk_path.write_text("\n".join(codes) + "\n", encoding="utf-8")
+        atomic_write_text(blk_path, "\n".join(codes) + "\n", encoding="utf-8")
         print(f"[ok] 通达信板块: {blk_path}（{len(codes)} 只）→ 导入 T0002/blocknew/")
 
 

@@ -28,11 +28,15 @@
 - data/plan_e/v3_early_test_candidates_*.csv
 """
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 FACTOR_FP = ROOT / 'data/factors/event_factors_with_sentiment.parquet'
@@ -277,7 +281,7 @@ def main():
     md.append('显著性报告: `data/factor_significance_report.md`  ')
 
     out_fp = OUT_DIR / 'v3_early_backtest_report.md'
-    out_fp.write_text('\n'.join(md), encoding='utf-8')
+    atomic_write_text(out_fp, '\n'.join(md), encoding='utf-8')
     print(f'\n报告: {out_fp}')
 
     if len(result['test_top_pos']) > 0:
@@ -290,7 +294,7 @@ def main():
             result['test_top_pos'][cols].assign(group='pos'),
             neg_part,
         ])
-        out_df.to_csv(candidate_fp, index=False)
+        atomic_write_frame(out_df, candidate_fp, index=False)
         print(f'候选池: {candidate_fp} ({len(out_df):,} 条)')
 
 

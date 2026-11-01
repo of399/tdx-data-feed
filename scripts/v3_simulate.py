@@ -32,7 +32,7 @@ CANDIDATE_FP = OUT_DIR / 'v3_early_test_candidates_20260927_2107.csv'
 
 if str(ROOT) not in sys.path:      # scripts/ 直接运行时 sys.path[0] 是 scripts/
     sys.path.insert(0, str(ROOT))
-
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.execution.single import SingleTradePlan, check_exit  # noqa: E402
 
 # v3 的历史口径：只看收盘价，止盈先于止损。这里只把口径声明出来，数值不变；
@@ -327,13 +327,13 @@ def simulate(args):
     # 写文件
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     report_fp = OUT_DIR / 'v3_simulate_report.md'
-    report_fp.write_text('\n'.join(md), encoding='utf-8')
+    atomic_write_text(report_fp, '\n'.join(md), encoding='utf-8')
 
     trades_fp = OUT_DIR / f'v3_simulate_trades_{datetime.now():%Y%m%d_%H%M}.csv'
-    trades_df.to_csv(trades_fp, index=False)
+    atomic_write_frame(trades_df, trades_fp, index=False)
 
     equity_fp = OUT_DIR / 'v3_simulate_equity.csv'
-    equity_df.to_csv(equity_fp, index=False)
+    atomic_write_frame(equity_df, equity_fp, index=False)
 
     print(f'\n报告: {report_fp}')
     print(f'明细: {trades_fp}')

@@ -19,9 +19,13 @@ test_bjs_akshare.py — 北交所 akshare 接口可行性测试
 """
 
 import json
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -175,9 +179,9 @@ def main():
     md += f"\n\n## 原始结果\n\n```json\n{json.dumps({k: v for k, v in results.items()}, ensure_ascii=False, indent=2, default=str)}\n```\n"
 
     out_md = ROOT / f"scripts/test_bjs_akshare_report_{ts}.md"
-    out_md.write_text(md, encoding="utf-8")
+    atomic_write_text(out_md, md, encoding="utf-8")
     out_json = ROOT / f"scripts/test_bjs_akshare_report_{ts}.json"
-    out_json.write_text(json.dumps(results, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    atomic_write_text(out_json, json.dumps(results, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"\n[MD] {out_md}")
     print(f"[JSON] {out_json}")
 

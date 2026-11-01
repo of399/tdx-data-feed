@@ -39,6 +39,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _common import compute_window_features_extended
 from find_d_signal_5d import load_one
 
+from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
+
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
@@ -178,7 +180,7 @@ def phase2_build_extended(df_source: pd.DataFrame, max_workers: int = 8) -> pd.D
                 )
 
     df_v9 = pd.DataFrame(all_rows)
-    df_v9.to_csv(TARGET, index=False)
+    atomic_write_frame(df_v9, TARGET, index=False)
 
     print(f"\n  ✅ {len(df_v9)} 样本 × {len(df_v9.columns)-3} 特征 → {TARGET.name}")
     print(f"  耗时: {(datetime.now()-t0).total_seconds():.0f}s")

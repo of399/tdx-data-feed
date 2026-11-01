@@ -70,7 +70,6 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
 import lightgbm as lgb
 import optuna
 from optuna.pruners import MedianPruner
@@ -83,6 +82,8 @@ from stage1_baseline import (  # noqa: E402
     _eval_fold,
     load_and_validate,
 )
+
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -444,11 +445,11 @@ def main(argv=None) -> int:
             "hyperparams": best_hp,
         }
         best_json = out_dir / "stage1_optuna_best.json"
-        best_json.write_text(json.dumps(best_out, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(best_json, json.dumps(best_out, ensure_ascii=False, indent=2), encoding="utf-8")
 
         # 优化历史
         trials_csv = out_dir / "stage1_optuna_trials.csv"
-        study.trials_dataframe().to_csv(trials_csv, index=False)
+        atomic_write_frame(study.trials_dataframe(), trials_csv, index=False)
 
         # 最佳模型 refit（全集）
         best_model = out_dir / "stage1_optuna_best_model.txt"
@@ -493,7 +494,7 @@ def main(argv=None) -> int:
             "value": best.value, "n_features": best.user_attrs["n_features"],
             "top20": best.user_attrs["top20_pnl"], "top50": best.user_attrs["top50_pnl"],
         }, freq, meta)
-        (Path(args.report_dir) / "stage1_optuna_report.md").write_text(report, encoding="utf-8")
+        atomic_write_text(Path(args.report_dir) / "stage1_optuna_report.md", report, encoding="utf-8")
 
         print("\n=== Step 4 优化完成 ===")
         print(f"最佳 OOS Spearman = {best.value:.4f}  （闸门 0.315）")

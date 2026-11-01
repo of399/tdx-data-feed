@@ -9,10 +9,14 @@
 """
 from __future__ import annotations
 
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
 
 ROOT = Path(__file__).parent.parent
 FEATURES = ROOT / 'data' / 'double_up' / 'double_30d_pre90_features.csv'
@@ -31,12 +35,12 @@ def main() -> None:
 
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     fp = OUT / f'double_30d_clean_subset_{ts}.csv'
-    clean.to_csv(fp, index=False, encoding='utf-8-sig')
+    atomic_write_frame(clean, fp, index=False, encoding='utf-8-sig')
 
     # 同时保留一个"仅剔除次新"的版本（不含数据缺口剔除），便于对照
     clean_newonly = feat[~feat['new_listing'].fillna(False)].copy()
     fp2 = OUT / f'double_30d_no_newlisting_{ts}.csv'
-    clean_newonly.to_csv(fp2, index=False, encoding='utf-8-sig')
+    atomic_write_frame(clean_newonly, fp2, index=False, encoding='utf-8-sig')
 
     print(f"总事件: {total}")
     print(f"  次新(new_listing): {n_new}")

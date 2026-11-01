@@ -32,9 +32,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
 import pandas as pd  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban import paper  # noqa: E402
 from tdxfeed.daban.scanner import DAILY_DIR, UNIVERSE_PATH  # noqa: E402
 
@@ -55,7 +55,7 @@ def _write_signals(rows: list[dict], day: str, paper_dir: Path) -> Path:
     path = out_dir / f"signals_{paper.normalize_date(day)}.csv"
     df = pd.DataFrame(rows, columns=SIGNAL_FIELDS)
     tmp = path.with_suffix(".csv.tmp")
-    df.to_csv(tmp, index=False)
+    atomic_write_frame(df, tmp, index=False)
     tmp.replace(path)
     return path
 
@@ -189,8 +189,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = paper.normalize_date(args.date) if args.date else "latest"
     path = out_dir / f"report_{stamp}.json"
-    path.write_text(json.dumps(rep, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
+    atomic_write_text(path, json.dumps(rep, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n报告已写入 {path}")
     return 0
 
@@ -223,8 +222,7 @@ def cmd_backfill(args: argparse.Namespace) -> int:
         f"backfill_{paper.normalize_date(args.start)}_"
         f"{paper.normalize_date(args.end)}.json"
     )
-    path.write_text(json.dumps(rep, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
+    atomic_write_text(path, json.dumps(rep, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n账本 {len(journal)} 行 -> {journal_path}")
     return 0
 

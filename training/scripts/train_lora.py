@@ -14,6 +14,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# LoRA 训练最长允许时长（秒，默认 12 小时）
+TRAIN_TIMEOUT = 43200
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 LLAMAFACTORY_CLI = ROOT / "venv" / "bin" / "llamafactory-cli"
 LOG_DIR = ROOT / "logs"
@@ -52,6 +55,7 @@ def main() -> int:
             env=env,
             stdout=lf,
             stderr=lf,
+            timeout=TRAIN_TIMEOUT,
         ).returncode
 
     print(f"  结束 exit={rc}")

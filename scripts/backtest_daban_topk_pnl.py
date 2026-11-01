@@ -29,7 +29,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.limit_price import exchange_prefix  # noqa: E402
 from tdxfeed.daban.topk_pnl import aggregate, simulate_trade  # noqa: E402
 from tdxfeed.date_utils import parse_date_series  # noqa: E402
@@ -452,10 +452,10 @@ def main() -> int:
     if not args.no_write:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(report, encoding="utf-8")
+        atomic_write_text(out, report, encoding="utf-8")
         tp = Path(args.trades_out)
         tp.parent.mkdir(parents=True, exist_ok=True)
-        trades_df.to_csv(tp, index=False, encoding="utf-8-sig")
+        atomic_write_frame(trades_df, tp, index=False, encoding="utf-8-sig")
         print(f"报告：{out}\n明细：{tp}")
     print(f"交易 {len(trades_df)} 笔；基准 {_pct(bench) if bench is not None else '-'}")
     for name in models:

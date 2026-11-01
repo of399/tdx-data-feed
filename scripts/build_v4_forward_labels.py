@@ -19,10 +19,14 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
@@ -153,9 +157,7 @@ def main():
         p = SRC / f"{split}.jsonl"
         out, d = relabel_file(p, args.n, args.theta)
         kept = d["涨"] + d["震荡"] + d["跌"]
-        (out_dir / f"{split}.jsonl").write_text(
-            "\n".join(json.dumps(x, ensure_ascii=False) for x in out) + "\n",
-            encoding="utf-8")
+        atomic_write_text(out_dir / f"{split}.jsonl", "\n".join(json.dumps(x, ensure_ascii=False) for x in out) + "\n", encoding="utf-8")
         print(f"  {split}: kept={kept} 涨{d['涨']}({d['涨']/kept*100:.1f}%) "
               f"震荡{d['震荡']}({d['震荡']/kept*100:.1f}%) 跌{d['跌']}({d['跌']/kept*100:.1f}%) "
               f"drop{d['drop']}")

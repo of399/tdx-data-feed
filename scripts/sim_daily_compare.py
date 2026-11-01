@@ -29,11 +29,15 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("sim_daily_compare")
@@ -444,7 +448,7 @@ def main() -> None:
     md = analyze(fut, sim, fit, args.code, args.start, args.days, args.n_sim)
 
     fp = OUT_DIR / f"sim_compare_{args.code}_{args.start}_{ts}.md"
-    fp.write_text(md, encoding="utf-8")
+    atomic_write_text(fp, md, encoding="utf-8")
     log.info("报告已写出: %s", fp)
     print(md)
 

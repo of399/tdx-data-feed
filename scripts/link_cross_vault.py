@@ -19,6 +19,9 @@ import urllib.parse
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
+
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
@@ -76,10 +79,7 @@ def set_field(path: Path, field: str, value: str) -> bool:
         return False
     data[field] = value
     body = re.sub(r"^---\s*\n.*?\n---\s*(?:\n|$)", "", text, count=1, flags=re.DOTALL)
-    path.write_text(
-        "---\n" + yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip("\n") + "\n---\n" + body,
-        encoding="utf-8",
-    )
+    atomic_write_text(path, "---\n" + yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip("\n") + "\n---\n" + body, encoding="utf-8")
     return True
 
 
@@ -131,12 +131,8 @@ def main() -> None:
                 n_proj += 1
 
     if not args.dry_run:
-        (STOCK / "00-跨库索引.md").write_text(
-            build_moc("StockVault → 项目库 (tdx-data-feed)", stock_uris), encoding="utf-8"
-        )
-        (PROJ / "00-跨库索引.md").write_text(
-            build_moc("项目库 (tdx-data-feed) → StockVault", proj_uris), encoding="utf-8"
-        )
+        atomic_write_text(STOCK / "00-跨库索引.md", build_moc("StockVault → 项目库 (tdx-data-feed)", stock_uris), encoding="utf-8")
+        atomic_write_text(PROJ / "00-跨库索引.md", build_moc("项目库 (tdx-data-feed) → StockVault", proj_uris), encoding="utf-8")
 
     print("# 跨 vault 互链")
     print(f"StockVault 加 related_project_vault: {n_stock}")

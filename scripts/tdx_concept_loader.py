@@ -31,10 +31,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from collections import Counter
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -141,10 +145,8 @@ def save_membership(membership: dict[str, pd.DataFrame]) -> None:
     }
     for btype, df in membership.items():
         out = DATA_DIR / f"tdx_{btype}.csv"
-        df.to_csv(out, index=False, encoding="utf-8-sig")
-    (DATA_DIR / "tdx_concept_meta.json").write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+        atomic_write_frame(df, out, index=False, encoding="utf-8-sig")
+    atomic_write_text(DATA_DIR / "tdx_concept_meta.json", json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info("已写出 %d 类板块归属到 %s", len(membership), DATA_DIR)
 
 

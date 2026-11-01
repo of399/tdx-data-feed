@@ -27,6 +27,7 @@
 """
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -36,6 +37,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
@@ -254,7 +258,7 @@ def cross_section_mode(start: str, end: str, limit: int = 0):
     out = pd.DataFrame(rows, columns=["date", "code", "factor", "z"])
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     fp_out = OUT_DIR / f"cross_section_{pd.Timestamp.now():%Y%m%d}.parquet"
-    out.to_parquet(fp_out)
+    atomic_write_parquet(out, fp_out)
     print(f"[{datetime.now():%H:%M:%S}] 快照落盘: {fp_out}  ({len(out):,} 行)")
     if coverages:
         cov = pd.DataFrame(coverages).median().sort_values()
@@ -415,7 +419,7 @@ def main():
     # 写出
     df_out = pd.DataFrame(records)
     out_fp = OUT_DIR / 'event_factors.parquet'
-    df_out.to_parquet(out_fp, index=False)
+    atomic_write_parquet(df_out, out_fp, index=False)
     print(f'\n输出: {out_fp}  ({len(df_out):,} 行 × {len(df_out.columns)} 列)')
     print(f'  正样本: {(df_out["label"]==1).sum():,}  负样本: {(df_out["label"]==0).sum():,}')
 
@@ -433,8 +437,9 @@ def main():
         'factor_list': factor_cols,
         'missing_rate': {c: float(df_out[c].isna().mean()) for c in factor_cols},
     }
-    with open(OUT_DIR / 'factor_meta.json', 'w') as f:
+    with open(f"{OUT_DIR / 'factor_meta.json'}.tmp", 'w') as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
+    os.replace(f"{OUT_DIR / 'factor_meta.json'}.tmp", OUT_DIR / 'factor_meta.json')
     print(f'  因子: {len(factor_cols)} 个')
     print(f'  缺失率 Top5: {sorted(meta["missing_rate"].items(), key=lambda x: -x[1])[:5]}')
 

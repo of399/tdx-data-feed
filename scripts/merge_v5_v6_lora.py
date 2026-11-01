@@ -4,9 +4,13 @@
 - 输出：v8-merged → 可直接 merged + GGUF + ollama
 """
 import shutil
+import sys
 from pathlib import Path
 
 from safetensors.torch import load_file as st_load, save_file as st_save
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 V5_ADAPTER = Path('/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v5-simple/checkpoint-1188')
 V6_ADAPTER = Path('/home/jiuben/tdx-data-feed/train/output/qwen3-14b-tdx-v6-gpu1/checkpoint-984')
@@ -69,7 +73,7 @@ def main():
                 break
 
     readme = V8_ADAPTER / 'README.md'
-    readme.write_text(f"""# v8 LoRA (v5+v6 fusion)
+    atomic_write_text(readme, f"""# v8 LoRA (v5+v6 fusion)
 
 ## 生成方式
 直接权重平均（非重新训练）：

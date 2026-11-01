@@ -2,6 +2,7 @@
 格式与现有 sh/sz parquet 一致：date, open, high, low, close, volume, amount
 """
 import socket
+import sys
 import time
 import warnings
 from collections import Counter
@@ -10,6 +11,9 @@ from pathlib import Path
 
 import akshare as ak
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 
 socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
@@ -53,7 +57,7 @@ def fetch_one(code: str, max_retries: int = 3) -> str:
             df['close'] = pd.to_numeric(df['close'], errors='coerce')
             df = df.dropna(subset=['close'])
 
-            df.to_parquet(cache_fp, index=False)
+            atomic_write_parquet(df, cache_fp, index=False)
             return 'ok'
 
         except Exception as e:

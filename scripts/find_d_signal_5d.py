@@ -23,13 +23,18 @@
 - 涨停限制（10%/20%/30%）
 """
 import argparse
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
 from _common import daily_dir
+
+from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
 
 PARQUET = daily_dir()
 V1_DETAIL = Path('/home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_detail.csv')
@@ -254,7 +259,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     feat_df = build_dataset(Path(args.universe), args.price_basis)
-    feat_df.to_csv(args.out_features, index=False)
+    atomic_write_frame(feat_df, args.out_features, index=False)
     print(f'\n特征表保存: {args.out_features}')
 
     if args.skip_train:

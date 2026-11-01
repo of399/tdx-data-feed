@@ -43,6 +43,9 @@ from pathlib import Path
 
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
+
 ROOT = Path(__file__).parent.parent
 OUT_DIR = ROOT / "data" / "industry"
 SW_FIRST = OUT_DIR / "sw_first_list.csv"
@@ -161,7 +164,7 @@ def main():
         print("[Phase 1] 拉申万一级行业列表(失败则用缓存)")
         first = fetch_sw_first()
         if first is not None:
-            first.to_csv(SW_FIRST, index=False)
+            atomic_write_frame(first, SW_FIRST, index=False)
             print(f"  ✅ {len(first)} 个一级行业")
         elif SW_FIRST.exists():
             first = pd.read_csv(SW_FIRST)
@@ -173,7 +176,7 @@ def main():
         print("[Phase 2] 拉申万三级行业列表(失败则用缓存)")
         third = fetch_sw_third()
         if third is not None:
-            third.to_csv(SW_THIRD, index=False)
+            atomic_write_frame(third, SW_THIRD, index=False)
             print(f"  ✅ {len(third)} 个三级行业")
         elif SW_THIRD.exists():
             third = pd.read_csv(SW_THIRD)
@@ -192,7 +195,7 @@ def main():
         print(f"  当前归属(取每个 symbol 最新): {len(current)} 只")
 
         mapping = build_mapping(current, third, first)
-        mapping.to_csv(SW_MAPPING, index=False)
+        atomic_write_frame(mapping, SW_MAPPING, index=False)
         print(f"  ✅ 映射表 → {SW_MAPPING}")
 
     # 校验

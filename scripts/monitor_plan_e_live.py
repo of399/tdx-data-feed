@@ -53,10 +53,11 @@ from typing import Any
 
 # 显式把项目根加入 sys.path，确保 `import tdxfeed`（如 freshness）在直接运行时可用。
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import numpy as np
 import pandas as pd
 from _common import daily_path, parse_date
+
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -699,13 +700,13 @@ def update_history(emit: str, row: dict[str, Any]) -> None:
         hist = pd.concat([hist, pd.DataFrame([row])], ignore_index=True)
     else:
         hist = pd.DataFrame([row], columns=cols)
-    hist.to_csv(HISTORY, index=False, encoding="utf-8-sig")
+    atomic_write_frame(hist, HISTORY, index=False, encoding="utf-8-sig")
 
 
 def write_snapshot(now: datetime, payload: dict[str, Any]) -> Path:
     OBS_DIR.mkdir(parents=True, exist_ok=True)
     fp = OBS_DIR / f"monitor_snapshot_{now.strftime('%Y%m%d_%H%M%S')}.json"
-    fp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    atomic_write_text(fp, json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     return fp
 
 
@@ -762,8 +763,8 @@ def main() -> None:
             fname = f"plan_e_live_week_{now.strftime('%G-W%V')}.md"
         else:
             fname = f"plan_e_live_{now.strftime('%Y-%m-%d')}.md"
-        (OBS_DIR / fname).write_text(report, encoding="utf-8")
-        (OBS_DIR / "plan_e_live_latest.md").write_text(report, encoding="utf-8")
+        atomic_write_text(OBS_DIR / fname, report, encoding="utf-8")
+        atomic_write_text(OBS_DIR / "plan_e_live_latest.md", report, encoding="utf-8")
 
     # 历史 upsert
     row = {

@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
 from quant.datafeed import DataFeed
 from quant.validate import validate
+from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("quant.fetch_history")
@@ -36,7 +39,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     code = args.symbol[-6:]
     fp = args.out / f"{code}_daily.parquet"
-    df.to_parquet(fp, index=False, engine="pyarrow")
+    atomic_write_parquet(df, fp, index=False, engine="pyarrow")
     logger.info("saved %s rows=%d", fp, len(df))
 
     report = validate(df)

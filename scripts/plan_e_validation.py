@@ -30,6 +30,8 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import plan_e_backtest as pe  # noqa: E402
 from plan_e_subset_backtest import run_events  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
+
 EVENTS = ROOT / 'data' / 'double_up' / 'double_30d_2021_2026.csv'
 FEATURES = ROOT / 'data' / 'double_up' / 'double_30d_pre90_features.csv'
 OUT = ROOT / 'data' / 'plan_e'
@@ -288,11 +290,11 @@ def main() -> None:
     L.append(f"数据日期：{datetime.now().strftime('%Y-%m-%d')}")
 
     fp_md = OUT / f'plan_e_validation_{safe}_{ts}.md'
-    fp_md.write_text('\n'.join(L), encoding='utf-8')
+    atomic_write_text(fp_md, '\n'.join(L), encoding='utf-8')
     # 敏感性 CSV
     sens_df = pd.DataFrame([dict(fee=f, slippage=s, **m) for f, s, m in sens_rows])
     fp_csv = OUT / f'plan_e_validation_{safe}_sensitivity_{ts}.csv'
-    sens_df.to_csv(fp_csv, index=False, encoding='utf-8-sig')
+    atomic_write_frame(sens_df, fp_csv, index=False, encoding='utf-8-sig')
     print(f"  ✓ MD: {fp_md.name}; CSV: {fp_csv.name}")
     print(f"  基准: 触发 {base['n_valid']}/{base['n_total']} 笔, 胜率 {base['win_rate']:.1f}%, "
           f"均收益 {base['avg_ret']*100:.2f}%, 最大回撤 {base['max_dd']*100:.2f}%")

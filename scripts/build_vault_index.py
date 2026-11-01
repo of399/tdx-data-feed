@@ -15,12 +15,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 import time
 import urllib.request
 from collections import Counter
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -285,17 +289,17 @@ def build(vaults: list[Path], out: Path, max_chars: int, overlap: int,
                 "built_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "elapsed_sec": round(time.time() - t0, 1),
             }
-            manifest_file.write_text(json.dumps(manifest, ensure_ascii=False, indent=2),
-                                     encoding="utf-8")
+            atomic_write_text(manifest_file, json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     for rec in records:
         rec.pop("_digest", None)
     if not dry_run:
         out.parent.mkdir(parents=True, exist_ok=True)
         tmp = out.parent / f"{out.name}.tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open(f"{tmp}.tmp", "w", encoding="utf-8") as f:
             for rec in records:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        os.replace(f"{tmp}.tmp", tmp)
         tmp.replace(out)
         if not embedded:
             # 纯词法索引：清掉旧向量，避免 vault.py 拿陈旧矩阵配新文本

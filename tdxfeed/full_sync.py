@@ -18,6 +18,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
 log = logging.getLogger(__name__)
 
 from tdxfeed.errors import (  # noqa: E402
@@ -188,8 +189,9 @@ def write_sync_summary(individual: dict, index: dict, out_root: str):
     out_dir = os.path.join(out_root, "..", "logs")
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "sync_summary.json")
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(f"{path}.tmp", "w", encoding="utf-8") as fh:
         json.dump(summary, fh, ensure_ascii=False, indent=2)
+    os.replace(f"{path}.tmp", path)
     print(f"[summary] 源失败率={summary['source_failure_rate_pct']}% 已写入 {path}", flush=True)
     return summary
 

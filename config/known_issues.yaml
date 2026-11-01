@@ -238,7 +238,7 @@ issues:
     title: "MCP 客户端 timeout 参数从未生效，readline 无限阻塞且持锁"
     theme: timeout
     severity: P0
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -249,12 +249,13 @@ issues:
         pattern: "select\\.select"
         path: "skill_router/runtime.py"
         note: "缺失=无真超时；命中=已实现"
-    impact: "server 挂起即整个 SkillRuntime 死锁；daban_top_picks 为分钟级，必然触发"
-    guard: "scripts/ci_semantic_guard.py"
+    impact: "（已修）MCP 客户端 timeout 参数此前从未生效 —— skill_router/runtime.py 的 readline 无限阻塞且持锁；现用 select.select(..., timeout) 真正实现超时，并补 proc is None 防御；守卫侧同时排除已被 select 保护的管道读"
+    guard: "tests/test_sem001_convergence.py"
+    test: "tests/test_sem001_convergence.py"
     owner: "jiuben"
     due: "2026-11-10"
     exemption: "NONE"
-    fix_hint: "select.select 实现真超时；超时 kill 并置 proc=None 以便重启；stop() join stderr 线程；注册 atexit"
+    fix_hint: "已完成：select 超时 + TimeoutError；守卫识别 select 保护（见 docs/SEM001_CONVERGENCE.md §3）"
 
   - id: KI-MCP-002
     title: "6 个 MCP server 均无 JSON Schema 运行时校验，参数错误被吞成内部错误"

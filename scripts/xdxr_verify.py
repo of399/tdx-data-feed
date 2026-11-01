@@ -25,11 +25,15 @@ xdxr_verify.py — 计划书 §10-7 xdxr 复权专项对账
 
 import argparse
 import json
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
@@ -229,8 +233,8 @@ def main():
 2. 若失败 → 调整 fin_parquet.py / writers.py 的复权计算逻辑
 """
 
-    md_file.write_text(md_content, encoding="utf-8")
-    json_file.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(md_file, md_content, encoding="utf-8")
+    atomic_write_text(json_file, json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n[MD] {md_file}")
     print(f"[JSON] {json_file}")
 

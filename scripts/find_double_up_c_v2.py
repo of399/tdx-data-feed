@@ -19,13 +19,18 @@
 """
 import json
 import re
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
 from _common import adj_factor_dir, daily_dir, get_limit, universe_path
+
+from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -198,7 +203,7 @@ def main():
     if len(df_v2) > 0:
         df_v2 = df_v2.sort_values(['year', 'code', 'start_date']).reset_index(drop=True)
     csv_v2 = OUT_DIR / 'double_up_v2_2020_2026_detail.csv'
-    df_v2.to_csv(csv_v2, index=False, encoding='utf-8-sig')
+    atomic_write_frame(df_v2, csv_v2, index=False, encoding='utf-8-sig')
     print(f"\n✓ v2 明细: {csv_v2} ({len(df_v2)} 行)")
 
     # ====== v1 vs v2 对比 ======
@@ -247,7 +252,7 @@ def main():
         df_only_v1 = df_only_v1.rename(columns={'pct_change': 'v1_pct'})
         df_only_v1 = df_only_v1.sort_values('v1_pct', ascending=False)
         csv_only_v1 = OUT_DIR / 'double_up_only_v1_false_positive.csv'
-        df_only_v1.to_csv(csv_only_v1, index=False, encoding='utf-8-sig')
+        atomic_write_frame(df_only_v1, csv_only_v1, index=False, encoding='utf-8-sig')
         print(f"\n  only_v1 (前复权后非翻倍 = 不复权假阳性): {len(df_only_v1)} 个")
         print(f"  → {csv_only_v1}")
 
@@ -257,13 +262,13 @@ def main():
         df_only_v2 = df_only_v2.rename(columns={'pct_change': 'v2_pct'})
         df_only_v2 = df_only_v2.sort_values('v2_pct', ascending=False)
         csv_only_v2 = OUT_DIR / 'double_up_only_v2_missed.csv'
-        df_only_v2.to_csv(csv_only_v2, index=False, encoding='utf-8-sig')
+        atomic_write_frame(df_only_v2, csv_only_v2, index=False, encoding='utf-8-sig')
         print(f"\n  only_v2 (前复权后翻倍但不复权未识别 = 不复权漏判): {len(df_only_v2)} 个")
         print(f"  → {csv_only_v2}")
 
     # 共同样本涨幅差异
     cmp_csv = OUT_DIR / 'double_up_v2_compare.csv'
-    df_common.reset_index().to_csv(cmp_csv, index=False, encoding='utf-8-sig')
+    atomic_write_frame(df_common.reset_index(), cmp_csv, index=False, encoding='utf-8-sig')
     print(f"\n  v1 vs v2 涨幅差异表: {cmp_csv}")
 
     # ====== Markdown 报告 ======

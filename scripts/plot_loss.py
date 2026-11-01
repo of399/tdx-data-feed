@@ -11,9 +11,14 @@
   - <OUT_DIR>/loss_curve_data.csv
 """
 import json
+import os
 import sys
+from pathlib import Path
 
 import matplotlib
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+
 
 matplotlib.use("Agg")
 from pathlib import Path
@@ -79,10 +84,11 @@ def plot_one(out_dir: Path):
     lrs = [r["lr"] for r in rows]
 
     # 写 CSV
-    with open(out_csv, "w") as f:
+    with open(f"{out_csv}.tmp", "w") as f:
         f.write("step,epoch,loss,lr\n")
         for s, e, l, lr in zip(steps, epochs, losses, lrs, strict=False):
             f.write(f"{s},{e:.4f},{l:.6f},{lr:.4e}\n")
+    os.replace(f"{out_csv}.tmp", out_csv)
 
     # 画 PNG
     fig, ax1 = plt.subplots(figsize=(12, 6))

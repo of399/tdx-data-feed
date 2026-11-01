@@ -27,8 +27,8 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
 from tdxfeed.adjusted import MIN_FACTOR_COV, factor_jumps, frame  # noqa: E402
+from tdxfeed.atomic import atomic_write_frame  # noqa: E402  # SEM001 原子写
 from tdxfeed.execution.limits import normalize_code  # noqa: E402
 from tdxfeed.features_5d import get_limit  # noqa: E402
 from tdxfeed.paths import daily_files, universe_path  # noqa: E402
@@ -195,12 +195,12 @@ def main(argv=None) -> int:
     if len(out):
         out = out.sort_values(["year", "code", "start_date"]).reset_index(drop=True)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(args.out, index=False, encoding="utf-8-sig")
+    atomic_write_frame(out, args.out, index=False, encoding="utf-8-sig")
 
     exc = pd.DataFrame(dropped_all, columns=EXCLUDED_COLS)
     if len(exc):
         exc = exc.sort_values(["year", "code", "start_date"]).reset_index(drop=True)
-    exc.to_csv(args.excluded_out, index=False, encoding="utf-8-sig")
+    atomic_write_frame(exc, args.excluded_out, index=False, encoding="utf-8-sig")
 
     elapsed = time.time() - t0
     print(f"\n命中: {len(out)} 笔 / {out['code'].nunique() if len(out) else 0} 只"

@@ -9,8 +9,12 @@
 """
 from __future__ import annotations
 
+import sys
 from datetime import date
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 TARGET = Path("/home/jiuben/StockVault/02-框架/v4模型.md")
 
@@ -42,7 +46,7 @@ def main() -> int:
     if TARGET.exists():
         print(f"已存在，跳过: {TARGET}")
         return 0
-    TARGET.write_text(CONTENT, encoding="utf-8")
+    atomic_write_text(TARGET, CONTENT, encoding="utf-8")
     print(f"✓ 已创建: {TARGET}")
     return 0
 

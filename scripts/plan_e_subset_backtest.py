@@ -23,6 +23,8 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
 import plan_e_backtest as pe  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
+
 EVENTS = ROOT / 'data' / 'double_up' / 'double_30d_2021_2026.csv'
 FEATURES = ROOT / 'data' / 'double_up' / 'double_30d_pre90_features.csv'
 OUT = ROOT / 'data' / 'plan_e'
@@ -242,14 +244,14 @@ def main() -> None:
         sel, subset_clean, all_ev, fee, slippage, bj)
 
     fp_md = OUT / f'plan_e_subset_{safe}_{ts}.md'
-    fp_md.write_text(md, encoding='utf-8')
+    atomic_write_text(fp_md, md, encoding='utf-8')
     print(f"  ✓ MD: {fp_md.name}")
 
     # 信号明细 CSV（子集有效信号）
     if n_valid_sub > 0:
         fp_csv = OUT / f'plan_e_subset_{safe}_signals_{ts}.csv'
         out = m_sub.drop(columns=['daily'], errors='ignore')
-        out.to_csv(fp_csv, index=False, encoding='utf-8-sig')
+        atomic_write_frame(out, fp_csv, index=False, encoding='utf-8-sig')
         print(f"  ✓ CSV(信号): {fp_csv.name} ({n_valid_sub} 笔)")
 
     print(f"[3/3] 完成。子集触发信号 {n_valid_sub}/{n_sub} 笔"

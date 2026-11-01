@@ -45,7 +45,7 @@ logging.basicConfig(
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.paths import finance_deep_dir, finance_parquet, universe_path  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -196,10 +196,9 @@ def _read_cache(symbol: str, kind: str) -> tuple[list[dict], dict] | None:
 def _write_cache(symbol: str, kind: str, rows: list[dict], meta: dict) -> None:
     data_path, meta_path = _paths(symbol, kind)
     tmp = data_path.with_suffix(".tmp")
-    tmp.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
-                   encoding="utf-8")
+    atomic_write_text(tmp, "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
     tmp.replace(data_path)
-    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(meta_path, json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _fresh(meta: dict) -> bool:

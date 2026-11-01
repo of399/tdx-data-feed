@@ -24,9 +24,9 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
 from _common import daily_dir, universe_path  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_parquet  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.filter import SectorFilter, load_sector_features  # noqa: E402
 from tdxfeed.daban.limit_price import limit_ratio, limit_up_price  # noqa: E402
 from tdxfeed.daban.sector import load_industry_map  # noqa: E402
@@ -215,7 +215,7 @@ def main() -> int:
         group_scan(df, "sec", [-0.1, 40, 60, 80, 200], ["<40", "40-60", "60-80", "≥80"])
 
     out = _ROOT / "data" / "daban" / f"alpha_sources_{args.start}_{args.end}.parquet"
-    df.to_parquet(out, index=False)
+    atomic_write_parquet(df, out, index=False)
     print(f"\n[ok] 明细 → {out}")
     return 0
 

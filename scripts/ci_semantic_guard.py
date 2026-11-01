@@ -167,6 +167,8 @@ class _FuncState:
     writes: list[_Write] = field(default_factory=list)
     reads: set[str] = field(default_factory=set)
     has_rename: bool = False
+    has_lock: bool = False    # 同函数内有 fcntl.flock → 读-改-写已被互斥保护
+    has_select: bool = False  # 同函数内有 select.select(..., timeout) → 管道读有超时保护
 
 
 def _open_mode(node: ast.Call) -> str:
@@ -200,9 +202,28 @@ def _walk_no_funcs(stmts: list[ast.stmt]) -> Iterable[ast.AST]:
             stack.append(child)
 
 
-def _collect_state(stmts: list[ast.stmt]) -> _FuncState:
+def _popen_stream_calls(tree: ast.AST) -> set[int]:
+    """作为 subprocess.Popen 参数的 open() 调用（子进程 stdout/stderr 流式写入）。
+
+    这类句柄交给子进程持续写入，不存在"整体覆盖写半截"的语义 → 不算 SEM001。
+    """
+    out: set[int] = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "Popen"):
+            for arg in list(node.args) + [k.value for k in node.keywords]:
+                if (isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name)
+                        and arg.func.id == "open"):
+                    out.add(id(arg))
+    return out
+
+
+def _collect_state(stmts: list[ast.stmt], skip_calls: set[int] | None = None) -> _FuncState:
     st = _FuncState()
+    skip = skip_calls or set()
     for node in _walk_no_funcs(stmts):
+        if id(node) in skip:
+            continue
         if not isinstance(node, ast.Call):
             continue
         text = unparse(node.func)
@@ -223,10 +244,14 @@ def _collect_state(stmts: list[ast.stmt]) -> _FuncState:
                     and node.func.attr == "open")) and node.args:
             mode = _open_mode(node)
             path_text = unparse(node.args[0])
-            if "w" in mode or "+" in mode:
+            if "w" in mode:
                 st.writes.append(_Write("overwrite", path_text, node.lineno,
                                         node.col_offset, "open(...)"))
             elif "a" in mode:
+                st.writes.append(_Write("append", path_text, node.lineno,
+                                        node.col_offset, "open(...)"))
+            elif "+" in mode:
+                # r+ 读写模式：不截断，但属读-改-写 → 需要靠锁保证一致
                 st.writes.append(_Write("append", path_text, node.lineno,
                                         node.col_offset, "open(...)"))
             elif "r" in mode:
@@ -237,6 +262,15 @@ def _collect_state(stmts: list[ast.stmt]) -> _FuncState:
             st.reads.add(unparse(node.func.value))
         if _is_rename_call(node):
             st.has_rename = True
+        # 锁：fcntl.flock(...) → 读-改-写已被互斥保护
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "flock":
+            recv = unparse(node.func.value)
+            if "fcntl" in recv or recv.endswith(".fcntl"):
+                st.has_lock = True
+        # 超时保护：select.select([...], [], [], timeout) → 管道读不会永久阻塞
+        if (isinstance(node.func, ast.Attribute) and node.func.attr == "select"
+                and "select" in unparse(node.func.value) and len(node.args) >= 4):
+            st.has_select = True
     return st
 
 
@@ -249,8 +283,9 @@ def check_atomic_write(tree: ast.AST, source_lines: list[str]) -> list[Finding]:
             bodies.append((node.name, node.body))
     bodies.append(("<module>", getattr(tree, "body", [])))
 
+    skip_calls = _popen_stream_calls(tree)
     for fn_name, body in bodies:
-        st = _collect_state(body)
+        st = _collect_state(body, skip_calls)
         for w in st.writes:
             line = source_lines[w.row - 1] if 0 < w.row <= len(source_lines) else ""
             if suppressed(line, "SEM001"):
@@ -265,7 +300,7 @@ def check_atomic_write(tree: ast.AST, source_lines: list[str]) -> list[Finding]:
             if w.kind == "append":
                 # 纯追加是 POSIX O_APPEND 语义（短行写入不撕裂）；只有"先读后追加"
                 # 的读-改-写才会丢行
-                if w.path_text in st.reads:
+                if w.path_text in st.reads and not st.has_lock:
                     findings.append(Finding(
                         "", w.row, w.col, "SEM001",
                         f"读-改-写无锁：{w.path_text} 先读后追加，并发下会丢行", fn_name))
@@ -378,7 +413,23 @@ def _collect_popen_targets(tree: ast.AST) -> set[str]:
     return targets
 
 
-def _external_kind(func_text: str) -> str:
+HTTP_LIBS = ("requests", "httpx", "aiohttp")
+
+
+def _module_imports_http_lib(tree: ast.AST) -> bool:
+    """模块是否导入了 HTTP 库（区分 requests.Session 与同名 dict）。"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name.split(".")[0] in HTTP_LIBS:
+                    return True
+        elif (isinstance(node, ast.ImportFrom)
+                and (node.module or "").split(".")[0] in HTTP_LIBS):
+            return True
+    return False
+
+
+def _external_kind(func_text: str, http_lib: bool = True) -> str:
     """返回外部 I/O 类别，空串表示不是外部调用。"""
     last0 = last_component(func_text)
     if last0 in ("Request", "Session", "Client", "AsyncClient", "HTTPConnection",
@@ -394,7 +445,7 @@ def _external_kind(func_text: str) -> str:
         return "SUBPROCESS"
     if func_text.startswith("socket.create_connection"):
         return "SOCKET"
-    if HTTP_ATTR_RE.search(func_text):
+    if http_lib and HTTP_ATTR_RE.search(func_text):
         recv = func_text.rsplit(".", 1)[0].lower()
         if any(h in recv for h in HTTP_RECV_HINTS):
             return "HTTP"
@@ -408,8 +459,13 @@ def _has_timeout_kw(node: ast.Call) -> bool:
 def check_timeout(tree: ast.AST, source_lines: list[str]) -> list[Finding]:
     """SEM003：网络/子进程调用必须显式设置 timeout。"""
     findings: list[Finding] = []
+    http_lib = _module_imports_http_lib(tree)
     popen_targets = _collect_popen_targets(tree)
     settimeout_targets: set[str] = set()
+    st_has_select = any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "select" and "select" in unparse(n.func.value)
+        and len(n.args) >= 4 for n in ast.walk(tree))
     for node in ast.walk(tree):
         if (isinstance(node, ast.Call)
                 and last_component(unparse(node.func)) == "settimeout"
@@ -421,7 +477,7 @@ def check_timeout(tree: ast.AST, source_lines: list[str]) -> list[Finding]:
             continue
         func_text = unparse(node.func)
         line = source_lines[node.lineno - 1] if 0 < node.lineno <= len(source_lines) else ""
-        kind = _external_kind(func_text)
+        kind = _external_kind(func_text, http_lib)
         if kind:
             if last_component(func_text) == "Popen":
                 pass          # Popen 本身无 timeout 参数，交给管道读规则
@@ -439,6 +495,7 @@ def check_timeout(tree: ast.AST, source_lines: list[str]) -> list[Finding]:
             base = recv.rsplit(".", 1)[0] if recv.endswith((".stdout", ".stderr")) else recv
             if (base in popen_targets and base not in settimeout_targets
                     and not _has_timeout_kw(node)
+                    and not st_has_select
                     and not suppressed(line, "SEM003")):
                 findings.append(Finding(
                     "", node.lineno, node.col_offset, "SEM003",

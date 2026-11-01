@@ -16,10 +16,14 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Protocol
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 __all__ = [
     "BrokerAdapter",
@@ -74,9 +78,7 @@ class DryRunBroker:
         json_path = self.out_dir / f"orders_{stamp}.json"
         rows = [asdict(i) for i in self.sent]
         _write_csv(csv_path, rows)
-        json_path.write_text(
-            json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        atomic_write_text(json_path, json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
         return {
             "status": "dry_run",
             "code": intent.code,

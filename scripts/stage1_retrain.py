@@ -67,7 +67,6 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
 # 复用 Step 3.5 基础设施（单一来源：数据加载 / 指标 / 训练默认）
 from stage1_baseline import (  # noqa: E402
     ALL35,
@@ -75,6 +74,8 @@ from stage1_baseline import (  # noqa: E402
     _eval_fold,
     load_and_validate,
 )
+
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -189,7 +190,7 @@ def write_frozen_contract(path: Path, selected: list[str], hyperparams: dict,
         "source": "logs/stage1_optuna_best.json (Step 4)",
         "note": "Step 6/7 的唯一特征契约源；predict.py 的 polars 路径须产出这些列",
     }
-    path.write_text(json.dumps(contract, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(path, json.dumps(contract, ensure_ascii=False, indent=2), encoding="utf-8")
     log.info("冻结契约已写: %s（%d 维）", path.name, len(selected))
 
 
@@ -496,9 +497,8 @@ def main(argv: list[str] | None = None) -> int:
         out_json = out_dir / f"stage1_retrain_{ts}.json"
         out_md = out_dir / f"stage1_retrain_{ts}.md"
         result = {"meta": meta, "info": _jsonable(info)}
-        out_json.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str),
-                            encoding="utf-8")
-        out_md.write_text(build_report(info, meta), encoding="utf-8")
+        atomic_write_text(out_json, json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        atomic_write_text(out_md, build_report(info, meta), encoding="utf-8")
 
         print("\n=== Step 6 重训完成 ===")
         print(f"新模型: {out_model}")

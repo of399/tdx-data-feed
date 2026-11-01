@@ -1,4 +1,5 @@
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -48,12 +49,15 @@ def main():
     if a.limit:
         rows = rows[:a.limit]
     done = 0
+    # 读-改-写必须加锁：两个进程同时续跑会读到同一个 done 行数 → 重复或丢行
+    fout = open(OUT, 'a+', encoding='utf-8')
+    fcntl.flock(fout.fileno(), fcntl.LOCK_EX)
     if os.path.exists(OUT):
         for _ in open(OUT, encoding='utf-8'):
             done += 1
     print(f"total={len(rows)} done={done} batch={a.batch}", flush=True)
     rows = rows[done:]
-    fout = open(OUT, 'a', encoding='utf-8')
+    fout.seek(0, os.SEEK_END)
     prompts = [r['instruction'] + "\n" + r['input'] for r in rows]
     t0 = time.time()
     for i in range(0, len(prompts), a.batch):

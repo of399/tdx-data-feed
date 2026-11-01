@@ -21,11 +21,15 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import time
 import urllib.request as _urllib
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -195,7 +199,7 @@ def main():
         results[tag] = bench_model(MODELS[tag], samples, opts, args.concurrency)
 
     evals = evaluate(samples, results)
-    OUT.write_text(json.dumps({
+    atomic_write_text(OUT, json.dumps({
         "opts": opts, "n": len(samples), "models": selected,
         "evals": evals,
         "raw": {k: [[i, p] for i, p, _ in v] for k, v in results.items()},

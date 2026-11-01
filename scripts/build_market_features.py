@@ -21,6 +21,9 @@ from pathlib import Path
 
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
+
 ROOT = Path(__file__).parent.parent
 SOURCE = ROOT / "data" / "double_up" / "d_signal_5d_features_v9.csv"
 TARGET_TRAIN = ROOT / "data" / "double_up" / "d_signal_5d_features_v9_market.csv"
@@ -106,10 +109,10 @@ def main():
 
     # 保存
     print("\n[Phase 4] 保存")
-    market.to_csv(MARKET_FEATS, index=False)
+    atomic_write_frame(market, MARKET_FEATS, index=False)
     print(f"  市场特征: {MARKET_FEATS}")
 
-    df.to_csv(TARGET_TRAIN, index=False)
+    atomic_write_frame(df, TARGET_TRAIN, index=False)
     print(f"  训练数据: {TARGET_TRAIN}")
     print(f"  新维度: {len(df.columns)-3} (原 26 + 市场 4 + 板块 5 = 35 维,实际含 code/signal_date/is_positive)")
 

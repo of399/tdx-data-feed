@@ -32,6 +32,7 @@ HOLD10d 的真实 PnL 代理)作为"真实目标"。
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections import Counter
 from datetime import datetime
@@ -39,6 +40,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -207,7 +211,7 @@ def write_report(df: pd.DataFrame, cols: list[str], cutoff: pd.Timestamp,
     fname = f"eval_signal_forward_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
     out = DU / fname
     random_pnl = df.iloc[0]["random_pnl"]
-    with open(out, "w", encoding="utf-8") as f:
+    with open(f"{out}.tmp", "w", encoding="utf-8") as f:
         f.write(f"# 信号模型时序前向横向评测 ({ts})\n\n")
         f.write(f"- **test 窗口**: signal_date >= {cutoff.date()}\n")
         f.write(f"- **候选数**: {len(df)}\n")
@@ -256,6 +260,7 @@ def write_report(df: pd.DataFrame, cols: list[str], cutoff: pd.Timestamp,
         f.write(f"生成时间:{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write("生成者:scripts/eval_signal_forward.py\n")
         f.write(f"数据日期:{cutoff.date()}\n")
+    os.replace(f"{out}.tmp", out)
     print(f"\n  ✓ 报告: {out.name}")
 
 

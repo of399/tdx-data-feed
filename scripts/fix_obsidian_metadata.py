@@ -18,6 +18,9 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
+
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
@@ -83,7 +86,7 @@ def fix_file(path: Path, vault: Path, report: dict) -> None:
             "模板": "vault_seeder",
         }
         new = dump_fm(fm) + "\n" + text.lstrip("\n")
-        path.write_text(new, encoding="utf-8")
+        atomic_write_text(path, new, encoding="utf-8")
         report["created_fm"].append(rel)
         return
     changed = False
@@ -97,7 +100,7 @@ def fix_file(path: Path, vault: Path, report: dict) -> None:
             changed = True
     if changed:
         body = re.sub(r"^---\s*\n.*?\n---\s*(?:\n|$)", "", text, count=1, flags=re.DOTALL)
-        path.write_text(dump_fm(data) + body, encoding="utf-8")
+        atomic_write_text(path, dump_fm(data) + body, encoding="utf-8")
         report["fixed_fields"].append(rel)
     else:
         report["already_ok"].append(rel)

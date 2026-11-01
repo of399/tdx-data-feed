@@ -8,10 +8,14 @@
 输出：single HTML file (内嵌 base64 图)
 """
 import base64
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 PARQUET = Path('/home/jiuben/tdx-data-feed/data/double_up')
 OUT = Path('/home/jiuben/tdx-data-feed/data/double_up/training_dashboard.html')
@@ -191,7 +195,7 @@ tr:hover {{ background: #f5f5f5; }}
 </body>
 </html>
 """
-    OUT.write_text(html, encoding='utf-8')
+    atomic_write_text(OUT, html, encoding='utf-8')
     print(f'✓ Dashboard: {OUT} ({len(html)/1024:.1f} KB)')
 
 

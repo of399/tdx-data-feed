@@ -23,6 +23,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
+
 ROOT = Path(__file__).parent.parent
 SOURCE = ROOT / "data" / "double_up" / "d_signal_5d_features_v9.csv"
 MODEL_OUT = ROOT / "data" / "double_up" / "d_signal_5d_model_greedy.txt"
@@ -164,7 +167,7 @@ def main():
 
     # 保存最佳子集训练数据
     cols_to_save = selected + ["code", "signal_date", "is_positive"]
-    df[cols_to_save].to_csv(TARGET, index=False)
+    atomic_write_frame(df[cols_to_save], TARGET, index=False)
     print(f"  最佳子集数据: {TARGET}")
 
     # 报告

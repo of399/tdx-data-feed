@@ -27,10 +27,14 @@ import argparse
 import json
 import random
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 ROOT = Path("/home/jiuben/tdx-data-feed")
 
@@ -260,7 +264,7 @@ def main():
         "label_def": "未来120交易日累计最大涨幅 >= 100% 为 1(翻倍)，否则 0",
         "samples_file": str(OUT_JSONL),
     }
-    OUT_META.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(OUT_META, json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"\n=== 样本集: {OUT_JSONL} ===")
     print(f"  总量={n_total}  正={n_pos}({n_pos/n_total*100:.1f}%)  负={n_total-n_pos}({(n_total-n_pos)/n_total*100:.1f}%)")

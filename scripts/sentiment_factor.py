@@ -18,10 +18,14 @@
 5. lhb_pct_chg_avg_20d: 上榜日平均涨跌幅
 """
 import argparse
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 LHB_DETAIL = ROOT / 'data/sentiment/lhb_detail_2025_2026.parquet'
@@ -138,7 +142,7 @@ def main():
         zero = (merged[c] == 0).mean() * 100
         print(f'    {c}: 缺失 {miss:.1f}%  0值 {zero:.1f}%  均值 {merged[c].mean():.2f}')
 
-    merged.to_parquet(OUT_FP, index=False)
+    atomic_write_parquet(merged, OUT_FP, index=False)
     print(f'\n输出: {OUT_FP}')
 
     # 情绪因子在正负样本中的对比

@@ -23,13 +23,18 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
 from _common import adj_factor_dir, daily_dir, universe_path
+
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -180,7 +185,7 @@ def main() -> None:
         res = res.sort_values(['start_date', 'code']).reset_index(drop=True)
         res['year'] = pd.to_datetime(res['start_date']).dt.year
     csv_path = OUT_DIR / 'double_30d_2021_2026.csv'
-    res.to_csv(csv_path, index=False, encoding='utf-8-sig')
+    atomic_write_frame(res, csv_path, index=False, encoding='utf-8-sig')
     print(f'✓ CSV: {csv_path} ({len(res)} 行)')
 
     _write_report(res, t0)
@@ -263,7 +268,7 @@ def _write_report(res: pd.DataFrame, t0: datetime) -> None:
     L.append('模型版本：数据驱动（非模型）')
     L.append(f'数据日期：{DATA_END.date()}')
 
-    md.write_text('\n'.join(L), encoding='utf-8')
+    atomic_write_text(md, '\n'.join(L), encoding='utf-8')
     print(f'✓ 报告: {md}')
 
 

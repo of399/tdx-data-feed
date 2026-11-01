@@ -87,7 +87,6 @@ warnings.filterwarnings('ignore')
 ROOT = Path(__file__).parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
 from _common import (  # noqa: E402
     adj_factor_dir,
     daily_dir,
@@ -96,6 +95,8 @@ from _common import (  # noqa: E402
     model_path,
     universe_path,
 )
+
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
 
 PARQUET_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
@@ -934,16 +935,16 @@ def emit_outputs(args, model_name, feat_df, high_score):
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     fp_all = OUTPUT_DIR / f'predict_{ts}.csv'
-    feat_df.to_csv(fp_all, index=False, encoding='utf-8-sig')
+    atomic_write_frame(feat_df, fp_all, index=False, encoding='utf-8-sig')
     print(f"    ✓ 全部: {fp_all.name} ({len(feat_df)} 行)")
 
     fp_top = OUTPUT_DIR / f'predict_top{args.top}_{ts}.csv'
-    feat_df.head(args.top).to_csv(fp_top, index=False, encoding='utf-8-sig')
+    atomic_write_frame(feat_df.head(args.top), fp_top, index=False, encoding='utf-8-sig')
     print(f"    ✓ Top {args.top}: {fp_top.name}")
 
     if len(high_score) > 0:
         fp_high = OUTPUT_DIR / f'predict_high_{ts}.csv'
-        high_score.to_csv(fp_high, index=False, encoding='utf-8-sig')
+        atomic_write_frame(high_score, fp_high, index=False, encoding='utf-8-sig')
         print(f"    ✓ 高分 {len(high_score)} 只: {fp_high.name}")
     else:
         print(f"    (无阈值 {args.threshold}+ 高分股)")
@@ -972,12 +973,12 @@ def emit_outputs(args, model_name, feat_df, high_score):
             if missing:
                 print(f"    ⚠ --emit-top 缺失字段: {missing}, 仅输出存在字段: {present}")
             fp_emit = signals_dir / f'predict_{ts}_top{args.emit_top_n}_thr{args.emit_threshold}.csv'
-            emit_pool[present].to_csv(fp_emit, index=False, encoding='utf-8-sig')
+            atomic_write_frame(emit_pool[present], fp_emit, index=False, encoding='utf-8-sig')
             print(f"    ✓ emit-top: {fp_emit.relative_to(ROOT)} ({len(emit_pool)} 行 × {len(present)} 列)")
 
     # Markdown 报告
     fp_md = OUTPUT_DIR / f'predict_{ts}.md'
-    with open(fp_md, 'w', encoding='utf-8') as f:
+    with open(f"{fp_md}.tmp", 'w', encoding='utf-8') as f:
         f.write("# 方案 D 每日预测报告\n\n")
         f.write(f"- **时间**: {datetime.now().isoformat(timespec='seconds')}\n")
         f.write(f"- **基准日**: {args.date or '今天'}\n")
@@ -1052,11 +1053,12 @@ def emit_outputs(args, model_name, feat_df, high_score):
         f.write(f"生成工具: `scripts/predict.py --model {model_name}`\n")
         f.write("---\n\n")
         f.write("生成工具: `scripts/predict.py`\n")
+    os.replace(f"{fp_md}.tmp", fp_md)
     print(f"    ✓ 报告: {fp_md.name}")
 
     # 同步 latest
     fp_latest = OUTPUT_DIR / 'predict_latest.md'
-    fp_latest.write_text(fp_md.read_text(encoding='utf-8'), encoding='utf-8')
+    atomic_write_text(fp_latest, fp_md.read_text(encoding='utf-8'), encoding='utf-8')
 
 
 def main():

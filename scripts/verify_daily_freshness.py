@@ -17,6 +17,7 @@ from collections import Counter
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tdxfeed.paths import DATA_ROOT, daily_dir
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -171,8 +172,9 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     ts = _dt.datetime.now().strftime("%Y%m%d")
     out_path = os.path.join(out_dir, f"verify_daily_since_{ts}.md")
-    with open(out_path, "w", encoding="utf-8") as fh:
+    with open(f"{out_path}.tmp", "w", encoding="utf-8") as fh:
         fh.write(report)
+    os.replace(f"{out_path}.tmp", out_path)
     print(f"\n报告已写入: {out_path}")
 
 

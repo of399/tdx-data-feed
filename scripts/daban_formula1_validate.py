@@ -34,7 +34,7 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.limit_price import (  # noqa: E402
     board_label,
     exchange_prefix,
@@ -240,7 +240,7 @@ def main() -> int:
 
     OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / f"formula1_validate_{days[-1]}.json"
-    path.write_text(json.dumps(all_res, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    atomic_write_text(path, json.dumps(all_res, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"\n已写出 {path}")
     return 0
 

@@ -39,7 +39,6 @@ import polars as pl
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
-
 from _common import compute_window_features_extended  # noqa: E402
 from features_5d import (  # noqa: E402
     get_limit,
@@ -48,6 +47,7 @@ from features_5d import (  # noqa: E402
 )
 from train_daban_model import SPLIT_DATE, iter_stock_files  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_frame  # noqa: E402  # SEM001 原子写
 from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -217,7 +217,7 @@ def main() -> int:
     # 落盘对比结果
     ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
     out_fp = ROOT / "data" / "double_up" / f"compare_stage1_vs_daban_{ts}.csv"
-    full.to_csv(out_fp, index=False)
+    atomic_write_frame(full, out_fp, index=False)
     print(f"\n  样本明细: {out_fp}")
     return 0
 

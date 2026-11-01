@@ -25,9 +25,9 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-
 from _common import daily_dir, minute_dir  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_parquet  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.scanner import daily_path, load_universe  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -304,7 +304,7 @@ def main() -> int:
         print("[error] 无数据")
         return 1
     df = pd.concat(parts, ignore_index=True)
-    df.to_parquet(args.out, index=False)
+    atomic_write_parquet(df, args.out, index=False)
     print(f"[ok] {args.out}  {len(df):,} 行 / {df.code.nunique()} 只 / {df.date.nunique()} 天")
 
     valid = df[~df.suspect_ref]
@@ -332,7 +332,7 @@ def main() -> int:
             g["bar"] = k + 1
             rows.append(g.reset_index())
         mkt = pd.concat(rows, ignore_index=True)
-        mkt.to_parquet(OUT_MKT, index=False)
+        atomic_write_parquet(mkt, OUT_MKT, index=False)
         print(f"[ok] {OUT_MKT}  {len(mkt):,} 行")
     return 0
 

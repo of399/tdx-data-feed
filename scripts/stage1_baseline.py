@@ -53,7 +53,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.factors_candidates import CANDIDATE_NAMES  # 9 候选因子名
 from tdxfeed.stage1_wide_table import FEAT26_ORDER  # 26 基础维顺序（权威）
 
@@ -404,10 +404,10 @@ def main(argv: list[str] | None = None) -> int:
         }
         out_json = out_dir / f"stage1_baseline_{ts}.json"
         out_md = out_dir / f"stage1_baseline_{ts}.md"
-        out_json.write_text(json.dumps({"meta": meta, "result": _jsonable(result)},
+        atomic_write_text(out_json, json.dumps({"meta": meta, "result": _jsonable(result)},
                                       ensure_ascii=False, indent=2), encoding="utf-8")
         report = build_report(result, meta)
-        out_md.write_text(report, encoding="utf-8")
+        atomic_write_text(out_md, report, encoding="utf-8")
 
         # 控制台核心结论
         pooled = result["pooled"]

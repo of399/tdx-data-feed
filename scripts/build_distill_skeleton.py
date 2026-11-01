@@ -2,8 +2,12 @@ import json
 import os
 import sys
 from collections import Counter
+from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+
 from _common import daily_files
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -75,9 +79,10 @@ def main():
         df = pd.read_parquet(fp)
         all_s.extend(build(sym, df))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, 'w', encoding='utf-8') as f:
+    with open(f"{OUT}.tmp", 'w', encoding='utf-8') as f:
         for s in all_s:
             f.write(json.dumps(s, ensure_ascii=False) + '\n')
+    os.replace(f"{OUT}.tmp", OUT)
     print('SKELETON_DONE 条数:', len(all_s), '->', OUT)
 
 main()

@@ -57,6 +57,8 @@ from tdxfeed.daban.limit_price import (  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import daily_dir, universe_path  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
+
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
@@ -413,8 +415,7 @@ def main() -> int:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     out_path = args.out_dir / f"hengpan_t1_eval_{pd.Timestamp.now():%Y%m%d}.json"
-    out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=_jsonable),
-                        encoding="utf-8")
+    atomic_write_text(out_path, json.dumps(report, ensure_ascii=False, indent=2, default=_jsonable), encoding="utf-8")
     print(f"[done] 写出 {out_path}")
     return 0
 

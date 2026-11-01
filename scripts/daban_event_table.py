@@ -52,6 +52,8 @@ META = ROOT / "data/daban/event_table_min60_20261022.meta.json"
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import get_limit, minute_dir  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_parquet, atomic_write_text  # noqa: E402  # SEM001 原子写
+
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
@@ -504,8 +506,8 @@ def main() -> int:
         return 1
     out, meta = build(args.features, limit=args.limit)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(args.out, index=False)
-    args.meta.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_parquet(out, args.out, index=False)
+    atomic_write_text(args.meta, json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[ok] {args.out}  {len(out):,} 行 / {out['code'].nunique():,} 只 / "
           f"{out['date'].nunique()} 天")
     print(f"[ok] {args.meta}")

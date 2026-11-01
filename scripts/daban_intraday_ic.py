@@ -27,7 +27,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.scanner import daily_path, load_universe  # noqa: E402
 from tdxfeed.date_utils import parse_date_series  # noqa: E402
 
@@ -224,7 +224,7 @@ def main() -> int:
               "- 若个别特征 |IC| ≥0.03 且分组单调 → 换标签重训有依据，先做单特征策略验证。",
               "- `IC(次日涨停)` 列是原标签的对照：特征对原标签越有效、对日内收益越无效，越说明旧模型学的是不可交易的隔夜溢价。",
               ""]
-    OUT.write_text("\n".join(lines), encoding="utf-8")
+    atomic_write_text(OUT, "\n".join(lines), encoding="utf-8")
     print("\n".join(lines[:80]))
     print(f"\n[ok] {OUT}")
     return 0

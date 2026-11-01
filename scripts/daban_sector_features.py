@@ -32,9 +32,9 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
 from _common import daily_dir  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_frame, atomic_write_parquet  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.limit_price import (  # noqa: E402
     exchange_prefix,
     limit_ratio,
@@ -135,8 +135,8 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     csv_path = out / "sector_features.csv"
     pq_path = out / "sector_features.parquet"
-    df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-    df.to_parquet(pq_path, index=False)
+    atomic_write_frame(df, csv_path, index=False, encoding="utf-8-sig")
+    atomic_write_parquet(df, pq_path, index=False)
     print(f"[ok] {len(df):,} 行 × {df['date'].nunique()} 日 → {csv_path} / {pq_path}")
     print(df.tail(5).to_string())
     return 0

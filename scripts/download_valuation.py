@@ -30,6 +30,7 @@ import concurrent.futures as _cf
 import json
 import os
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -39,6 +40,9 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 
 warnings.filterwarnings("ignore")
 # 抑制 akshare 内部 tqdm 进度条噪声 (写入日志无用)
@@ -182,7 +186,7 @@ def append_parquet(path: Path, new_df):
             combined = combined.drop_duplicates(keys)
     else:
         combined = new_df
-    combined.to_parquet(path, index=False)
+    atomic_write_parquet(combined, path, index=False)
 
 
 # --------------------------------------------------------------------------- #

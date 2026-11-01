@@ -21,11 +21,15 @@ Part B：封板质量对「连板≥3 接力」有没有增量
 from __future__ import annotations
 
 import argparse
+import sys
 from collections import Counter
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -787,7 +791,7 @@ def main() -> int:
           f"t={b['baseline']['t']:.2f}")
     lines = build_report(raw, valid, a, b)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text("\n".join(lines), encoding="utf-8")
+    atomic_write_text(args.out, "\n".join(lines), encoding="utf-8")
     print(f"[ok] {args.out}  ({len(lines)} 行)")
     return 0
 

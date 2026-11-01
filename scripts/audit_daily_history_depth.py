@@ -24,6 +24,7 @@ import argparse
 import concurrent.futures as cf
 import datetime as dt
 import json
+import os
 import sys
 import time
 from collections import Counter
@@ -167,8 +168,9 @@ def main() -> int:
     summary = summarize(rows, args.target)
     out = ROOT / "data" / "audit" / f"history_depth_{dt.date.today():%Y%m%d}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "w", encoding="utf-8") as fh:
+    with open(f"{out}.tmp", "w", encoding="utf-8") as fh:
         json.dump({**summary, "rows": rows}, fh, ensure_ascii=False)
+    os.replace(f"{out}.tmp", out)
     print(json.dumps(summary, ensure_ascii=False), flush=True)
     for r in rows:
         if r["state"] == "unknown":

@@ -9,8 +9,11 @@ import os
 import sys
 from collections import Counter
 from datetime import datetime
+from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
 
 from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.sina_source import SinaSource
@@ -185,10 +188,12 @@ def cmd_vault_doc():
 '''
     p1 = os.path.join(data_dir, '数据字典.md')
     p2 = os.path.join(data_dir, '同步状态.md')
-    with open(p1, 'w', encoding='utf-8') as f:
+    with open(f"{p1}.tmp", 'w', encoding='utf-8') as f:
         f.write(dict_doc)
-    with open(p2, 'w', encoding='utf-8') as f:
+    os.replace(f"{p1}.tmp", p1)
+    with open(f"{p2}.tmp", 'w', encoding='utf-8') as f:
         f.write(st_doc)
+    os.replace(f"{p2}.tmp", p2)
     print('vault-doc 已生成:')
     print(' ', p1)
     print(' ', p2)

@@ -30,6 +30,7 @@ import contextlib
 import json
 import logging
 import re
+import select
 import subprocess
 import sys
 import threading
@@ -127,10 +128,19 @@ class McpClient:
         with self._lock:
             self._id += 1
             req = {"jsonrpc": "2.0", "id": self._id, **payload}
+            proc = self.proc
+            if proc is None or proc.stdin is None or proc.stdout is None:
+                raise RuntimeError(f"MCP server {self.server_name} 未启动")
             try:
-                self.proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
-                self.proc.stdin.flush()
-                line = self.proc.stdout.readline()
+                proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
+                proc.stdin.flush()
+                # KI-MCP-001：readline 之前必须真的等超时 —— 否则子进程不响应时
+                # 父进程会永久阻塞并一直持锁（timeout 参数此前从未生效）
+                ready, _, _ = select.select([proc.stdout], [], [], timeout)
+                if not ready:
+                    raise TimeoutError(
+                        f"MCP server {self.server_name} 响应超时（{timeout:.0f}s）")
+                line = proc.stdout.readline()
                 if not line:
                     raise RuntimeError(f"MCP server {self.server_name} 已断开")
                 return json.loads(line)

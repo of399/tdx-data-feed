@@ -20,9 +20,12 @@ _ROOT = Path(__file__).resolve().parents[1]
 for _p in (_ROOT / "scripts", _ROOT / "training" / "eval"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
 from _common import is_bj, norm_code  # 审计 P1-3-1 2026-10-17: 统一 4 处重复实现
 from llm_signal_plan_e import build_window
 from plan_e_backtest import backtest, load_double_up
+
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -131,7 +134,7 @@ def main():
 
     out = "\n".join(lines) + "\n"
     Path(out_md).parent.mkdir(parents=True, exist_ok=True)
-    Path(out_md).write_text(out, encoding="utf-8")
+    atomic_write_text(Path(out_md), out, encoding="utf-8")
     print(out)
 
 

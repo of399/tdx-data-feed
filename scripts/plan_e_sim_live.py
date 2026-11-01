@@ -43,6 +43,7 @@ from _common import (
 ROOT = Path(__file__).parent.parent
 # 显式把项目根加入 sys.path，确保 `import tdxfeed`（如 freshness）在直接运行时可用。
 sys.path.insert(0, str(ROOT))
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
 
 # 结算内核（唯一实现）：出场阶梯与时间窗跟 plan_e_backtest 同源。
 from tdxfeed.execution.bars import as_bars  # noqa: E402
@@ -355,7 +356,7 @@ def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     csv_out = OUTPUT_DIR / f"plan_e_sim_live_{ts}.csv"
     md_out = OUTPUT_DIR / f"plan_e_sim_live_{ts}.md"
-    trades.to_csv(csv_out, index=False)
+    atomic_write_frame(trades, csv_out, index=False)
     md = (
         f"# 方案 E 模拟实盘 (Plan E Sim-Live) — {ts}\n\n"
         f"## 核心指标\n\n"
@@ -372,7 +373,7 @@ def main():
         f"> 若差距小（<5pp），策略相对稳健；若差距 >10pp，建议加大实盘风控或减小仓位。\n\n"
         f"---\n\n生成时间: {datetime.now().isoformat(timespec='seconds')}  生成者: scripts/plan_e_sim_live.py  模型: d_signal_5d_model.txt  数据: {sample[0]} ~ {sample[-1]}\n"
     )
-    md_out.write_text(md, encoding="utf-8")
+    atomic_write_text(md_out, md, encoding="utf-8")
     print(f"\n  ✅ CSV: {csv_out}")
     print(f"  ✅ MD : {md_out}")
 

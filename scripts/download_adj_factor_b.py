@@ -12,6 +12,9 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
+
 warnings.filterwarnings("ignore")
 
 # baostock 网络调用全局 30s 超时（避免某只 hang 阻塞整个流程）
@@ -103,7 +106,7 @@ def fetch_one(bs, code_short: str, max_retries: int = 3):
             merged['adj_factor'] = (merged['qfq_close'] / merged['raw_close']).round(6)
             merged['code'] = code_short
             merged = merged[['code', 'date', 'adj_factor', 'qfq_close', 'raw_close']]
-            merged.to_parquet(cache_fp, index=False)
+            atomic_write_parquet(merged, cache_fp, index=False)
             return 'ok'
         except Exception as e:
             _ERROR_COUNT['fetch_one'] += 1

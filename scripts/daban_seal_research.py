@@ -27,7 +27,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-
+from tdxfeed.atomic import atomic_write_parquet, atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.seal_classifier import (  # noqa: E402
     LABEL,
     SEAL_FEATURES,
@@ -246,11 +246,9 @@ def main() -> int:
     result, score_df, model = run(events)
 
     args.out_json.parent.mkdir(parents=True, exist_ok=True)
-    args.out_json.write_text(
-        json.dumps(_jsonable(result), ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    atomic_write_text(args.out_json, json.dumps(_jsonable(result), ensure_ascii=False, indent=2), encoding="utf-8")
     joblib.dump(model, args.out_model)
-    score_df.to_parquet(args.out_scores, index=False)
+    atomic_write_parquet(score_df, args.out_scores, index=False)
     print(f"[ok] {args.out_json}")
     print(f"[ok] {args.out_model}")
     print(f"[ok] {args.out_scores}  {len(score_df):,} 行")

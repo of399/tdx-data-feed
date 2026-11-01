@@ -24,6 +24,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
+
 ROOT = Path(__file__).parent.parent
 SOURCE = ROOT / "data" / "double_up" / "d_signal_5d_features_v9.csv"
 INDUSTRY_MAPPING = ROOT / "data" / "industry" / "sw_stock_industry.csv"
@@ -84,7 +87,7 @@ def main():
     industry_feats = clean_inf(industry_feats, ["ind_ret_5d_avg", "ind_amt_avg_5d", "ind_pct_t1_avg", "ind_volatility_avg"])
 
     # 保存行业特征表
-    industry_feats.to_csv(INDUSTRY_FEATS_OUT, index=False)
+    atomic_write_frame(industry_feats, INDUSTRY_FEATS_OUT, index=False)
     print(f"  行业特征: {INDUSTRY_FEATS_OUT}")
 
     # 合并回训练数据
@@ -101,7 +104,7 @@ def main():
         print(f"  {c}: {n_valid}/{len(df)} = {n_valid/len(df)*100:.1f}%")
 
     # 保存训练数据
-    df.to_csv(TARGET_TRAIN, index=False)
+    atomic_write_frame(df, TARGET_TRAIN, index=False)
     print(f"\n  训练数据: {TARGET_TRAIN}")
     print(f"  新维度: {len(df.columns)-3} = 原 26 + 6 行业")
 

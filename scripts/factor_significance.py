@@ -35,12 +35,12 @@ ORTH_FP = ROOT / 'data/factor_significance_orthogonalized.csv'
 
 # 仓库根加入 sys.path，使 `import quant` 在直接运行脚本时可用（与 plan_e_journal.py 一致）。
 sys.path.insert(0, str(ROOT))
-
 from quant.multifactor.cv_utils import bh_fdr_correct  # noqa: E402  # P0-1 BH-FDR
 from quant.multifactor.factors import (  # noqa: E402
     cross_sectional_projection,
     orthogonalize_factor_panel,
 )
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -292,7 +292,7 @@ def main():
     res_df['q_value'] = q
     res_df['fdr_sig'] = rej
 
-    res_df.to_csv(DETAIL_FP, index=False)
+    atomic_write_frame(res_df, DETAIL_FP, index=False)
     print(f'\n详细结果: {DETAIL_FP}')
 
     # === P2-4：对称正交化 + 增量显著性（因子集去相关后重算） ===
@@ -301,7 +301,7 @@ def main():
         print(f'[{datetime.now():%H:%M:%S}] 因子正交化与增量显著性分析 ({args.orth_method})...')
         orth_res = orthogonalize_factor_significance(df, factor_cols, method=args.orth_method)
         if orth_res is not None:
-            orth_res.to_csv(ORTH_FP, index=False)
+            atomic_write_frame(orth_res, ORTH_FP, index=False)
             n_indep = int(orth_res['independent'].sum())
             n_redun = int(orth_res['redundant'].sum())
             print(f'  正交化明细: {ORTH_FP}  (独立 {n_indep} / 冗余 {n_redun})')
@@ -432,7 +432,7 @@ def main():
     md.append(f'详细数值: `{DETAIL_FP.relative_to(ROOT)}`  ')
     md.append('生成脚本: `scripts/factor_significance.py`  ')
 
-    REPORT_FP.write_text('\n'.join(md), encoding='utf-8')
+    atomic_write_text(REPORT_FP, '\n'.join(md), encoding='utf-8')
     print(f'报告: {REPORT_FP}')
 
     # 控制台简短输出

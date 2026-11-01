@@ -21,12 +21,16 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('clean_detail')
@@ -152,10 +156,10 @@ def main() -> None:
 
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     fp_clean = OUT / f'double_up_2020_2026_detail_clean_{ts}.csv'
-    clean.to_csv(fp_clean, index=False, encoding='utf-8-sig')
+    atomic_write_frame(clean, fp_clean, index=False, encoding='utf-8-sig')
     fp_anom = OUT / f'double_up_2020_2026_anomaly_review_{ts}.csv'
     anom_df = pd.DataFrame(anomalies)
-    anom_df.to_csv(fp_anom, index=False, encoding='utf-8-sig')
+    atomic_write_frame(anom_df, fp_anom, index=False, encoding='utf-8-sig')
 
     # 计数
     n_single = int(df['single_day_gt_50'].sum())
@@ -238,7 +242,7 @@ def _write_report(df, anom_df, before, after, n_single, n_gap, n_new, n_st, n_dr
     L.append(f"数据日期：{datetime.now().strftime('%Y-%m-%d')}")
 
     fp_md = OUT / f'double_up_2020_2026_cleaning_report_{ts}.md'
-    fp_md.write_text('\n'.join(L), encoding='utf-8')
+    atomic_write_text(fp_md, '\n'.join(L), encoding='utf-8')
     log.info('✓ 报告: %s', fp_md)
     log.info('✓ 清洗集: %s ; 异常复核: %s', fp_clean.name, fp_anom.name)
 

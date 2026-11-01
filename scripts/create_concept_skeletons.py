@@ -11,8 +11,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import date
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 DEFAULT_VAULT = "/home/jiuben/StockVault"
 SKIP_DIRS = {".obsidian", ".trash", ".git", "node_modules", ".codebuddy", "attachments"}
@@ -89,7 +93,7 @@ def main() -> None:
             created.append("(dry) " + str(fp.relative_to(vault)))
             continue
         fp.parent.mkdir(parents=True, exist_ok=True)
-        fp.write_text(skeleton(name, dom_label), encoding="utf-8")
+        atomic_write_text(fp, skeleton(name, dom_label), encoding="utf-8")
         created.append(str(fp.relative_to(vault)))
 
     # MOC：先逐条 checklist，再 dataview 动态查询
@@ -113,7 +117,7 @@ def main() -> None:
         "",
     ]
     if not args.dry_run:
-        (vault / MATH_ROOT / "00-待写队列.md").write_text("\n".join(lines), encoding="utf-8")
+        atomic_write_text(vault / MATH_ROOT / "00-待写队列.md", "\n".join(lines), encoding="utf-8")
 
     # 修正路径式断链（兼容别名 [[数学/00_索引/总览|xxx]]）
     moc_link = vault / "05-知识库" / "00-MOC.md"
@@ -122,7 +126,7 @@ def main() -> None:
         t = moc_link.read_text(encoding="utf-8")
         if "[[数学/00_索引/总览" in t:
             if not args.dry_run:
-                moc_link.write_text(t.replace("[[数学/00_索引/总览", "[[总览"), encoding="utf-8")
+                atomic_write_text(moc_link, t.replace("[[数学/00_索引/总览", "[[总览"), encoding="utf-8")
             fixed_link = str(moc_link.relative_to(vault))
 
     print("# 概念骨架批量创建")

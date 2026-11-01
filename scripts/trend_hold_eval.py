@@ -44,9 +44,9 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
 from _common import adj_factor_dir, daily_dir, universe_path  # noqa: E402
 
+from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.execution_backtest import ExecutionConfig, net_return  # noqa: E402
 from tdxfeed.daban.limit_price import (  # noqa: E402
     exchange_prefix,
@@ -295,7 +295,7 @@ def main() -> int:
     print(f"\n上证指数同口径均值(%)：{idx}")
 
     out = OUT_DIR / f"trend_hold_eval_{datetime.now():%Y%m%d}.json"
-    out.write_text(json.dumps({
+    atomic_write_text(out, json.dumps({
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "window": [args.start, args.end],
         "adjust": "raw × data/adj_factor.adj_factor（前复权）；hfq_factor 目录是真后复权（2026-10-29 重建），锚点不同不可混用",

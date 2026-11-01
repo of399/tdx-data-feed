@@ -23,11 +23,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -62,9 +66,7 @@ class SectorFilter:
     def save(self, path: Path | str = FILTER_CONFIG_PATH) -> Path:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(
-            json.dumps(self.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        atomic_write_text(p, json.dumps(self.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
         return p
 
     @classmethod
