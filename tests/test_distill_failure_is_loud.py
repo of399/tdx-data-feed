@@ -21,6 +21,9 @@ import sys
 import threading
 from pathlib import Path
 
+# 起本地假 Ollama + tmp_path 输出；docstring 里的生产语料只是背景说明。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "distill_outputs.py"
 

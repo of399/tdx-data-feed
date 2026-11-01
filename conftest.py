@@ -8,7 +8,10 @@
 让「测试集能在无数据环境跑」这件事有唯一判据。守卫见 tests/test_ci_data_skip.py。
 只读源码文本、不读 `data/` 的模块在文件里写一行 `NEEDS_DATA = False` 显式退出这个分类；
 数据依赖是间接的（被测模块自己读盘）就写 `NEEDS_DATA = True` 显式加入。
+标记扫描只看**代码里的字符串字面量**：docstring 和注释里提到 `data/` 不算依赖，
+否则纯静态守卫会因一句说明而在 CI 整体消失（2026-11-01 收紧）。
 """
+import ast
 import os
 import sys
 from pathlib import Path
@@ -34,6 +37,37 @@ _OPT_OUT_LINE = "NEEDS_DATA = False"
 _OPT_IN_LINE = "NEEDS_DATA = True"
 
 
+def _code_strings(text: str) -> str:
+    """提炼源码里的字符串字面量，丢掉 docstring 与注释。
+
+    注释本来就不进 AST；docstring 是 `ast.Constant`，按模块/类/函数体的首句排除。
+    解析失败（收集期本来也会炸）时退回全文，宁可多跳过一个模块也不放行。
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return text
+    docstrings = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", [])
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            docstrings.add(id(body[0].value))
+    return "\n".join(
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+    )
+
+
 def _needs_data(path: Path) -> bool:
     if TESTS_DIR not in path.parents:
         return False
@@ -46,7 +80,8 @@ def _needs_data(path: Path) -> bool:
         return True
     if _OPT_OUT_LINE in lines:
         return False
-    return any(marker in text for marker in _DATA_MARKERS)
+    code = _code_strings(text)
+    return any(marker in code for marker in _DATA_MARKERS)
 
 
 def pytest_collection_modifyitems(config, items):

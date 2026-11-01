@@ -21,6 +21,9 @@ from pathlib import Path
 
 import pytest
 
+# 镜像/调度静态守卫不读行情数据；需要本机 /etc 部署的用例自己 skip。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parents[1]
 MIRROR = ROOT / "systemd" / "system"
 DEPLOYED_ROOT = Path("/etc/systemd/system")

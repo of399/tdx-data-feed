@@ -22,6 +22,9 @@ sys.path.insert(0, str(ROOT))
 
 from skill_router.orchestrator import Orchestrator  # noqa: E402
 
+# 路由/指纹/契约是纯静态的；检索与讲义目录用例各自按 vault 索引/目录存在性 skip。
+NEEDS_DATA = False
+
 VAULT_ROOT = Path("/home/jiuben/ObsidianVaults/tdx-data-feed")
 THEORY_DIR = VAULT_ROOT / "09-理论讲义"
 VAULT_STORE = ROOT / "data/vault_store.jsonl"
@@ -140,8 +143,15 @@ def test_path_prefix_narrows_to_one_book():
     assert all(x["meta"]["path"].startswith(prefix) for x in r["results"])
 
 
-def test_unknown_filter_returns_no_match_with_hint():
-    r = vault._store.search("任意查询", category="__不存在的目录__")
+def test_unknown_filter_returns_no_match_with_hint(tmp_path):
+    """空库返回 empty；只有库里有文档、过滤后为空才是 no_match。
+
+    用合成库隔离本机 vault，否则 CI 无索引时这条会从 no_match 变成 empty。
+    """
+    store = tmp_path / "s.jsonl"
+    _write_store(store, _one_doc())
+    st = vault.VectorStore(store)
+    r = st.search("任意查询", category="__不存在的目录__")
     assert r["mode"] == "no_match"
     assert r["results"] == [] and r["n_matched"] == 0
     assert r["hint"] and r["filter"]["category"] == "__不存在的目录__"

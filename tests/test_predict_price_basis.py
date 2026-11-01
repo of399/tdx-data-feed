@@ -63,6 +63,9 @@ def _wire_symbol(monkeypatch, tmp_path):
     p = d / "sh600000.parquet"
     df.to_parquet(p, index=False)
     monkeypatch.setattr(predict, "PARQUET_DIR", d)
+    # compute_features 的定位走 paths.daily_path() 单源，不是 PARQUET_DIR；
+    # 本用例不考路径解析，锁到合成文件，否则 CI 无 data/ 时提前返回 None。
+    monkeypatch.setattr(predict, "daily_path", lambda _code: p)
     monkeypatch.setattr(predict, "ADJ_DIR", tmp_path / "no_adj")
     monkeypatch.setattr(predict, "ACTIVE_FEATURE_MODE", "legacy")
     monkeypatch.setattr(predict, "_enrich_market_features", lambda r, d_: r)

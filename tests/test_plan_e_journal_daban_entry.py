@@ -26,6 +26,10 @@ for _p in (str(ROOT), str(ROOT / "scripts")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+# journal/live 目录全部重定向到 tmp_path；只有证据可点开那条要 data/ 下的回测 JSON。
+NEEDS_DATA = False
+_EVIDENCE = ROOT / "data" / "daban" / "execution_backtest_20261022.json"
+
 
 def _load_journal():
     spec = importlib.util.spec_from_file_location(
@@ -89,6 +93,7 @@ def test_simulate_path_keeps_recording(tmp_path):
     assert not (live / "journal.csv").exists()
 
 
+@pytest.mark.skipif(not _EVIDENCE.exists(), reason="回测证据在 gitignore 的 data/ 里，CI 无此文件")
 def test_refusal_cites_evidence_that_exists():
     """闸门文案里的证据必须可点开，不能是不存在的路径或编造的文件名。"""
     pej = _load_journal()

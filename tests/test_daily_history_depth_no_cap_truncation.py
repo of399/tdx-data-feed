@@ -21,6 +21,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# 读 data/audit、data/.state 与写进 parquet 的首行：CI 无数据时整片跳过。
+NEEDS_DATA = True
+
 TARGET = 20000101
 DOC = ROOT / "docs" / "daily_history_2000_20261025.md"
 

@@ -24,6 +24,9 @@ from pathlib import Path
 
 import pandas as pd
 
+# 清单与账本全部被重定向到 tmp_path；模块本身只定义路径常量。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parents[1]
 for _p in (str(ROOT), str(ROOT / "scripts")):
     if _p not in sys.path:

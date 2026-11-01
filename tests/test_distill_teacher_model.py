@@ -18,6 +18,9 @@ import sys
 import time
 from pathlib import Path
 
+# 只读脚本源码与 Makefile；子进程用 tmp_path 骨架，不碰生产语料。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "distill_outputs.py"
 MAKEFILE = ROOT / "Makefile"

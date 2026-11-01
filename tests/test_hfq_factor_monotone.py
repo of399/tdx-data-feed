@@ -14,6 +14,10 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# 扫描 data/hfq_factor 全表：CI 无数据时整片跳过。
+NEEDS_DATA = True
+
 HFQ = ROOT / "data" / "hfq_factor"
 
 # (code, date) -> 相对跌幅；2026-10-30 全表实测，11 只 / 12 次

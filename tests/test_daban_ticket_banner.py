@@ -16,6 +16,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# 只读仓库内已入库文档与源代码；横幅里提到的 data/ 是被禁止引用的对象，不是依赖。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parents[1]
 for _p in (str(ROOT), str(ROOT / "scripts")):
     if _p not in sys.path:

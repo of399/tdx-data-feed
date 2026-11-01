@@ -13,9 +13,15 @@ import pytest
 
 from quant.multifactor.factors import MFConfig
 
+# AST 调用点扫描是纯静态的；真正跑回测的那条要读 data/parquet/daily，单独 skip。
+NEEDS_DATA = False
+
+ROOT = Path(__file__).resolve().parents[1]
+_HAS_DATA = (ROOT / "data").exists()
 PROD_GLOB = "plan_e_backtest_mf_v1_*"
 
 
+@pytest.mark.skipif(not _HAS_DATA, reason="run_mf_backtest 要读 data/parquet/daily")
 def test_run_mf_backtest_writes_only_into_given_output_dir(tmp_path):
     """给了 output_dir 就只能往它写，生产目录一个文件都不许多。"""
     from quant.multifactor import engine

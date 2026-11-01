@@ -14,6 +14,9 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# 全部走 tmp_path 的委托单账本。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parents[1]
 for _p in (str(ROOT), str(ROOT / "scripts")):
     if _p not in sys.path:

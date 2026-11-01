@@ -32,6 +32,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+# 单元形态与生产者守卫都走静态源码/tmp_path；只有文档数字复现那条按备份存在性 skip。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parents[1]
 SYSTEMD = ROOT / "systemd"
 
@@ -47,6 +50,20 @@ def _load(name: str, filename: str):
 @pytest.fixture(scope="module")
 def producer():
     return _load("find_double_up_c_guard_test", "find_double_up_c.py")
+
+
+def test_importing_producer_does_not_create_production_dirs(monkeypatch):
+    """import 期不许 mkdir：`/home/jiuben/...` 在 CI/干净机器上不存在，会把整片测试收集打红。"""
+    calls = []
+    real_mkdir = Path.mkdir
+
+    def spy(self, *args, **kwargs):
+        calls.append(str(self))
+        return real_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", spy)
+    _load("find_double_up_c_import_guard", "find_double_up_c.py")
+    assert not calls, f"import 期创建了目录：{calls}"
 
 
 def _unit(path: Path) -> str:

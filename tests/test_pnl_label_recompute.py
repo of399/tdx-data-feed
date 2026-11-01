@@ -10,6 +10,10 @@ import pandas as pd
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# 对数据产物的守卫：CI 无 data/ 时必须整片跳过。
+NEEDS_DATA = True
+
 NEW = ROOT / "data" / "double_up" / "d_signal_5d_features_vpnl.csv"
 OLD = ROOT / "data" / "double_up" / "_pre_settle_kernel_20261028" / "d_signal_5d_features_vpnl.csv"
 DAILY = ROOT / "data" / "parquet" / "daily"

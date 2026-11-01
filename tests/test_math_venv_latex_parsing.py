@@ -30,6 +30,9 @@ from pathlib import Path
 
 import pytest
 
+# 静态解释器/注册片守卫不读行情数据；需要 venv-math 的用例自己 skip。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parents[1]
 MATH_REQS = ROOT / "v5" / "requirements-math.txt"
 MATH_PY = ROOT / "venv-math" / "bin" / "python"

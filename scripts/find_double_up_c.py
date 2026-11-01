@@ -22,7 +22,6 @@ PARQUET = daily_dir()
 VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
 ALL_STOCKS = universe_path()
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
-OUT_DIR.mkdir(parents=True, exist_ok=True)
 DOUBLE_UP_DETAIL = OUT_DIR / 'double_up_2020_2026_detail.csv'
 
 START_DATE = pd.Timestamp('2020-01-01')
@@ -120,6 +119,7 @@ def assert_sample_ok(previous: pd.DataFrame | None, current: pd.DataFrame) -> No
 def write_atomic(df: pd.DataFrame, path: Path) -> None:
     """先写 .tmp 再 os.replace：timer 每天重写全量样本，半截 CSV 会被第二天
     的 `--today` 当成完整样本读进去。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + '.tmp')
     df.to_csv(tmp, index=False, encoding='utf-8-sig')
     os.replace(tmp, path)
@@ -200,6 +200,7 @@ def screen_one(code: str, name_map: dict, st_set: set) -> list | None:
 
 def main():
     t0 = datetime.now()
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     print("=== 方案 C: 近 5 年（2020-2026）20 日翻倍筛选 ===")
     print(f"  START_DATE: {START_DATE.date()}")
     print(f"  WINDOW: {WINDOW} 交易日")

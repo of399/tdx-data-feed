@@ -1,8 +1,11 @@
 """P1-2 仓位与尾部风险：半 Kelly 缩放、CVaR 监控、CVaR 约束。"""
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import pytest
 
 from quant.multifactor.factors import MFConfig
 from quant.multifactor.portfolio import (
@@ -13,6 +16,10 @@ from quant.multifactor.portfolio import (
     solve_erc_cvxpy,
 )
 from quant.multifactor.risk_model import RiskModel
+
+# 组合数学用例是纯计算；只有最后一条 run_mf_backtest 要读行情。
+NEEDS_DATA = False
+_HAS_DATA = (Path(__file__).resolve().parents[1] / "data").exists()
 
 
 def test_half_kelly_scaling_clip_and_shrink():
@@ -90,6 +97,7 @@ def test_solve_erc_forwards_cvar():
     assert w is not None and abs(w.sum() - 1.0) < 1e-6
 
 
+@pytest.mark.skipif(not _HAS_DATA, reason="run_mf_backtest 要读 data/parquet/daily")
 def test_mf_backtest_kelly_vol_cvar_metrics(tmp_path):
     # 默认（全关）：应有 CVaR 监控指标，无 Kelly/vol 指标
     # output_dir 必须给 tmp_path：省略会写进 data/plan_e/，那是 systemd 的生产输出目录

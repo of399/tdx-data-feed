@@ -15,6 +15,9 @@
 import importlib.util
 from pathlib import Path
 
+# 只导入 clean() 做纯文本变换；历史语料只在 docstring 里被引用。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parent.parent
 _LT, _GT, _PIPE, _SLASH = chr(60), chr(62), chr(124), chr(47)
 

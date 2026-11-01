@@ -12,6 +12,10 @@ import pandas as pd
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# 对已装配宽表/CSV/日线的守卫：CI 无数据时整片跳过。
+NEEDS_DATA = True
+
 WIDE = ROOT / "data" / "double_up" / "stage1_wide_table.parquet"
 CSV = ROOT / "data" / "double_up" / "d_signal_5d_features_vpnl.csv"
 FEATURES = ROOT / "data" / "double_up" / "stage1_selected_features.json"

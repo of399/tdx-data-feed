@@ -16,6 +16,9 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+# 全程 tmp_path + 假扫描器，不读 data/；docstring 里的路径只是设计说明。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parents[1]
 for _p in (str(ROOT), str(ROOT / "scripts")):
     if _p not in sys.path:
