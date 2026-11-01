@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import daily_dir, get_limit, universe_path
+from _common import daily_dir, daily_files, get_limit, universe_path
 
 PARQUET = daily_dir()
 VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
@@ -33,6 +33,14 @@ RATIO = 2.0  # 翻倍
 MARKETS = ('sh', 'sz', 'bj')
 # 允许"文件存在但读不出来"的标的数；超过它说明标的池在缩水，不是个别脏文件。
 MAX_UNREADABLE = 50
+
+
+def stock_files() -> list[Path]:
+    """标的枚举单源：只认 前缀+6位 的规范日线名，排除迁移备份与中断残留。
+
+    旧 `.bak` 过滤会漏掉 `*.amountfix.tmp.parquet` 这类残留，把它当股票扫。
+    """
+    return daily_files()
 
 
 def is_st(code: str) -> bool:
@@ -205,7 +213,7 @@ def main():
     print(f"  START_DATE: {START_DATE.date()}")
     print(f"  WINDOW: {WINDOW} 交易日")
     print(f"  RATIO: ≥{RATIO:.0%} (翻倍)")
-    print(f"  数据源: parquet/daily ({len([p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name])} 个文件)")
+    print(f"  数据源: parquet/daily ({len(stock_files())} 个文件)")
     print()
 
     # 加载标的信息
@@ -225,8 +233,8 @@ def main():
                 st_set.add(short)
     print(f"  ST 集合: {len(st_set)} 只")
 
-    # 加载所有 parquet 文件列表
-    files = sorted(p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name)
+    # 加载所有 parquet 文件列表（规范枚举，排除备份与残留）
+    files = stock_files()
     print(f"  扫描股票数: {len(files)}")
 
     # 转换 st_set 为完整代码集（带前缀）
@@ -387,4 +395,9 @@ def main():
 
 
 if __name__ == '__main__':
+    import argparse
+    # 仅为了让 --help 安全返回（不触发筛选/写样本）；定时任务无参调用，行为不变。
+    argparse.ArgumentParser(
+        description="方案 C：近 5 年 20 日翻倍筛选（研究产出，不下单）"
+    ).parse_known_args()
     main()

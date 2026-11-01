@@ -49,6 +49,7 @@ if str(ROOT) not in sys.path:
 from tdxfeed.paths import (  # noqa: E402
     adj_factor_dir,
     daily_dir,
+    daily_files,
     model_path,
     universe_path,
 )
@@ -689,9 +690,7 @@ def _load_universe() -> dict[str, str]:
         except Exception as e:
             logging.warning("股票池读取失败，回退扫描 parquet：%s", e)
     if not names:
-        for fp in DAILY_DIR.glob("*.parquet"):
-            if ".bak" in fp.stem:
-                continue
+        for fp in daily_files():
             stem = fp.stem
             six = stem[2:] if stem[:2] in ("sh", "sz", "bj") else stem
             names[six] = ""
