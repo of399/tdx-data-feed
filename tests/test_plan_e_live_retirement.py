@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -239,13 +240,29 @@ def test_no_doc_still_says_four_plan_e_timers():
             assert stale not in text, f"{rel} 仍写着「{stale}」，而 systemd/ 有 {len(PLAN_E_TIMERS)} 个 plan-e timer"
 
 
+def _make_var(name: str) -> list[str]:
+    r"""取 Makefile 里 `NAME := a b \` 续行的值。"""
+    text = (ROOT / "Makefile").read_text(encoding="utf-8")
+    m = re.search(rf"^{name}\s*:=\s*((?:.*\\\n)*.*)$", text, re.M)
+    assert m, f"Makefile 里没有 {name}"
+    return m.group(1).replace("\\\n", " ").split()
+
+
 def _timer_loop(recipe: str) -> list[str]:
     """取出配方里 `for t in …; do` 枚举的单元名（行首的 `@` 是 make 的静默符）——
-    注释里提没提某只 timer 不算启用/禁用。"""
+    注释里提没提某只 timer 不算启用/禁用。`$(USER_TIMERS)` 这类变量按 Makefile 展开，
+    名单因此可以只写一处。"""
     for line in recipe.splitlines():
         stripped = line.strip().lstrip("@").strip()
         if stripped.startswith("for t in "):
-            return stripped[len("for t in ") :].split(";")[0].split()
+            names = stripped[len("for t in ") :].split(";")[0].split()
+            expanded: list[str] = []
+            for name in names:
+                if name.startswith("$(") and name.endswith(")"):
+                    expanded.extend(_make_var(name[2:-1]))
+                else:
+                    expanded.append(name)
+            return expanded
     raise AssertionError(f"配方里找不到 for t in …：\n{recipe}")
 
 

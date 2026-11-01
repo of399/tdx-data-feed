@@ -7,8 +7,9 @@
   精确门在脚本里用 `current_session()` 做，所以这里的 OnCalendar 形态是刻意的，不是没写完。
 - `Persistent=true` 对 plan-e-double-up 是对的（全量重算幂等），对这里**是有害的**：开机补跑会拿
   昨天的行情出今天的票。守卫必须在，否则以后有人照着隔壁单元「补齐一致性」把它加上。
-- `timer-enable`/`timer-disable`/`timer-status` 是 Makefile 里的硬编码名字列表，不在列表里的 timer
+- `timer-enable`/`timer-disable`/`timer-status` 是 Makefile 里按名字收口的名单，不在名单里的 timer
   收不到一键收口——状态看不到它、`timer-disable` 停不掉它，出事时以为已经停了。
+  名单现在从 `USER_TIMERS` 变量展开，本守卫也按变量展开后再查。
 """
 from __future__ import annotations
 
@@ -18,7 +19,13 @@ from pathlib import Path
 
 import pytest
 
+# 只读 systemd 单元与 Makefile 的静态形态。
+NEEDS_DATA = False
+
 ROOT = Path(__file__).resolve().parents[1]
+# 单元里 `Documentation=` 按 systemd 要求写死作者机器上的仓库绝对路径；CI/其他 checkout
+# 用它把 token 映射回当前 ROOT。改仓库位置要连单元一起改，否则本守卫会报「指向不存在的文档」。
+AUTHOR_ROOT = Path("/home/jiuben/tdx-data-feed")
 SERVICE = ROOT / "systemd" / "daban-ticket.service"
 TIMER = ROOT / "systemd" / "daban-ticket.timer"
 
@@ -101,6 +108,24 @@ def test_service_alerts_and_logs_like_the_neighbours():
         assert "/logs/" in value
 
 
+def _resolve_documented_path(token: str) -> Path:
+    """把 `file://` token 落到当前 checkout 的一个真实文件上。
+
+    systemd 的 `Documentation=` 要绝对路径，仓库约定写死作者机器上的
+    `/home/jiuben/tdx-data-feed/...`。在别的 checkout（CI、worktree）里这段绝对路径不存在，
+    但仓库内相对位置没变——按约定前缀映射回 `ROOT`。写成其他前缀的不做补救，让 `exists()`
+    直接报红，免得「任意绝对路径 + 同形相对路径」互相顶包。
+    """
+    raw = Path(token[len("file://"):])
+    if raw.exists():
+        return raw
+    try:
+        rel = raw.relative_to(AUTHOR_ROOT)
+    except ValueError:
+        return raw
+    return ROOT / rel
+
+
 def test_documentation_points_at_the_committed_spec():
     """`Documentation=` 指向的设计文档必须**已入库**，而且路径要能自己定位仓库。
 
@@ -110,7 +135,8 @@ def test_documentation_points_at_the_committed_spec():
     那是守卫的位置假设错了，不是单元错了。仓库根交给 git 自己回答。
 
     未入库的文档在干净 checkout 里必然不存在，这正是横幅守卫那天踩过的坑，所以要连
-    `ls-files` 一起查，不能只查 `exists()`。
+    `ls-files` 一起查，不能只查 `exists()`。CI 里连作者路径都不存在，`_resolve_documented_path`
+    先把 token 映射回当前 `ROOT` 再查。
     """
     service = _ini(SERVICE.read_text(encoding="utf-8"))
     tokens = service["Unit"]["Documentation"].split()
@@ -118,7 +144,7 @@ def test_documentation_points_at_the_committed_spec():
     token = tokens[0]
     assert token.startswith("file://"), token
 
-    target = Path(token[len("file://"):]).resolve()
+    target = _resolve_documented_path(token).resolve()
     assert target.exists(), f"指向不存在的文档 {target}"
 
     top = subprocess.run(
@@ -130,6 +156,15 @@ def test_documentation_points_at_the_committed_spec():
     rel = target.relative_to(repo)
     rc = subprocess.run(["git", "-C", str(repo), "ls-files", "--error-unmatch", str(rel)], capture_output=True)
     assert rc.returncode == 0, f"{rel} 未入库（在 {repo}），干净 checkout 里这个出处会消失"
+
+
+def test_documented_path_remaps_the_author_prefix(monkeypatch):
+    """CI 里作者绝对路径不存在，必须靠约定前缀映射回当前 checkout；否则本模块不能进 CI。"""
+    monkeypatch.setitem(globals(), "AUTHOR_ROOT", Path("/nonexistent-author-root"))
+    token = "file:///nonexistent-author-root/docs/WORKFLOW.md"
+    assert _resolve_documented_path(token) == ROOT / "docs" / "WORKFLOW.md"
+    # 不在约定前缀下的路径不做补救，交给 exists() 报红。
+    assert _resolve_documented_path("file:///elsewhere/docs/WORKFLOW.md") == Path("/elsewhere/docs/WORKFLOW.md")
 
 
 def _make_target_block(name: str) -> str:
@@ -148,14 +183,26 @@ def _make_target_block(name: str) -> str:
     return "\n".join(block)
 
 
+def _expand_make_vars(block: str) -> str:
+    """把配方里的 `$(USER_TIMERS)` / `$(RETIRED_TIMERS)` 按 Makefile 展开。"""
+    text = (ROOT / "Makefile").read_text(encoding="utf-8")
+    for name in ("USER_TIMERS", "RETIRED_TIMERS"):
+        m = re.search(rf"^{name}\s*:=\s*((?:.*\\\n)*.*)$", text, re.M)
+        assert m, f"Makefile 里没有 {name}"
+        block = block.replace(
+            f"$({name})", " ".join(m.group(1).replace("\\\n", " ").split())
+        )
+    return block
+
+
 @pytest.mark.parametrize("target", ["timer-enable", "timer-disable", "timer-status", "status"])
 def test_daban_ticket_is_in_the_ops_name_lists(target):
     """名单漏一个，一键收口就收不到它：停不掉、或状态里看不见。
 
     `status` 也在内——它第 457 行的 timer 快照用的是同一类 grep 名单，出事时人读的就是这页。
     """
-    block = _make_target_block(target)
+    block = _expand_make_vars(_make_target_block(target))
     assert "daban-ticket" in block, (
-        f"Makefile 的 {target} 里没有 daban-ticket。它是硬编码名字列表，"
+        f"Makefile 的 {target} 里没有 daban-ticket。它按名字收口，"
         "不加进来 `make timer-disable` 停不掉、`make status` 也看不见这个 timer。"
     )

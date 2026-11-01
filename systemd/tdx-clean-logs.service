@@ -7,7 +7,7 @@ OnFailure=onfailure-alert@tdx-clean-logs.service
 [Service]
 Type=oneshot
 WorkingDirectory=/home/jiuben/tdx-data-feed
-# clean-logs 仅做 find -mtime +7 -delete，无需 venv
+# clean-logs 委托 scripts/clean_logs.py：删 >7 天旧文件 + 截断超 8MB 的追加日志
 ExecStart=/usr/bin/make -C /home/jiuben/tdx-data-feed clean-logs
 StandardOutput=append:/home/jiuben/tdx-data-feed/logs/tdx-clean-logs.log
 StandardError=append:/home/jiuben/tdx-data-feed/logs/tdx-clean-logs.err

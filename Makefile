@@ -39,12 +39,16 @@ V5_SCRIPTS := $(ROOT)/v5/scripts
 SYSTEMD_DIR := $(ROOT)/systemd
 USER_SYSTEMD := $(HOME)/.config/systemd/user
 
-# 白名单：make timer-install 只复制这些 unit。
+# 白名单：make timer-install 只复制这些 unit，timer-enable 也只启用这些。
 # 明确排除 pushplus-bridge.service（系统级 pushplus_bridge.service 已在跑，
 # user 级那个是历史遗留，复制过去会跟系统级抢 :5002）。
-# 新增 timer 时同时改这里和 timer-enable 循环列表。
+# 新增 timer 只改 USER_TIMERS 一处；三份名单的一致性由
+# tests/test_timer_name_lists.py 守着。
 USER_TIMERS := predict-daily plan-e-today plan-e-journal plan-e-double-up \
                canary-health daban-ticket tdx-clean-logs
+# 已退役但单元文件保留：timer-disable 仍要扫到，否则手工 enable 过的旧 timer
+# 在一键收口时被落下。
+RETIRED_TIMERS := tdxfeed-sync plan-e-monitor plan-e-weekly plan-e-real-refresh
 USER_UNIT_TEMPLATES := onfailure-alert@.service
 LOGS := $(ROOT)/logs
 DATA := $(ROOT)/data
@@ -418,7 +422,7 @@ timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@echo "$(CYAN)▶ 重载 systemd$(NC)"
 	systemctl --user daemon-reload
 	@echo "$(CYAN)▶ 启用 timer$(NC)"
-	@for t in predict-daily plan-e-today plan-e-journal plan-e-double-up canary-health daban-ticket; do \
+	@for t in $(USER_TIMERS); do \
 		systemctl --user enable $$t.timer 2>&1 | head -1; \
 		systemctl --user start $$t.timer; \
 	done
@@ -430,7 +434,7 @@ timer-enable: timer-install  ## 启用所有 timer 与 path 单元
 	@$(MAKE) timer-status
 
 timer-disable:  ## 禁用所有 timer 与 path 单元
-	@for t in tdxfeed-sync predict-daily plan-e-journal plan-e-today plan-e-double-up plan-e-monitor plan-e-weekly plan-e-real-refresh canary-health daban-ticket; do \
+	@for t in $(USER_TIMERS) $(RETIRED_TIMERS); do \
 		systemctl --user disable $$t.timer; \
 		systemctl --user stop $$t.timer 2>/dev/null || true; \
 	done
@@ -440,7 +444,7 @@ timer-disable:  ## 禁用所有 timer 与 path 单元
 
 timer-status:  ## 查看所有 timer/path 状态
 	@echo "$(CYAN)$(BOLD)=== tdx-data-feed Timers (user) ===$(NC)"
-	systemctl --user list-timers --all | grep -E "tdxfeed|predict-daily|plan-e|canary|daban-ticket" || echo "  (无 timer 运行)"
+	systemctl --user list-timers --all | grep -E "tdxfeed|predict-daily|plan-e|canary|daban-ticket|clean-logs" || echo "  (无 timer 运行)"
 	@echo "$(CYAN)$(BOLD)--- path 单元 ---$(NC)"
 	systemctl --user list-units --all --type=path | grep -E "tdxfeed|obsidian|plan-e" || echo "  (无 path 运行)"
 	@echo "$(CYAN)$(BOLD)--- system 级 timer（/etc/systemd/system，镜像在 systemd/system/）---$(NC)"
@@ -478,7 +482,7 @@ status:  ## 系统全状态（数据/模型/timer/canary）
 	@$(OLLAMA) list 2>/dev/null | grep tdx | awk '{printf "  %-30s %s\n", $$1, $$3}'
 	@echo ""
 	@echo "$(YELLOW)$(BOLD)⏰ Timer:$(NC)"
-	@systemctl --user list-timers --all 2>/dev/null | grep -E "tdxfeed|predict-daily|plan-e|canary|obsidian|daban-ticket" | awk '{printf "  %-30s %s %s\n", $$NF, $$1, $$2}'
+	@systemctl --user list-timers --all 2>/dev/null | grep -E "tdxfeed|predict-daily|plan-e|canary|obsidian|daban-ticket|clean-logs" | awk '{printf "  %-30s %s %s\n", $$NF, $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)$(BOLD)🏥 Canary:$(NC)"
 	@tail -1 $(LOGS)/canary.log 2>/dev/null || echo "  (无 canary 日志)"
@@ -543,8 +547,8 @@ clean-predictions:  ## 清预测结果（保留 latest）
 	find $(DATA)/predictions -type f ! -name "predict_latest.md" -delete
 	@echo "$(GREEN)✓ 预测结果已清理（保留 latest）$(NC)"
 
-clean-logs:  ## 清日志（保留最近 7 天）
-	find $(LOGS) -type f -mtime +7 -delete
+clean-logs:  ## 清日志（>7 天删除；追加日志超过 8MB 保留尾部）
+	$(PYTHON) $(SCRIPTS)/clean_logs.py --log-dir $(LOGS)
 	@echo "$(GREEN)✓ 旧日志已清理$(NC)"
 
 backup:  ## 备份关键数据（不含 GGUF 大文件）
