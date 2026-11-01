@@ -18,6 +18,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import daily_dir, daily_files, get_limit, universe_path
 
+from tdxfeed.execution.limits import limit_ratio
 from tdxfeed.names import is_st_name
 
 PARQUET = daily_dir()
@@ -148,7 +149,6 @@ def screen_one(code: str, name_map: dict) -> list | None:
     dates = df['date'].values
     pct = df['close'].pct_change().values  # 每日涨幅
 
-    limit = get_limit(code)
     name = get_name(code, name_map)
     is_st_flag = is_st_name(name)
 
@@ -164,9 +164,15 @@ def screen_one(code: str, name_map: dict) -> list | None:
             # 找最高日
             peak_idx = i + 1 + np.argmax(close[i+1:i+WINDOW+1])
             peak_date = pd.Timestamp(dates[peak_idx])
-            # 计算区间涨停数
+            # 计算区间涨停数：逐日阈值。主板 ST 在 2026-07-06 并轨（前 5% / 后 10%），
+            # 历史区间必须按交易日传 on_date，否则并轨前的 ST 涨停会被按 10% 漏计。
             window_pct = pct[i+1:i+WINDOW+1]
-            limit_up_count = int((window_pct >= limit - 0.001).sum())
+            window_dates = df['date'].iloc[i+1:i+WINDOW+1]
+            limits = np.array([get_limit(code, name, on_date=d) for d in window_dates])
+            limit_up_count = int((window_pct >= limits - 0.001).sum())
+            # limit 列显示起点日的精确涨停比例（5/10/20/30），不含判定缓冲
+            limit_pct = round(float(limit_ratio(code, is_st=is_st_flag,
+                                                 on_date=pd.Timestamp(dates[i]))) * 100)
             # 区间成交额
             window_amount = df['amount'].iloc[i+1:i+WINDOW+1].sum()
             # 是否新股（df 内首日 <= 60 天前）
@@ -186,7 +192,7 @@ def screen_one(code: str, name_map: dict) -> list | None:
                 'year': peak_date.year,
                 'is_st': is_st_flag,
                 'is_new': bool(is_new),
-                'limit': round(limit * 100, 0),
+                'limit': limit_pct,
             })
 
     return hits
