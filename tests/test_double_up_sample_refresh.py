@@ -185,8 +185,8 @@ def test_screen_one_reports_unreadable_instead_of_swallowing_it(producer, tmp_pa
     """screen_one 必须把「文件在但读不出来」和「没有文件」分开：前者是池在缩水。"""
     monkeypatch.setattr(producer, "PARQUET", tmp_path)
     (tmp_path / "sh600999.parquet").write_bytes(b"not a parquet at all")
-    assert producer.screen_one("sh600999", {}, set()) is None, "读失败被当成无命中静默跳过"
-    assert producer.screen_one("sh600998", {}, set()) == [], "退市/未下载不该算故障"
+    assert producer.screen_one("sh600999", {}) is None, "读失败被当成无命中静默跳过"
+    assert producer.screen_one("sh600998", {}) == [], "退市/未下载不该算故障"
 
 
 def test_main_trips_on_unreadable_masses(producer):

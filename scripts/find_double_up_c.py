@@ -18,8 +18,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import daily_dir, daily_files, get_limit, universe_path
 
+from tdxfeed.names import is_st_name
+
 PARQUET = daily_dir()
-VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
 ALL_STOCKS = universe_path()
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 DOUBLE_UP_DETAIL = OUT_DIR / 'double_up_2020_2026_detail.csv'
@@ -41,21 +42,6 @@ def stock_files() -> list[Path]:
     旧 `.bak` 过滤会漏掉 `*.amountfix.tmp.parquet` 这类残留，把它当股票扫。
     """
     return daily_files()
-
-
-def is_st(code: str) -> bool:
-    """查 StockVault 文件名判断 ST"""
-    md_path = VAULT_DIR / f'{code}'
-    if not md_path.exists():
-        # 兼容中文符号（"万科Ａ" vs "万科A"）
-        for _suffix in ('.md',):
-            matches = list(VAULT_DIR.glob(f'{code}*'))
-            if matches:
-                md_path = matches[0]
-                break
-    if md_path.exists() and md_path.suffix == '.md':
-        return '*ST' in md_path.stem or md_path.stem.startswith('ST') or 'ST' in md_path.stem
-    return False
 
 
 def get_name(code: str, name_map: dict) -> str:
@@ -133,7 +119,7 @@ def write_atomic(df: pd.DataFrame, path: Path) -> None:
     os.replace(tmp, path)
 
 
-def screen_one(code: str, name_map: dict, st_set: set) -> list | None:
+def screen_one(code: str, name_map: dict) -> list | None:
     """单只股的 20 日翻倍筛选。
 
     None = 文件在但读不出来（由调用方计入池缩水）；[] = 无命中，或该股已没有
@@ -163,8 +149,8 @@ def screen_one(code: str, name_map: dict, st_set: set) -> list | None:
     pct = df['close'].pct_change().values  # 每日涨幅
 
     limit = get_limit(code)
-    is_st_flag = code in st_set
     name = get_name(code, name_map)
+    is_st_flag = is_st_name(name)
 
     hits = []
     n = len(close)
@@ -220,30 +206,13 @@ def main():
     with open(ALL_STOCKS) as _f:
         name_map = json.load(_f)
 
-    # ST 集合
-    st_set = set()
-    for md in VAULT_DIR.glob('*.md'):
-        if '*ST' in md.stem or md.stem.startswith('ST') or 'ST' in md.stem:
-            # 文件名格式: 000010-*ST美丽.md → code = 000010
-            code = re.match(r'(\d{6})', md.stem)
-            if code:
-                # 需要补前缀（sh/sz/bj）
-                short = code.group(1)
-                # 简化：扫描所有 parquet 找匹配的 code
-                st_set.add(short)
-    print(f"  ST 集合: {len(st_set)} 只")
+    # ST 按名称规范判定（is_st_name），在 screen_one 内逐票计算
+    st_count = sum(is_st_name(str(n)) for n in name_map.values())
+    print(f"  ST 标的（按名称规范判定）: {st_count} 只")
 
     # 加载所有 parquet 文件列表（规范枚举，排除备份与残留）
     files = stock_files()
     print(f"  扫描股票数: {len(files)}")
-
-    # 转换 st_set 为完整代码集（带前缀）
-    full_st_set = set()
-    for code_short in st_set:
-        for f in files:
-            if f.stem.endswith(code_short):
-                full_st_set.add(f.stem)
-                break
 
     # 单进程跑（避免 pickling 问题）
     print("\n开始筛选（单进程，预计 ~2-3 分钟）...")
@@ -253,7 +222,7 @@ def main():
     for f in files:
         code = f.stem
         scanned += 1
-        hits = screen_one(code, name_map, full_st_set)
+        hits = screen_one(code, name_map)
         if hits is None:
             unreadable.append(code)
             continue
