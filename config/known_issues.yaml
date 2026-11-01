@@ -1,0 +1,858 @@
+# ==============================================================================
+# 已知问题台账（known-issues registry）· tdx-data-feed
+# ==============================================================================
+# 用途：让"每次检查都发现新漏洞"从统计错觉变成可管理的数据。
+#   审计/巡检发现问题 → 先查本台账 → 命中则只更新 last_seen/seen_count/sources；
+#   未命中且满足"可判定+有位置+有影响"三要素 → 新建条目。
+#   报告口径改为「新增数 NEW」与「复现数 RECURRING」，不再报"发现总数"。
+#
+# 字段
+#   id          稳定标识 KI-<主题码>-<序号>，一经分配永不复用、不重命名
+#   title       一句话问题描述
+#   theme       主题分类（见文末 themes）
+#   severity    P0 阻断正确性 / P1 结构可靠性 / P2 工程质量
+#   status      OPEN 待修 | ACCEPTED 已接受风险(需 exemption+due) | FIXED 已修(必须绑 guard)
+#               | DEFERRED 延期(需 owner+due) | ARCHIVED 已归档(退出扫描范围)
+#   first_seen  首次发现日期      last_seen 最近一次被检出日期
+#   seen_count  累计被独立检出次数（不同轮次各计 1 次）
+#   sources     检出来源（可多份；重复发现在此累积）
+#   locations   当前代码位置（文件或 glob）
+#   detect      判定规格（供 scripts/audit_ledger.py scan 复扫）
+#               kind: grep | absent | lines_gt | glob_exists | glob_absent
+#   impact      不修会怎样        guard  防复发守卫；NONE = 目前无守卫（复发根因）
+#   owner       责任人            due    目标完成日期
+#   exemption   当前被豁免/规则覆盖的依据（无则 NONE）
+#   fix_hint    修复方向（历次审计的收敛结论）
+#
+# 记录规则
+#   R1 登记前置：任何发现先 grep 本台账 title/detect，确认是否已登记
+#   R2 命中更新：已登记 → 只更新 last_seen/seen_count/sources，不新增、不改 id
+#   R3 新建门槛：未登记 + 可判定 + 有位置 + 有影响 → 新建
+#   R4 主题归并：同主题不同位置 → 新建条目，fix_hint 标注"建议与 KI-xxx 合并治理"
+#   R5 关闭条件：status=FIXED 必须填 guard（指向真实存在的测试文件或守卫命令）
+#   R6 豁免条件：status=ACCEPTED 必须填 exemption 与 due；到期未处理自动回 OPEN
+#   R7 归档条件：status=ARCHIVED 必须写明已退出扫描范围及替代资产位置
+#   R8 计数口径：同一轮内同一条目只计 1 次；跨轮才算复发
+#
+# themes: silent-failure 静默失败 | atomicity 原子写与锁 | concurrency 调度竞态
+#         single-source 单源与口径 | hardcode 硬编码与路径 | timeout 超时与阻塞
+#         contract 契约与校验 | mcp MCP 层 | skill 技能与路由 | docs 文档漂移
+#         perf 性能 | size 规模与结构 | ops 运维与调度 | make Makefile 口径
+#         rule 规则与豁免
+# ==============================================================================
+
+meta:
+  version: 1
+  created: "2026-11-01"
+  updated: "2026-11-01"
+  owner: "jiuben"
+  scan_command: "venv/bin/python scripts/audit_ledger.py scan"
+  report_command: "venv/bin/python scripts/audit_ledger.py report"
+  register_command: "venv/bin/python scripts/audit_ledger.py new --theme <主题> --title <标题> --severity <P0|P1|P2>"
+  probe_command: "venv/bin/python scripts/audit_ledger.py probe --pattern <正则> --paths <glob>"
+
+issues:
+
+  - id: KI-COMPETE-001
+    title: "predict 与系统级 sync 跨 manager 无序，可能读到半新半旧数据"
+    theme: concurrency
+    severity: P0
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:118", "logs/predict.log:3943"]
+    locations: ["systemd/predict-daily.service", "systemd/system/tdx-sync.service"]
+    detect:
+      - kind: absent
+        pattern: "Requires=tdxfeed-sync"
+        path: "systemd/predict-daily.service"
+        note: "缺失=仍无顺序保证；命中=已加保护"
+    impact: "全市场预测可能基于部分旧数据出榜，结论失真且难察觉"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-10"
+    exemption: "NONE"
+    fix_hint: "系统级 tdx-sync 的 ExecStartPost 末尾 touch data/.state/sync-done；predict 的 ExecStartPre 校验哨兵存在且 mtime 在 N 小时内"
+
+  - id: KI-COMPETE-002
+    title: "plan-e-double-up 依赖已退役的 tdxfeed-sync.service，成为死依赖"
+    theme: concurrency
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:121"]
+    locations: ["systemd/plan-e-double-up.service"]
+    detect:
+      - kind: grep
+        pattern: "After=tdxfeed-sync"
+        path: "systemd/plan-e-double-up.service"
+    impact: "18:30 翻倍样本重建不再等待任何同步，可能读到半更新数据"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-10"
+    exemption: "NONE"
+    fix_hint: "改哨兵校验（同 KI-COMPETE-001）或直接依赖系统级 tdx-sync"
+
+  - id: KI-ATOMIC-001
+    title: "plan_e_today.csv 非原子写，读者可能读到半截文件"
+    theme: atomicity
+    severity: P0
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:127"]
+    locations: ["scripts/plan_e_backtest.py"]
+    detect:
+      - kind: grep
+        pattern: "plan_e_today\\.csv"
+        paths: ["scripts/plan_e_backtest.py"]
+    impact: "plan_e_journal 紧接着读同一文件，可能读到不完整清单"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-10"
+    exemption: "NONE"
+    fix_hint: "改 tmp+os.replace（参照 scripts/find_double_up_c.py 的 write_atomic）"
+
+  - id: KI-ATOMIC-002
+    title: "positions.json 裸 write_text，无原子写无备份，崩溃即丢持仓"
+    theme: atomicity
+    severity: P0
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:127"]
+    locations: ["scripts/plan_e_journal.py"]
+    detect:
+      - kind: grep
+        pattern: "POSITIONS_FILE\\.write_text"
+        paths: ["scripts/plan_e_journal.py"]
+    impact: "进程崩溃或并发覆盖会丢失持仓账本"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-10"
+    exemption: "NONE"
+    fix_hint: "tmp+os.replace；并把该文件纳入 tests/test_write_atomicity.py 覆盖清单"
+
+  - id: KI-ATOMIC-003
+    title: "journal.csv 读-改-写追加且无文件锁，并发下丢行"
+    theme: atomicity
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:127"]
+    locations: ["scripts/plan_e_journal.py"]
+    detect:
+      - kind: absent
+        pattern: "flock"
+        path: "scripts/plan_e_journal.py"
+        note: "缺失=无锁；命中=已加锁"
+    impact: "定时器与人工 --mode buy 并发时 journal 丢行"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-15"
+    exemption: "NONE"
+    fix_hint: "fcntl.flock 独占锁（带超时）+ 锁内完成读-改-写"
+
+  - id: KI-ATOMIC-004
+    title: "训练脚本默认覆盖现役模型文件，与 predict 读取存在竞态"
+    theme: atomicity
+    severity: P0
+    status: OPEN
+    first_seen: "2026-10-19"
+    last_seen: "2026-11-01"
+    seen_count: 2
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:128", ".codebuddy/memory/MEMORY.md"]
+    locations: ["scripts/train_daban_model.py"]
+    detect:
+      - kind: grep
+        pattern: "model\\.save_model"
+        paths: ["scripts/train_daban_model.py"]
+    impact: "一次误跑即可毁掉生产模型；predict 可能读到半截模型"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-10"
+    exemption: "NONE"
+    fix_hint: "默认写 <tag>.txt，仅 --promote 才覆盖现役；模型写改 tmp+replace（复用 stage1_retrain.guard_output_path）"
+
+  - id: KI-SILENT-001
+    title: "盲吞错 except Exception（ruff BLE001 目录级豁免，新代码同样豁免）"
+    theme: silent-failure
+    severity: P0
+    status: OPEN
+    first_seen: "2026-10-17"
+    last_seen: "2026-11-01"
+    seen_count: 4
+    sources:
+      - "docs/archive/CODE_AUDIT_2026-10-17.md:124"
+      - "docs/archive/CODE_AUDIT_ROUND3_2026-10-19.md:113"
+      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:130"
+    locations: ["scripts/**/*.py", "tdxfeed/**/*.py"]
+    detect:
+      - kind: grep
+        pattern: "except\\s+Exception"
+        paths: ["scripts/**/*.py", "tdxfeed/**/*.py"]
+        min_count: 1
+    impact: "数据缺失/接口失败被静默吞掉，回测可能悄悄少样本；曾致实时 ST 校验防线失效"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-20"
+    exemption: "ruff.toml per-file-ignores BLE001（scripts/**, tdxfeed/**, agents/**, v5/** 等 10 条目）"
+    fix_hint: "M-3 豁免行级化 + M-4 AST 守卫：except 必须伴随计数/日志/re-raise"
+
+  - id: KI-SILENT-002
+    title: "except 分支直接 pass，失败不可追溯"
+    theme: silent-failure
+    severity: P1
+    status: OPEN
+    first_seen: "2026-10-17"
+    last_seen: "2026-11-01"
+    seen_count: 3
+    sources: ["docs/archive/CODE_AUDIT_2026-10-17.md:124", "docs/ARCHITECTURE_REVIEW_2026-11-01.md:130"]
+    locations: ["scripts/**/*.py", "tdxfeed/**/*.py"]
+    detect:
+      - kind: grep
+        pattern: "except[^\\n]*:\\s*\\n\\s*pass"
+        paths: ["scripts/**/*.py", "tdxfeed/**/*.py"]
+        multiline: true
+        min_count: 1
+    impact: "读取/解析失败被静默跳过，数据缺量无从发现"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-20"
+    exemption: "同上（BLE001 目录级豁免）"
+    fix_hint: "至少降级为 log.warning 并计数；AST 守卫禁止裸 pass"
+
+  - id: KI-MCP-001
+    title: "MCP 客户端 timeout 参数从未生效，readline 无限阻塞且持锁"
+    theme: timeout
+    severity: P0
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:20"]
+    locations: ["skill_router/runtime.py"]
+    detect:
+      - kind: absent
+        pattern: "select\\.select"
+        path: "skill_router/runtime.py"
+        note: "缺失=无真超时；命中=已实现"
+    impact: "server 挂起即整个 SkillRuntime 死锁；daban_top_picks 为分钟级，必然触发"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-10"
+    exemption: "NONE"
+    fix_hint: "select.select 实现真超时；超时 kill 并置 proc=None 以便重启；stop() join stderr 线程；注册 atexit"
+
+  - id: KI-MCP-002
+    title: "6 个 MCP server 均无 JSON Schema 运行时校验，参数错误被吞成内部错误"
+    theme: contract
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:175"]
+    locations: ["mcp/servers/"]
+    detect:
+      - kind: absent
+        pattern: "jsonschema|validate_params|_validate"
+        path: "mcp/servers/backtest.py"
+        note: "缺失=无校验；命中=已实现"
+    impact: "schema 的 enum/required 从不执行；拼错参数名变成 -32603 内部错误而非 -32602"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-20"
+    exemption: "NONE"
+    fix_hint: "抽共享 _validate(schema, args) 在 tools/call 分支调用（jsonschema 已是测试依赖）"
+
+  - id: KI-MCP-003
+    title: "parquet_reader 的 code 参数无格式校验，存在路径穿越"
+    theme: contract
+    severity: P0
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:178"]
+    locations: ["mcp/servers/parquet_reader.py"]
+    detect:
+      - kind: absent
+        pattern: "_norm_code"
+        path: "mcp/servers/parquet_reader.py"
+        note: "缺失=无校验；命中=已校验"
+    impact: "code='../../x' 或绝对路径可越出数据目录读任意 .parquet"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-10"
+    exemption: "NONE"
+    fix_hint: "三个工具统一走 _norm_code 正则（其余 server 已有）"
+
+  - id: KI-OPS-001
+    title: "make timer-install 白名单漏 obsidian-sync，其修复提示形同无效"
+    theme: ops
+    severity: P0
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:120"]
+    locations: ["Makefile"]
+    detect:
+      - kind: absent
+        pattern: "obsidian-sync"
+        path: "Makefile"
+        section: "timer-install"
+        note: "在 timer-install 目标块内缺失=未纳入安装；命中=已纳入"
+    impact: "obsidian-sync.path 已 enabled+active，漂移时 canary 持续报 error 并每 5 分钟推微信，而 make timer-install 修不好"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-08"
+    exemption: "NONE"
+    fix_hint: "新增 USER_PATHS 名单纳入 timer-install；RETIRED_PATHS 纳入 timer-disable"
+
+  - id: KI-OPS-002
+    title: "onfailure 告警只查 user scope，系统级单元失败不可见"
+    theme: ops
+    severity: P0
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:119"]
+    locations: ["scripts/onfailure_alert.py"]
+    detect:
+      - kind: grep
+        pattern: "--user"
+        paths: ["scripts/onfailure_alert.py"]
+        min_count: 1
+    impact: "系统级 tdx-sync/tdx-monitor/tdx-verification 失败时 result/status 取不到，载荷全是 ?，告警黑洞"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-12"
+    exemption: "NONE"
+    fix_hint: "加 --scope {user,system}；新增系统级 onfailure-alert-system@.service（勿与现有桥抢 5002 端口）"
+
+  - id: KI-OPS-003
+    title: "predict-daily 等单元缺 TimeoutStartSec，user manager 默认 90s 卡在边缘"
+    theme: ops
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:121"]
+    locations: ["systemd/predict-daily.service"]
+    detect:
+      - kind: absent
+        pattern: "TimeoutStartSec"
+        path: "systemd/predict-daily.service"
+        note: "缺失=未设；命中=已设"
+    impact: "全市场 5221 只 × 8 进程，可能被默认 90s 砍断（plan-e-today 已显式写 600，唯独 predict 漏了）"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-08"
+    exemption: "NONE"
+    fix_hint: "predict-daily 加 TimeoutStartSec=1800；plan-e-journal/weekly/monitor、canary-health 同样显式给值"
+
+  - id: KI-SKILL-001
+    title: "skill_router 零测试，路由与契约无任何回归保护"
+    theme: skill
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:26"]
+    locations: ["skill_router/"]
+    detect:
+      - kind: glob_absent
+        pattern: "tests/test_skill_router_*.py"
+    impact: "1481 行路由与运行时逻辑无保护，改动后无法判断是否破坏既有行为"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-20"
+    exemption: "NONE"
+    fix_hint: "补 test_skill_router_route.py（路由参数化）+ test_skill_router_contracts.py（yaml 字段消费映射）+ test_mcp_client.py"
+
+  - id: KI-SKILL-002
+    title: "技能 yaml 的 schema/timeout/priority/tools 全是死字段"
+    theme: skill
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:107"]
+    locations: ["skills/*.yaml", "skill_router/runtime.py"]
+    detect:
+      - kind: absent
+        pattern: "timeout_sec"
+        path: "skill_router/runtime.py"
+        note: "缺失=从未消费；命中=已接线"
+    impact: "声明看起来完备但不生效；timeout_sec 从未生效，优先级与实际路由顺序相反"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-25"
+    exemption: "NONE"
+    fix_hint: "W2-2：入口按 input_schema 校验 + 输出按 output_schema 校验 + 超时取 yaml + route 读 yaml priority"
+
+  - id: KI-SINGLE-001
+    title: "norm_code 仍有 3 份实现，代码归一口径可能分叉"
+    theme: single-source
+    severity: P1
+    status: OPEN
+    first_seen: "2026-10-17"
+    last_seen: "2026-11-01"
+    seen_count: 6
+    sources:
+      - "docs/archive/CODE_AUDIT_2026-10-17.md:87"
+      - "docs/archive/CODE_AUDIT_ROUND2_2026-10-18.md:29"
+      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:200"
+    locations: ["quant/multifactor/factors.py", "scripts/factor_engine.py", "scripts/_common.py"]
+    detect:
+      - kind: grep
+        pattern: "def\\s+_?norm_code"
+        paths: ["quant/**/*.py", "scripts/**/*.py", "mcp/servers/*.py"]
+        min_count: 1
+    impact: "同一代码在不同链路被归一成不同前缀，直接影响行情文件定位与涨跌停判定"
+    guard: "tests/test_names_single_source.py"
+    owner: "jiuben"
+    due: "2026-11-25"
+    exemption: "NONE"
+    fix_hint: "收敛到 tdxfeed/names.py（已有转发），扩展 single_source AST 断言覆盖 norm_code"
+
+  - id: KI-SINGLE-002
+    title: "is_st 存在 3 种语义实现"
+    theme: single-source
+    severity: P1
+    status: OPEN
+    first_seen: "2026-10-19"
+    last_seen: "2026-11-01"
+    seen_count: 3
+    sources:
+      - "docs/archive/CODE_AUDIT_ROUND3_2026-10-19.md:72"
+      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:200"
+    locations: ["tdxfeed/daban/limit_price.py", "scripts/find_double_up_c_v2.py", "scripts/predict.py"]
+    detect:
+      - kind: grep
+        pattern: "def\\s+is_st"
+        paths: ["tdxfeed/**/*.py", "scripts/**/*.py"]
+        min_count: 1
+    impact: "ST 判定语义不一致会直接改变涨停阈值与候选池口径"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-25"
+    exemption: "NONE"
+    fix_hint: "统一到 tdxfeed/names.py 的 is_st_name，并让 limit_price 与 predict 共用"
+
+  - id: KI-SINGLE-003
+    title: "load_universe 有 7 份副本，清单路径口径分散"
+    theme: single-source
+    severity: P2
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:24"]
+    locations: ["tdxfeed/names.py", "tdxfeed/daban/scanner.py", "scripts/predict.py"]
+    detect:
+      - kind: grep
+        pattern: "def\\s+load_universe"
+        paths: ["tdxfeed/**/*.py", "scripts/**/*.py", "quant/**/*.py"]
+        min_count: 1
+    impact: "股票池口径可能随调用方不同而不同"
+    guard: "tests/test_universe_path_single_source.py"
+    owner: "jiuben"
+    due: "2026-12-05"
+    exemption: "NONE"
+    fix_hint: "收敛到 tdxfeed/names.py + tdxfeed/paths.py 的 paths.universe_path()"
+
+  - id: KI-SINGLE-004
+    title: "涨停判定 9 处实现（含内联 limit-0.001），常量来源不一致"
+    theme: single-source
+    severity: P0
+    status: OPEN
+    first_seen: "2026-10-19"
+    last_seen: "2026-11-01"
+    seen_count: 3
+    sources:
+      - "docs/archive/CODE_AUDIT_ROUND3_2026-10-19.md:74"
+      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:198"
+    locations: ["tdxfeed/features_5d.py", "tdxfeed/execution/limits.py", "quant/multifactor/factors.py"]
+    detect:
+      - kind: grep
+        pattern: "limit\\s*-\\s*0\\.001"
+        paths: ["tdxfeed/**/*.py", "scripts/**/*.py", "quant/**/*.py"]
+        min_count: 1
+    impact: "任一侧调整容差即产生口径漂移，连板数与次日涨停判定随之变化"
+    guard: "tests/test_limit_single_source.py"
+    owner: "jiuben"
+    due: "2026-11-15"
+    exemption: "NONE"
+    fix_hint: "全部改走 execution/limits.py 的 is_limit_up_ret；删 features_5d.py 的 LIMIT_MAP 并改为派生"
+
+  - id: KI-PATH-001
+    title: "73 个文件含 sys.path.insert（Round1 时 27 处，规模反而扩大）"
+    theme: hardcode
+    severity: P1
+    status: OPEN
+    first_seen: "2026-10-17"
+    last_seen: "2026-11-01"
+    seen_count: 5
+    sources:
+      - "docs/archive/CODE_AUDIT_2026-10-17.md:36"
+      - "docs/archive/CODE_AUDIT_ROUND2_2026-10-18.md:54"
+      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:197"
+    locations: ["scripts/", "tdxfeed/", "quant/"]
+    detect:
+      - kind: grep
+        pattern: "sys\\.path\\.insert"
+        paths: ["scripts/**/*.py", "tdxfeed/**/*.py", "quant/**/*.py"]
+        min_count: 1
+    impact: "模块身份不唯一（同一文件被两种路径导入），是重复实现与口径分叉的温床"
+    guard: "tests/test_no_hardcoded_syspath.py"
+    owner: "jiuben"
+    due: "2026-12-05"
+    exemption: "NONE"
+    fix_hint: "加 pyproject.toml 并 editable 安装，只保留 scripts/_common.py 一处引导"
+
+  - id: KI-PATH-002
+    title: "硬编码绝对路径散落多文件"
+    theme: hardcode
+    severity: P2
+    status: OPEN
+    first_seen: "2026-10-17"
+    last_seen: "2026-11-01"
+    seen_count: 3
+    sources: ["docs/archive/CODE_AUDIT_2026-10-17.md:36", "docs/ARCHITECTURE_REVIEW_2026-11-01.md:22"]
+    locations: ["scripts/", "tdxfeed/"]
+    detect:
+      - kind: grep
+        pattern: "/home/jiuben/tdx-data-feed"
+        paths: ["scripts/**/*.py", "tdxfeed/**/*.py"]
+        min_count: 1
+    impact: "换机/换用户即失效；import 期路径错误会让 CI 与本机行为不一致"
+    guard: "tests/test_no_hardcoded_data_paths.py"
+    owner: "jiuben"
+    due: "2026-12-05"
+    exemption: "NONE"
+    fix_hint: "统一走 tdxfeed/paths.py 的访问器（10-28 已批量收编 58 个 scripts，待清零）"
+
+  - id: KI-PERF-001
+    title: "tdxfeed/state.py 每只股票整文件重写 manifest，O(n²)"
+    theme: perf
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:245"]
+    locations: ["tdxfeed/state.py"]
+    detect:
+      - kind: grep
+        pattern: "json\\.dump"
+        paths: ["tdxfeed/state.py"]
+        min_count: 1
+    impact: "5500 只股票 ≈ 44s 纯序列化 + 1.8GB 写盘；并发 sync 会互相覆盖条目"
+    guard: "tests/test_write_atomicity.py"
+    owner: "jiuben"
+    due: "2026-11-20"
+    exemption: "NONE"
+    fix_hint: "update 只改内存，按批或退出时落盘"
+
+  - id: KI-PERF-002
+    title: "find_double_up_c 逐窗口 numpy 切片，全市场约 880 万次调用"
+    theme: perf
+    severity: P2
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:246"]
+    locations: ["scripts/find_double_up_c.py"]
+    detect:
+      - kind: grep
+        pattern: "window_max\\s*=\\s*close\\["
+        paths: ["scripts/find_double_up_c.py"]
+        min_count: 1
+    impact: "翻倍样本重建为串行 Python 双层循环，耗时与股票数线性放大"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-12-05"
+    exemption: "NONE"
+    fix_hint: "改 rolling(21).max().shift(-1) 向量化；screen_one 进程池化（用现有 CSV 做 golden 对比）"
+
+  - id: KI-PERF-003
+    title: "predict.py 全量读取日线 parquet，约 840MB 无用 IO"
+    theme: perf
+    severity: P2
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:247"]
+    locations: ["scripts/predict.py"]
+    detect:
+      - kind: grep
+        pattern: "pd\\.read_parquet\\(fp\\)"
+        paths: ["scripts/predict.py"]
+        min_count: 1
+    impact: "全市场每次出榜都多读 840MB 只用尾部 6 行"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-12-05"
+    exemption: "NONE"
+    fix_hint: "read_parquet(columns=...)+ 只读尾部 N 行（依赖 writers 已保证 date 升序）"
+
+  - id: KI-SIZE-001
+    title: "plan_e_backtest.py 2003 行、main 265 行，事实上的第二个库"
+    theme: size
+    severity: P1
+    status: OPEN
+    first_seen: "2026-10-17"
+    last_seen: "2026-11-01"
+    seen_count: 4
+    sources:
+      - "docs/archive/CODE_AUDIT_2026-10-17.md:64"
+      - "docs/archive/CODE_AUDIT_ROUND2_2026-10-18.md:39"
+      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:243"
+    locations: ["scripts/plan_e_backtest.py"]
+    detect:
+      - kind: lines_gt
+        path: "scripts/plan_e_backtest.py"
+        max_lines: 1500
+    impact: "6 个脚本 import 它，任一改动都可能波及多条链路；拆分成本高导致长期不拆"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-12-20"
+    exemption: "NONE"
+    fix_hint: "拆为 plan_e/{core,stats,report,cli}.py，保留薄壳；先做 KI-IMPORT-001 再拆"
+
+  - id: KI-IMPORT-001
+    title: "13 条 scripts→scripts 跨脚本 import"
+    theme: size
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:196"]
+    locations: ["scripts/compare_plan_e_signals.py", "scripts/plan_e_validation.py"]
+    detect:
+      - kind: grep
+        pattern: "^from plan_e_backtest import|^import plan_e_backtest"
+        paths: ["scripts/**/*.py"]
+        min_count: 1
+    impact: "import 即执行被导入脚本的模块级代码；分层边界被打破"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-12-05"
+    exemption: "NONE"
+    fix_hint: "公共部分迁 tdxfeed/execution/ 或新建 tdxfeed/plan_e/；用 AST 守卫禁止 scripts 互相 import"
+
+  - id: KI-DOC-001
+    title: "文档中 agents/ 目录引用失效（真实为 skill_router/）"
+    theme: docs
+    severity: P2
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:114"]
+    locations: [".codebuddy/README.md", ".codebuddy/skills/tdx-quant-workflow/SKILL.md"]
+    detect:
+      - kind: grep
+        pattern: "agents/(runtime|orchestrator)\\.py"
+        paths: [".codebuddy/**/*.md", "docs/**/*.md"]
+        exclude: [".codebuddy/memory"]
+        min_count: 1
+    impact: "按文档排查会走错目录；新人 onboarding 受阻"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-15"
+    exemption: "NONE"
+    fix_hint: "全局替换为 skill_router/；并新增 tests/test_docs_consistency.py 做内容级校验"
+
+  - id: KI-DOC-002
+    title: "canary 维度文档写 7 维、实际 8 维"
+    theme: docs
+    severity: P2
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:224"]
+    locations: ["docs/WORKFLOW.md", ".codebuddy/skills/tdx-quant-workflow/SKILL.md"]
+    detect:
+      - kind: grep
+        pattern: "7 维"
+        paths: ["docs/*.md", ".codebuddy/**/*.md"]
+        exclude: [".codebuddy/memory"]
+        min_count: 1
+    impact: "巡检覆盖范围被低估，据此配置告警会漏掉 verification 维度"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-15"
+    exemption: "NONE"
+    fix_hint: "统一为 8 维，并从 canary_health_check.run_all_checks 自动生成该数字"
+
+  - id: KI-OBS-001
+    title: "obsidian-git.json 在 skill 中内联副本与仓库源文件不一致"
+    theme: docs
+    severity: P2
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:118"]
+    locations: [".codebuddy/skills/tdx-obsidian-version-control/SKILL.md"]
+    detect:
+      - kind: grep
+        pattern: "commitOnClose"
+        paths: [".codebuddy/skills/tdx-obsidian-version-control/SKILL.md"]
+        min_count: 1
+    impact: "按 skill 执行会写出与仓库源不一致的漂移配置"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-15"
+    exemption: "NONE"
+    fix_hint: "skill 不再内联配置副本，改为执行前 cat etc/obsidian/obsidian-git.json"
+
+  - id: KI-MAKE-001
+    title: "make predict 与生产 predict 口径不一致（模型/Top/守卫全不同）"
+    theme: make
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:222"]
+    locations: ["Makefile"]
+    detect:
+      - kind: grep
+        pattern: "predict\\.py --top 30"
+        paths: ["Makefile"]
+        min_count: 1
+    impact: "手工跑出的榜单与生产榜单不是同一个东西，且没有新鲜度守卫"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-15"
+    exemption: "NONE"
+    fix_hint: "make predict 对齐 predict-daily.service：--position-mode small --workers 8 + precheck_freshness.sh"
+
+  - id: KI-MAKE-002
+    title: "make journal-buy/journal-sell 是已废止的建仓入口"
+    theme: make
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:222"]
+    locations: ["Makefile"]
+    detect:
+      - kind: grep
+        pattern: "journal-buy"
+        paths: ["Makefile"]
+        min_count: 1
+    impact: "方案E 已于 10-24 退出实盘入口，留在 Makefile 里就是一个可被误用的建仓按钮"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-15"
+    exemption: "NONE"
+    fix_hint: "移入 make-legacy 目标并加显式二次确认"
+
+  - id: KI-RULE-001
+    title: "ruff 对 BLE001 做目录级豁免，等于新代码也可盲吞错"
+    theme: rule
+    severity: P1
+    status: OPEN
+    first_seen: "2026-09-25"
+    last_seen: "2026-11-01"
+    seen_count: 2
+    sources: ["v5/audit/2026-09-25-task-4-ble001-strategy.md:23"]
+    locations: ["ruff.toml"]
+    detect:
+      - kind: grep
+        pattern: "BLE001"
+        paths: ["ruff.toml"]
+        min_count: 1
+    impact: "'老代码豁免'的原意被目录边界击穿；新增文件默认合法复制旧模式"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-25"
+    exemption: "ruff.toml per-file-ignores（10 条目）"
+    fix_hint: "改为行内 noqa 带原因与复审日期；目录级豁免只留归档区；配合增量阻断"
+
+  - id: KI-OBS-002
+    title: "obsidian-math-verify skill 的 env 名与 Makefile 实际读取的不一致，变量被静默忽略"
+    theme: docs
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:118"]
+    locations: [".codebuddy/skills/tdx-obsidian-math-verify/SKILL.md"]
+    detect:
+      - kind: grep
+        pattern: "MATH_VAULT|MATH_PREFIX"
+        paths: [".codebuddy/skills/tdx-obsidian-math-verify/SKILL.md"]
+        min_count: 1
+    impact: "用户以为切到 math-study 库，实际仍在校验 StockVault —— 静默失效"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-15"
+    exemption: "NONE"
+    fix_hint: "改为 VAULT/VAULT_KIND/PREFIX/MATH_TPL_DIR；Makefile 对未知 VAULT_KIND 直接 exit 1"
+
+  - id: KI-EXEC-001
+    title: "执行研究线 overall_go=false，但相关脚本与模块仍在主仓且未归档"
+    theme: size
+    severity: P2
+    status: DEFERRED
+    first_seen: "2026-10-26"
+    last_seen: "2026-11-01"
+    seen_count: 2
+    sources: ["docs/DABAN_EXECUTION_RESEARCH_LINE.md:176"]
+    locations: ["tdxfeed/daban/", "scripts/daban_*.py"]
+    detect:
+      - kind: glob_exists
+        pattern: "scripts/daban_*.py"
+    impact: "研究资产持续进入审计扫描范围，每轮都被'重新发现'；同时占用维护注意力"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-12-20"
+    exemption: "已决定保留至 12 月（待复评）"
+    fix_hint: "决策归档或保留；若归档则移出扫描范围，并在本条记录替代资产位置"
+
+  # ---------------- 已修复并有守卫（示例：固化"修完有守卫"的范式）----------------
+  - id: KI-SINGLE-005
+    title: "股票池路径访问器已单源化（universe_path）"
+    theme: single-source
+    severity: P2
+    status: FIXED
+    first_seen: "2026-10-16"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:24"]
+    locations: ["tdxfeed/paths.py"]
+    detect:
+      - kind: grep
+        pattern: "def universe_path"
+        paths: ["tdxfeed/paths.py"]
+        min_count: 1
+    impact: "（已修）路径口径统一到单一访问器"
+    guard: "tests/test_universe_path_single_source.py"
+    owner: "jiuben"
+    due: "2026-10-20"
+    exemption: "NONE"
+    fix_hint: "已完成；作为『修完必须绑守卫』的样板条目保留在台账中（示范 status=FIXED + guard）"

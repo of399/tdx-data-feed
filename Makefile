@@ -213,6 +213,16 @@ sop-quick:  ## 告警链路 quick 验证（5s，非侵入）
 sop-full:  ## 告警链路 full 验证（140s，侵入）
 	bash v5/tests/test_alerting_pipeline.sh --mode full --auto-sink --report-json /tmp/sop-full-report.json
 
+# ============== 已知问题台账（known-issues ledger）==============
+ledger-scan:  ## 复扫台账每条问题的 detect 规格（仍存在/已消失/守卫缺失）
+	cd $(ROOT) && $(PYTHON) scripts/audit_ledger.py scan
+
+ledger-report:  ## 生成两栏式审计摘要（口径差异 + 新增 vs 复现）
+	cd $(ROOT) && $(PYTHON) scripts/audit_ledger.py report --round $(shell date +%Y-%m-%d)
+
+ledger-probe:  ## 探测未登记模式：make ledger-probe PAT=xxx PATHS='scripts/*.py'
+	cd $(ROOT) && $(PYTHON) scripts/audit_ledger.py probe --pattern '$(PAT)' --paths '$(PATHS)'
+
 audit: sop-quick  ## 跑 quick + 显示最近报告
 	@echo ""
 	@echo "$(CYAN)=== v5/audit/ 最近 5 份 ===$(NC)"
