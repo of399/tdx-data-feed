@@ -26,8 +26,8 @@
 | 只读审计已跑出的范围（target=2000-01-01） | extend **4** / listed_after_target 4471 / ok 746，`request_failure_ratio=0.0`，缺 19700 交易日 | `data/audit/history_depth_20261026.json` |
 | 回填已在一只票上跑通 | sh600000 现 6413 行、首行 1999-11-10 = ipoDate；`done=["sh600000"]` | `data/parquet/daily/sh600000.parquet`、`data/.state/history_backfill.json` |
 | 三套因子口径（两套在盘、一套未落地），**互不可换算** | `adj_factor`（qfq 锚、2020 起）/ `hfq_factor`（2020 起）/ `adj_factor_ext`（设计为 hfq 锚、可追到 2000 前，**未落地**）。2026-10-29 重建前实测：新/旧 hfq 重叠 1633 行比值 中位 12.221060、**std 0.437535** ⇒ 不是同一量的两种刻度 | `tdxfeed/adj_factor_history.py` 文档字符串 |
-| 现役价格模型的重训成本 | 1,071,227 训练 / 113,892 测试，29 维，**17–19 分钟，CPU ~3GB** | `docs/V9R_CKPT1000_ASSESSMENT_2026-10-19.md:100-108` |
-| 可复现基线 | daban OOS AUC **0.7478**（raw 口径）；对照 0.7602 / 0.7459 在盘 | `docs/RERUN_PLAN_2026-10-19.md:103`、`data/double_up/daban_train_report*.md` |
+| 现役价格模型的重训成本 | 1,071,227 训练 / 113,892 测试，29 维，**17–19 分钟，CPU ~3GB** | `docs/archive/V9R_CKPT1000_ASSESSMENT_2026-10-19.md:100-108` |
+| 可复现基线 | daban OOS AUC **0.7478**（raw 口径）；对照 0.7602 / 0.7459 在盘 | `docs/archive/RERUN_PLAN_2026-10-19.md:103`、`data/double_up/daban_train_report*.md` |
 
 ### 1.1 交付批次（每批独立可停，后一批不依赖前一批已落盘）
 

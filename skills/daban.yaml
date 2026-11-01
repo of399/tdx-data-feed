@@ -12,7 +12,7 @@ description: |
 
   ⚠️ 仅作排序研究参考，不是买入指令：该模型在诚实成交口径（T+1 开盘入场、
   SL 优先、跳空按开盘成交）下为负期望（K=5 平均净收益 -0.78%/笔、累计 -94.5%，
-  执行闸门 overall_go=false）。证据：docs/DABAN_TOPK_PNL_20261022.md、
+  执行闸门 overall_go=false）。证据：docs/archive/DABAN_TOPK_PNL_20261022.md、
   data/daban/execution_backtest_20261022.json。
 
 llm:

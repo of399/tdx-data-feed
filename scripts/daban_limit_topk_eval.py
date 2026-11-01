@@ -10,7 +10,7 @@
 
     venv/bin/python scripts/daban_limit_topk_eval.py \
         --trades data/daban/unfiltered_limit_20261022/daban_backtest_20200101_20261019.csv \
-        --out docs/DABAN_LIMIT_TOPK_20261022.md
+        --out docs/archive/DABAN_LIMIT_TOPK_20261022.md
 """
 from __future__ import annotations
 

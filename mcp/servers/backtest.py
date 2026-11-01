@@ -828,7 +828,7 @@ def daban_top_picks(date: str | None = None, top: int = 5,
     warnings_out: list[str] = [
         "⚠️ 本结果只作排序研究，不是买入指令：daban 在诚实成交口径下为负期望"
         "（K=5 平均净收益 -0.78%/笔，累计 -94.5%，执行闸门 overall_go=false）；"
-        "详见 docs/DABAN_TOPK_PNL_20261022.md"
+        "详见 docs/archive/DABAN_TOPK_PNL_20261022.md"
     ]
     if not ok:
         return {

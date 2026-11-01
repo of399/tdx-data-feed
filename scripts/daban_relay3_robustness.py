@@ -3,7 +3,7 @@
 
 输入 data/daban/relay_hold1_*/daban_backtest_*.csv（chase --hold 1 全历史明细）。
 输出：成本敏感度、分高度、月度、市场中性 alpha（等权全市场 open→close 为基准）、
-容量与尾部，写入 docs/DABAN_RELAY3_ROBUSTNESS_20261022.md。
+容量与尾部，写入 docs/archive/DABAN_RELAY3_ROBUSTNESS_20261022.md。
 
 用法::
     venv/bin/python scripts/daban_relay3_robustness.py
@@ -28,7 +28,7 @@ TRADES = ROOT / "data/daban/relay_hold1_20261022/daban_backtest_20200101_2026101
 from _common import daily_dir  # noqa: E402
 
 DAILY_DIR = daily_dir()
-OUT = ROOT / "docs/DABAN_RELAY3_ROBUSTNESS_20261022.md"
+OUT = ROOT / "docs/archive/DABAN_RELAY3_ROBUSTNESS_20261022.md"
 
 
 def max_dd(daily: pd.Series) -> float:

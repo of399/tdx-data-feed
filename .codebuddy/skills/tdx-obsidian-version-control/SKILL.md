@@ -16,7 +16,7 @@ visibility: "project"
 | 个人综合 vault | `/home/jiuben/StockVault`（含数学子库 + 标的/框架/数据/回测）|
 | 项目 vault | `/home/jiuben/ObsidianVaults/tdx-data-feed` |
 | skill / 文档目录 | `/home/jiuben/tdx-data-feed/.codebuddy/skills/tdx-obsidian-version-control/` |
-| 升级计划文档 | `/home/jiuben/tdx-data-feed/docs/obsidian_upgrade_plan_20261015.md` |
+| 升级计划文档 | `/home/jiuben/tdx-data-feed/docs/archive/obsidian_upgrade_plan_20261015.md` |
 
 > 两个 vault 当前**均无 .git 目录**（截至 2026-10-15 盘点）。本 skill 负责从零开始建立版本控制。
 

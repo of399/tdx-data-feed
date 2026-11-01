@@ -4,7 +4,7 @@
 # tdx_v9r.yaml — v9 修复版（v9r）从零 QLoRA 训练
 # =====================================================================
 # 版本治理: 见 docs/VERSIONING.md (2026-10-18 用户决策: 修复版叫 v9r, 不开 v10)
-# 根因报告: docs/V9_MODE_COLLAPSE_ROOT_CAUSE_2026-10-17.md
+# 根因报告: docs/archive/V9_MODE_COLLAPSE_ROOT_CAUSE_2026-10-17.md
 #
 # 相对 tdx_v9_from_scratch.yaml 的修复清单(4 项, 每项标注根因编号):
 #   修复 A (根因1, 最重要): + enable_thinking: false

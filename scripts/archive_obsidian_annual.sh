@@ -2,7 +2,7 @@
 # archive_obsidian_annual.sh
 # 每年 1/1 把上一年的 08-报告/*.md zip 到 08-报告/archive/YYYY.zip
 # 由 systemd user timer archive-obsidian-annual.timer 触发（OnCalendar=*-01-01T01:00:00）
-# 决策依据：docs/obsidian_upgrade_plan_20261015.md 决策 5（年度保留）
+# 决策依据：docs/archive/obsidian_upgrade_plan_20261015.md 决策 5（年度保留）
 set -uo pipefail
 
 REPORTS="/home/jiuben/ObsidianVaults/tdx-data-feed/08-报告"

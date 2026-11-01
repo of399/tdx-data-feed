@@ -70,7 +70,7 @@
 
 【predict list 与实盘入口】
   daban(默认小仓位 Top5)按诚实成交口径回测为负期望(-0.78%/笔,累计 -94.5%,
-  见 docs/DABAN_TOPK_PNL_20261022.md),所以 `--from-predict-list` 不再自动写入
+  见 docs/archive/DABAN_TOPK_PNL_20261022.md),所以 `--from-predict-list` 不再自动写入
   journal.csv;榜单本身照旧产出,模拟账 journal_sim.csv 仍可用于排序研究。
 
 【方案 E 与实盘入口】
@@ -656,7 +656,7 @@ DABAN_LIVE_BLOCK = (
     "\n"
     "   predict.py 的默认出票模型是 daban(小仓位 Top5,次日收盘涨停分类),这张榜按诚实\n"
     "   成交口径的两个独立回测都没有正期望:\n"
-    "     · docs/DABAN_TOPK_PNL_20261022.md —— K=5 成交 1509 笔,平均净收益 -0.78%/笔,\n"
+    "     · docs/archive/DABAN_TOPK_PNL_20261022.md —— K=5 成交 1509 笔,平均净收益 -0.78%/笔,\n"
     "       累计 -94.5%;未计成本毛收益 -0.58%,负期望来自 T+1 开盘买入的入场时点,\n"
     "       不是交易成本。\n"
     "     · data/daban/execution_backtest_20261022.json 的 gate —— baseline/top1/top2/\n"

@@ -2,7 +2,7 @@
 
 两条容易混淆的判据分开测：
 
-1. 文件在工作树里存在**不够**。`docs/DABAN_*_20261022.md` 这批研究快照一直是未跟踪状态，
+1. 文件在工作树里存在**不够**。`docs/archive/DABAN_*_20261022.md` 这批研究快照曾是未跟踪状态，
    现有守卫 `tests/test_plan_e_journal_daban_entry.py:92` 只查 `exists()`，所以在脏工作树里
    一路绿灯、在干净 checkout 上必红。横幅是发给「只有仓库、没有本机」的读者的，
    所以这条守卫查的是 `git ls-files --error-unmatch`。
@@ -26,7 +26,7 @@ for _p in (str(ROOT), str(ROOT / "scripts")):
 
 from tdxfeed.daban import trial  # noqa: E402
 
-DOC_RE = re.compile(r"docs/[\w.\-]+\.md")
+DOC_RE = re.compile(r"docs/[\w./\-]+\.md")
 IGNORED_RE = re.compile(r"\b(data|logs|models|downloads)/[\w.\-/]+")
 
 

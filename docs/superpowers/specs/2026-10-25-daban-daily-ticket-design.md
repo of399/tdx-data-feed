@@ -23,8 +23,8 @@
 - `scripts/daban_scan.py` 是 319 行的纯手工入口：Makefile 里 `^daban` 目标数 = 0，`systemd/` 里没有它的单元，没有任何定时器会跑它。
 - `tdxfeed/daban/paper.py`（888 行）与 `tdxfeed/daban/risk_gateway.py` **不在 HEAD**，本设计不依赖它们。
 - 时段判定已有：`tdxfeed/daban/session.py:47` `current_session()` 返回 `pre_auction/auction/pre_open/continuous/lunch_break/closed`。`--phase` 是**市场环境标签**（退潮期/冰点转折/…，默认 震荡市），不是时刻。
-- 负期望证据（诚实成交口径，两份独立研究）：`docs/DABAN_TOPK_PNL_20261022.md` K=5 成交 1509 笔、均净收益 −0.78%/笔、累计 −94.5%，未计成本毛收益 −0.58%（负号来自 T+1 开盘入场时点，不是手续费）；`docs/DABAN_PAPER_TRADE_RULES_20261022.md` Book B −0.903%/笔、停止线定在 +0.20%。**这五份 `docs/DABAN_*_20261022.md` 目前全部未入库**（`git ls-tree HEAD -- <path>` 为空），所以横幅要引用它们，必须随本设计一起提交。
-- 成交逆向选择已被量化（`docs/DABAN_EXEC_RESEARCH_20261022.md`）：**未成交**的那批封板率 95.4%，**成交到**的那批只有 39.7%。含义是「委托单发出 ≠ 买到」，而且买到的恰好是更容易输的那批。停止线的统计口径必须按这个事实设计，见 §7。
+- 负期望证据（诚实成交口径，两份独立研究）：`docs/archive/DABAN_TOPK_PNL_20261022.md` K=5 成交 1509 笔、均净收益 −0.78%/笔、累计 −94.5%，未计成本毛收益 −0.58%（负号来自 T+1 开盘入场时点，不是手续费）；`docs/archive/DABAN_PAPER_TRADE_RULES_20261022.md` Book B −0.903%/笔、停止线定在 +0.20%。**这五份 `docs/DABAN_*_20261022.md` 目前全部未入库**（`git ls-tree HEAD -- <path>` 为空），所以横幅要引用它们，必须随本设计一起提交。
+- 成交逆向选择已被量化（`docs/archive/DABAN_EXEC_RESEARCH_20261022.md`）：**未成交**的那批封板率 95.4%，**成交到**的那批只有 39.7%。含义是「委托单发出 ≠ 买到」，而且买到的恰好是更容易输的那批。停止线的统计口径必须按这个事实设计，见 §7。
 - 现有守卫不能被本设计弄红：`tests/test_plan_e_journal_daban_entry.py`、`tests/test_predict_report_daban_caveat.py`、`tests/test_plan_e_live_retirement.py`、`tests/test_systemd_units.py`（`Documentation=` 每个空白分隔的 token 必须是 `http:// https:// file:// man: html:` 之一，且 `file://` 指向的库内路径必须存在）。
 
 2026-10-25 落地时的复测（这些直接改了上面/下面的措辞，不是补充说明）：
@@ -163,17 +163,17 @@ Unit=daban-ticket.service
 
 ```
 ⚠️ 这张榜按诚实成交口径没有正期望，本文件是排序研究到人工委托的过渡试验，不是买入指令。
-   · docs/DABAN_TOPK_PNL_20261022.md：K=5 成交 1509 笔，均净收益 −0.78%/笔，累计 −94.5%；
+   · docs/archive/DABAN_TOPK_PNL_20261022.md：K=5 成交 1509 笔，均净收益 −0.78%/笔，累计 −94.5%；
      未计成本 −0.58%，负号来自 T+1 开盘入场时点，不是手续费。
-   · docs/DABAN_PAPER_TRADE_RULES_20261022.md：Book B −0.903%/笔。
-   · docs/DABAN_EXEC_RESEARCH_20261022.md：成交到的那批封板率只有 39.7%（未成交 95.4%）
+   · docs/archive/DABAN_PAPER_TRADE_RULES_20261022.md：Book B −0.903%/笔。
+   · docs/archive/DABAN_EXEC_RESEARCH_20261022.md：成交到的那批封板率只有 39.7%（未成交 95.4%）
      —— 你能买到的，恰恰是更容易输的那批。
    试验仓额度：总 2 万 / 单票 1 万（20 万本金的 10% / 5%）。
    自动停止线：五条，任一命中即停止出票，判据见本 spec §7，状态见 data/daban/tickets/STOP。
    人工执行：本程序不下单，文本抄进券商 App 由你按下确认。
 ```
 
-引用路径的约束：横幅只能引用**随本设计一起入库**的 `docs/*.md`。`data/daban/execution_backtest_20261022.json` 这类被 gitignore 的产物不能出现在横幅里——`data/` 在 `.gitignore:42`，干净 checkout 上它不存在。（这正是现有守卫 `test_plan_e_journal_daban_entry.py:92` 在 HEAD 上必然红的成因：它检查的是工作树存在性，而 `docs/DABAN_TOPK_PNL_20261022.md` 从未被提交。本次把这三份文档提交，顺带把那条守卫修回可判定的状态。）
+引用路径的约束：横幅只能引用**随本设计一起入库**的 `docs/*.md`。`data/daban/execution_backtest_20261022.json` 这类被 gitignore 的产物不能出现在横幅里——`data/` 在 `.gitignore:42`，干净 checkout 上它不存在。（这正是现有守卫 `test_plan_e_journal_daban_entry.py:92` 在 HEAD 上必然红的成因：它检查的是工作树存在性，而 `docs/archive/DABAN_TOPK_PNL_20261022.md` 从未被提交。本次把这三份文档提交，顺带把那条守卫修回可判定的状态。）
 
 ## 6. 失败模式
 

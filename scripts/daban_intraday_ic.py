@@ -35,7 +35,7 @@ SNAP = ROOT / "data/double_up/daban_pattern_eval_20261022.parquet"
 from _common import daily_dir  # noqa: E402
 
 DAILY_DIR = daily_dir()
-OUT = ROOT / "docs/DABAN_INTRADAY_IC_20261022.md"
+OUT = ROOT / "docs/archive/DABAN_INTRADAY_IC_20261022.md"
 MODELS = {
     "live": ROOT / "data/double_up/d_signal_5d_model_daban.txt",
     "retrain": ROOT / "data/double_up/d_signal_5d_model_daban_retrain_20261022.txt",

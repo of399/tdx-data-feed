@@ -128,7 +128,7 @@ MODEL_REGISTRY = {
 # 切换依据：历史累积验证 334 交易日 / 199,283 样本，分年度稳定领先
 #   · AUC        : daban 0.8090 vs stage1 0.7526（+0.0563）
 #   · Top5 命中率: daban 24.52%/21.70% vs stage1 11.64%/11.70%（约 2 倍）
-# 详见 docs/COMPARE_EXTENDED_2026-10-19.md
+# 详见 docs/archive/COMPARE_EXTENDED_2026-10-19.md
 #
 # 生效范围：仅 predict.py 主流程；plan_e（规则策略）不加载模型，不受影响。
 #
@@ -973,7 +973,7 @@ def emit_outputs(args, model_name, feat_df, high_score):
                 "> daban 学的是「次日收盘涨停」概率；按诚实成交口径（T+1 开盘入场、"
                 "SL 优先、跳空按开盘成交）回测 K=5 共 1509 笔，平均净收益 -0.78%/笔、"
                 "累计 -94.5%，未计成本毛收益也是 -0.58%——负期望来自入场时点，不是交易成本。\n"
-                "> 证据：`docs/DABAN_TOPK_PNL_20261022.md`；"
+                "> 证据：`docs/archive/DABAN_TOPK_PNL_20261022.md`；"
                 "执行闸门 `data/daban/execution_backtest_20261022.json` 的 `overall_go=false`。\n"
                 "> `plan_e_journal.py --from-predict-list --mode real` 已停用，"
                 "研究侧仍可用 `--mode simulate`；真要建仓请人工 `--mode buy`。\n\n"

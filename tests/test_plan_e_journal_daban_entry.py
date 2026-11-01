@@ -3,7 +3,7 @@
 `--from-predict-list --mode real` 直接把 predict.py 的默认榜单（daban 小仓位 Top5）逐笔灌进
 journal.csv，而 journal.csv 是喂给 `plan_e_real_samples.py → --real` 的"实盘"账本。
 按诚实成交口径，这张榜没有正期望：
-  - docs/DABAN_TOPK_PNL_20261022.md：K=5 成交 1509 笔，−0.78%/笔，累计 −94.5%，
+  - docs/archive/DABAN_TOPK_PNL_20261022.md：K=5 成交 1509 笔，−0.78%/笔，累计 −94.5%，
     未计成本毛收益 −0.58%（负期望来自 T+1 开盘买入的入场时点，不是成本）
   - data/daban/execution_backtest_20261022.json 的 gate：primary 六条规则全部未达标，
     overall_go=false

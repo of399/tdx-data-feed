@@ -21,7 +21,7 @@
 > 新的触发日根本进不了盘前清单。`plan-e-monitor` / `plan-e-weekly` /
 > `plan-e-real-refresh` 维持 disabled（输入是那份空账本：无 positions.json，journal.csv 只有表头），
 > 单元文件都留在 `systemd/`。临时补一张清单仍可手动 `make plan-e-today`。
-> 同一次处置的另一个案例见 `docs/DABAN_TOPK_PNL_20261022.md`，两段停用声明都在
+> 同一次处置的另一个案例见 `docs/archive/DABAN_TOPK_PNL_20261022.md`，两段停用声明都在
 > `scripts/plan_e_journal.py`：`PLAN_E_LIVE_RETIREMENT`（方案 E）与 `DABAN_LIVE_BLOCK`（daban 榜）。
 
 > 生成：2026-09-27 · 启动日期：2026-09-28（周一，A股开盘）
@@ -411,7 +411,7 @@ logs/
 
 ## 11. 信号驱动回测（方案 B · 2026-10-16 落地）
 
-> 本章配套 `docs/PROPOSAL_B_INTERFACES_2026-10-16.md` 与 `docs/ROADMAP_2026-10-16.md` §方案 B。
+> 本章配套 `docs/archive/PROPOSAL_B_INTERFACES_2026-10-16.md` 与 `docs/archive/ROADMAP_2026-10-16.md` §方案 B。
 > 用途：把方案 D（predict.py 每日预测）与方案 E（plan_e_backtest + plan_e_journal）**端到端打通**，
 > 不再需要手动复制代码列表。
 

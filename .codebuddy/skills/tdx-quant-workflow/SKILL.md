@@ -92,7 +92,7 @@ venv/bin/python scripts/predict.py --model vpnl_huber --features legacy --top 30
 **验证**：`test -f data/predictions/predict_latest.md`（同时产出 `predict_YYYYMMDD_HHMMSS.{csv,md}` + `predict_top5_*.csv` + `predict_high_*.csv`）
 
 > 收盘后若只想看打板候选、不落盘完整预测，可调用 `daban` skill（MCP 工具 `tdx-backtest.daban_top_picks`）：全市场 29 维打分，输出 T+1 收盘涨停概率 Top-N，约 3-4 秒；剔除 T 日开盘即涨停（买不进）样本。
-> ⚠️ **该输出只作排序研究、不是买入指令**：诚实成交口径（T+1 开盘入场、SL 优先、跳空按开盘成交）下平均净收益 -0.78%/笔、累计 -94.5%，执行闸门 `overall_go=false`。证据：`docs/DABAN_TOPK_PNL_20261022.md`、`docs/DABAN_EXECUTION_RESEARCH_LINE.md`。
+> ⚠️ **该输出只作排序研究、不是买入指令**：诚实成交口径（T+1 开盘入场、SL 优先、跳空按开盘成交）下平均净收益 -0.78%/笔、累计 -94.5%，执行闸门 `overall_go=false`。证据：`docs/archive/DABAN_TOPK_PNL_20261022.md`、`docs/DABAN_EXECUTION_RESEARCH_LINE.md`。
 
 ### 阶段 3.5：执行研究线（诊断，可选；**不参与生产决策**）
 

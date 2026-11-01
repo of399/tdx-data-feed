@@ -1,6 +1,6 @@
 [Unit]
 Description=Run annual Obsidian report archive on Jan 1
-Documentation=file:///home/jiuben/tdx-data-feed/docs/obsidian_upgrade_plan_20261015.md
+Documentation=file:///home/jiuben/tdx-data-feed/docs/archive/obsidian_upgrade_plan_20261015.md
 
 [Timer]
 # 每年 1/1 凌晨 01:00

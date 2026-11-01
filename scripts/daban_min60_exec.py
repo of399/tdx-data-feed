@@ -12,7 +12,7 @@ Part B：封板质量对「连板≥3 接力」有没有增量
 - min60 封板质量特征的逐日 rank IC、分半稳定性、桶收益
 - 迟到量能候选的事后检验（多试、尾部依赖、不可买率）
 
-输出：docs/DABAN_MIN60_EXEC_20261022.md
+输出：docs/archive/DABAN_MIN60_EXEC_20261022.md
 
 用法::
 
@@ -29,7 +29,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 FEATURES = ROOT / "data/daban/min60_features_20261022.parquet"
 RELAY = ROOT / "data/daban/relay_hold1_20261022/daban_backtest_20200101_20261019.csv"
-OUT = ROOT / "docs/DABAN_MIN60_EXEC_20261022.md"
+OUT = ROOT / "docs/archive/DABAN_MIN60_EXEC_20261022.md"
 EPS = 0.005
 COST = 0.003
 

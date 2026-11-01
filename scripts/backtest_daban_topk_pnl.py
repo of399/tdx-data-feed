@@ -13,7 +13,7 @@
         --model live=data/double_up/d_signal_5d_model_daban.txt \\
         --model retrain=data/double_up/d_signal_5d_model_daban_retrain_20261022.txt \\
         --model excl=data/double_up/d_signal_5d_model_daban_retrain_20261022_excl.txt \\
-        --k 5,10 --out docs/DABAN_TOPK_PNL_20261022.md
+        --k 5,10 --out docs/archive/DABAN_TOPK_PNL_20261022.md
 """
 from __future__ import annotations
 
@@ -210,7 +210,7 @@ def main() -> int:
     ap.add_argument("--clean-end", default="2026-09-15",
                     help="数据完整期上限（amount 缺口前），留空跳过该对照")
     ap.add_argument("--limit-days", type=int, default=0, help="冒烟：只取前 N 个信号日")
-    ap.add_argument("--out", default=str(ROOT / "docs/DABAN_TOPK_PNL_20261022.md"))
+    ap.add_argument("--out", default=str(ROOT / "docs/archive/DABAN_TOPK_PNL_20261022.md"))
     ap.add_argument("--trades-out", default=str(ROOT / "data/daban/daban_topk_pnl_trades_20261022.csv"))
     ap.add_argument("--no-write", action="store_true")
     ap.add_argument("--no-pool-baseline", action="store_true",

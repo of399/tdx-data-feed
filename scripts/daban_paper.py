@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """DABAN cb≥3 接力纸盘自动化 CLI。
 
-规则：docs/DABAN_PAPER_TRADE_RULES_20261022.md
+规则：docs/archive/DABAN_PAPER_TRADE_RULES_20261022.md
 
 典型日更（收盘后）::
 

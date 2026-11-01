@@ -1,4 +1,4 @@
-"""DABAN cb≥3 纸盘自动化测试（规则见 docs/DABAN_PAPER_TRADE_RULES_20261022.md）。"""
+"""DABAN cb≥3 纸盘自动化测试（规则见 docs/archive/DABAN_PAPER_TRADE_RULES_20261022.md）。"""
 from __future__ import annotations
 
 import json

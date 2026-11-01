@@ -88,10 +88,10 @@ BANNER_HEAD = "⚠️ 这张榜按诚实成交口径没有正期望，本文件�
 BANNER = (
     f"{BANNER_HEAD}\n"
     "\n"
-    "   · docs/DABAN_TOPK_PNL_20261022.md：K=5 成交 1509 笔，均净收益 −0.78%/笔，累计 −94.5%；\n"
+    "   · docs/archive/DABAN_TOPK_PNL_20261022.md：K=5 成交 1509 笔，均净收益 −0.78%/笔，累计 −94.5%；\n"
     "     未计成本 −0.58%，负号来自 T+1 开盘入场时点，不是手续费。\n"
-    "   · docs/DABAN_PAPER_TRADE_RULES_20261022.md：Book B −0.903%/笔（1,017 笔 / t=−1.82）。\n"
-    "   · docs/DABAN_EXEC_RESEARCH_20261022.md：成交到的那批封板率只有 39.7%（未成交 95.4%）\n"
+    "   · docs/archive/DABAN_PAPER_TRADE_RULES_20261022.md：Book B −0.903%/笔（1,017 笔 / t=−1.82）。\n"
+    "   · docs/archive/DABAN_EXEC_RESEARCH_20261022.md：成交到的那批封板率只有 39.7%（未成交 95.4%）\n"
     "     —— 你能买到的，恰恰是更容易输的那批。\n"
     f"   试验仓额度：总 {TOTAL_CAP:.0f} 元 / 单票 {SINGLE_CAP:.0f} 元（本金 {CASH:.0f} 元的 10% / 5%），"
     f"单笔最小 {MIN_ORDER_AMOUNT:.0f} 元，整手 {LOT} 股。\n"

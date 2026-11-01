@@ -1,7 +1,7 @@
 # 版本治理规则（VERSIONING）— 2026-10-18 制定
 
 > 目的：让未来会话有章可循——版本号怎么开、什么时候开、退休怎么走。
-> 来源：v9 mode collapse 复盘（`docs/V9_MODE_COLLAPSE_ROOT_CAUSE_2026-10-17.md`）+ 用户决策（2026-10-18）。
+> 来源：v9 mode collapse 复盘（`docs/archive/V9_MODE_COLLAPSE_ROOT_CAUSE_2026-10-17.md`）+ 用户决策（2026-10-18）。
 
 ## 一、两条版本线（关键区分，勿混淆）
 

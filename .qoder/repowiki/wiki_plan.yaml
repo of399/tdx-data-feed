@@ -12,7 +12,7 @@ repowiki:
       author: jiuben
     - text: "方案 E 与 daban 已于 2026-10-24 退出实盘入口：mode_daily 不再据清单计算买入数量，清单仅作研究产出；恢复 plan-e-today 与 plan-e-journal 定时器恢复的是盘前清单的自动生成，不等于实盘下单。PLAN_E_PREMARKET_LIST_ACTIVE 为 False 是有意设计，写作时不要描述成缺陷。"
       author: jiuben
-    - text: "方案 E 的两处成交循环已经同口径，不要写成一处乐观一处保守：scripts/plan_e_backtest.py 的 _settle_from_entry 是权威实现，scripts/plan_e_sim_live.py 的 simulate_trade 是手抄的第二份（双触发取 SL、跳空穿越按当日开盘），闸门 tests/test_plan_e_sim_live_exit.py。docs/math_upgrade_plan_20261015.md 里置换检验与胜率原假设两处措辞已在文件内就地更正。"
+    - text: "方案 E 的两处成交循环已经同口径，不要写成一处乐观一处保守：scripts/plan_e_backtest.py 的 _settle_from_entry 是权威实现，scripts/plan_e_sim_live.py 的 simulate_trade 是手抄的第二份（双触发取 SL、跳空穿越按当日开盘），闸门 tests/test_plan_e_sim_live_exit.py。docs/archive/math_upgrade_plan_20261015.md 里置换检验与胜率原假设两处措辞已在文件内就地更正。"
       author: jiuben
     - text: "蒸馏教师模型没有仓库内的可信来源：源码里写死的 tag 一律不可信，本仓库历史上就写死过一个本机不存在、且没有任何生产者（无 Modelfile、无 create 步骤）的 tag。唯一权威是本地 Ollama 服务，读 GET http://127.0.0.1:11434/api/tags（受限沙箱里 ollama list 与 make deploy-list 会因 snap 权限失败）。2026-10-24 实测在服 7 个：qwen3-14b-tdx-v4fwd、qwen3-14b-tdx-v7r-q8、qwen3-14b-tdx-v7r1115、qwen3-14b-tdx-fast、deepseek-r1:14b、qwen3:14b、nomic-embed-text；仓库点名的 v5/v6/v7 精确 tag 与裸名 qwen3-14b-tdx 都不在其中，models/Qwen3-14B-tdx-v9-merged 在盘上但未注册。"
       author: jiuben

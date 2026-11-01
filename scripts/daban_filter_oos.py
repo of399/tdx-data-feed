@@ -11,7 +11,7 @@
 
     venv/bin/python scripts/daban_filter_oos.py \
         --trades data/daban/unfiltered_limit_20261022/daban_backtest_20200101_20261019.csv \
-        --out docs/DABAN_FILTER_OOS_20261022.md
+        --out docs/archive/DABAN_FILTER_OOS_20261022.md
 """
 from __future__ import annotations
 

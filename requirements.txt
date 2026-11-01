@@ -26,7 +26,7 @@ accelerate>=1.0.0
 datasets>=3.0.0
 bitsandbytes>=0.44.0
 llamafactory>=0.9.5,<0.10
-# 2026-10-17 P0-1 依赖清理（代码审计 docs/CODE_AUDIT_2026-10-17.md）：
+# 2026-10-17 P0-1 依赖清理（代码审计 docs/archive/CODE_AUDIT_2026-10-17.md）：
 # - trl / deepspeed 已删：0 文件 import，单机 QLoRA 用 torchrun DDP 无需
 #   （training/config/tdx_verify_dual_qlora.yaml 注释实证"无需 deepspeed"）。
 #   如需多机分布式再装：pip install "deepspeed>=0.15" trl

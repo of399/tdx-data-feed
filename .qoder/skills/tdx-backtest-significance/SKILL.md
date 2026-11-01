@@ -24,9 +24,9 @@ grep -rnE 'H₀\s*=\s*50|胜率.*显著.*50|显著异于 50' --include='*.py' --
 
 命中**不等于**违反，三类要分开：负向断言（`tests/test_plan_e_significance.py` 里
 `assert "H₀=50%" not in md` 是闸门）、纠正性措辞（`AGENTS.md` 那条约定本身、以及
-`docs/math_upgrade_plan_20261015.md` 里已带「2026-10-24 更正：原假设不是 50%」的句子），
+`docs/archive/math_upgrade_plan_20261015.md` 里已带「2026-10-24 更正：原假设不是 50%」的句子），
 以及真违反。库里目前只剩一处真违反：
-`docs/P0_1_ACCEPTANCE_REPORT_2026-10-16.md` 把「胜率 H₀=50% p=0.001 ⇒ 显著」写成结论，
+`docs/archive/P0_1_ACCEPTANCE_REPORT_2026-10-16.md` 把「胜率 H₀=50% p=0.001 ⇒ 显著」写成结论，
 而全文没有标注它是旧口径。引用那份报告前先按本 skill 纠正，不要当项目标准。
 
 ## 口径 1：Deflated Sharpe 的输入必须是周期内 Sharpe，不是年化

@@ -77,7 +77,7 @@ def test_daban_report_declares_ranking_only(monkeypatch, tmp_path):
     md = _emit(monkeypatch, tmp_path, "daban", "daban", is_reg=False)
     assert "不是买入指令" in md
     assert "-0.78" in md
-    assert "docs/DABAN_TOPK_PNL_20261022.md" in md
+    assert "docs/archive/DABAN_TOPK_PNL_20261022.md" in md
 
 
 def test_caveat_follows_active_model_not_only_argument(monkeypatch, tmp_path):
@@ -93,4 +93,4 @@ def test_fallback_model_report_has_no_daban_caveat(monkeypatch, tmp_path):
 
 
 def test_cited_doc_path_exists():
-    assert (ROOT / "docs" / "DABAN_TOPK_PNL_20261022.md").exists()
+    assert (ROOT / "docs" / "archive" / "DABAN_TOPK_PNL_20261022.md").exists()

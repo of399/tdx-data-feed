@@ -34,7 +34,7 @@
 - 置换检验默认统计量是 lag-1 自相关（`quant/multifactor/cv_utils.py` 的 `permutation_return_test`）：持仓按天摊平天然造出正自相关，小 p 只说明曲线被平滑过，**不是**择时 alpha。
 - 胜率二项检验的原假设是赔付结构隐含的盈亏平衡胜率（`breakeven_win_rate`），不是 50%。止盈 +30% / 止损 −10% 下任何零边际策略都显著偏离 50%，测 50% 只是赔付结构的同义反复。
 - 随机择时基线（`--random-timing-trials`，默认 300）只随机化入场日、标的池不动，属**条件**推断：标准误来自同票日际波动，比跨标的的 σ≈20.9%/笔 小一个量级，既不能证明选股有效，也不能外推到没见过的票。
-- 四者的完整措辞由 `plan_e_backtest.py` 生成的报告段落承载；`docs/math_upgrade_plan_20261015.md` 正文已按此更正，只有 M1 变更记录留旧措辞。
+- 四者的完整措辞由 `plan_e_backtest.py` 生成的报告段落承载；`docs/archive/math_upgrade_plan_20261015.md` 正文已按此更正，只有 M1 变更记录留旧措辞。
 
 ## 训练标签口径
 

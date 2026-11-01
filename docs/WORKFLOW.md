@@ -5,7 +5,7 @@
 >
 > 阅读路径：第 1 章建立心智模型 → 第 2-3 章按数据流向读 → 第 4-6 章按组件维度查 → 第 7 章是速查表 → 第 8 章是变更记录。
 > **生产预测默认 = `daban`（小仓位 Top5）；大仓位 = `vpnl_huber_stage1`（Top20）。LLM 线已于 2026-10-25 归档退出评估入口，战略止损，不再投入。**
-> 配套快照：`docs/WORKFLOW_SNAPSHOT_2026-10-26.md`（当日实况，含与本文的 9 项偏差说明）
+> 配套快照：`docs/archive/WORKFLOW_SNAPSHOT_2026-10-26.md`（当日实况，含与本文的 9 项偏差说明）
 
 ---
 
@@ -574,7 +574,7 @@ tdx-data-feed/
   /home/jiuben/tdx-data-feed/data/double_up/training_dashboard.html  # 174KB
   /home/jiuben/tdx-data-feed/data/predictions/predict_latest.md      # 方案 D 最新
   /home/jiuben/tdx-data-feed/data/plan_e/plan_e_backtest_v2_latest.md # 方案 E 最新
-  /home/jiuben/tdx-data-feed/docs/WORKFLOW_SNAPSHOT_2026-10-26.md    # 当日实况快照
+  /home/jiuben/tdx-data-feed/docs/archive/WORKFLOW_SNAPSHOT_2026-10-26.md    # 当日实况快照
   /home/jiuben/tdx-data-feed/DELIVERY.md         # 587 行含 §12
 
 脚本：
@@ -630,7 +630,7 @@ tdx-data-feed/
 - [ ] **`daban-ticket` 运行边界确认**：午休 11:30-13:00 是否产单、尾盘 14:00 后是否覆盖
 - [ ] **v8 LoRA fusion**：rank 不兼容（v5=8, v6=16）—— **LLM 线已冻结，不建议再做**
 - [ ] **PnL Huber 后继模型**：替换 v8 生产环境（LLM 线冻结后优先级下降）
-- [ ] **路线图**：详见 `docs/ROADMAP_2026-10-16.md`——① v7r→v9 量化迭代（**随 LLM 线止损关闭**）② 方案 D→E 信号联调 ③ docs 治理（✅ 已完成）
+- [ ] **路线图**：详见 `docs/archive/ROADMAP_2026-10-16.md`——① v7r→v9 量化迭代（**随 LLM 线止损关闭**）② 方案 D→E 信号联调 ③ docs 治理（✅ 已完成）
 
 ---
 
@@ -640,7 +640,7 @@ tdx-data-feed/
 - **数学服务是例外**：独立 `venv-math`（antlr4 4.11 ↔ omegaconf 4.9.* 死锁），`make verify-math` 校验，**不要在主 venv 跑**。
 - **`docker-compose.yml` 是目标架构（未实际部署）**：仓库里的 compose 栈（Ollama/PostgreSQL/Redis/Prometheus/Grafana + exporters）当前**未启用**；实际跑的监控栈见下条，是宿主机上的系统级 systemd 单元，不是容器。
 - **监控栈已在跑（2026-10-24 实测，推翻 2026-10-16 的「维持未部署」）**：`prometheus` / `alertmanager` / `grafana-server` / `pushplus_bridge` 四个**系统级**单元均 active+enabled，2026-10-22 20:40~20:41 起；Prometheus 5 个抓取目标全 up（`prometheus`/`alertmanager`/`node`/`canary`/`math-sympy-http`），当前 0 条 firing 规则；Grafana 在 :3000。当时「不部署」的理由（GPU 被 Ollama 占满、内存紧）没有复查记录。
-- **告警桥的旧双单元已收口（2026-10-28）**：2026-10-16 停用的是仓库里 `systemd/pushplus-bridge.service` 这个 user 级单元，线上一直在用的是系统级 `/etc/systemd/system/pushplus_bridge.service`（以 jiuben 身份跑 `v5/scripts/pushplus_bridge.py`，:5002，`/health` 返回 token 已配置）；`94c8f66` 删掉了那个 user 级副本，现在仓库映射是 `systemd/system/pushplus_bridge.service`，与 /etc 字节一致由漂移守卫比对。`docs/pushplus_bridge_status_2026-10-16.md` 里「端口 :5002 关闭」只对那次 user 级操作负责。`onfailure-alert@` 和 Alertmanager 都往这个 :5002 投。
+- **告警桥的旧双单元已收口（2026-10-28）**：2026-10-16 停用的是仓库里 `systemd/pushplus-bridge.service` 这个 user 级单元，线上一直在用的是系统级 `/etc/systemd/system/pushplus_bridge.service`（以 jiuben 身份跑 `v5/scripts/pushplus_bridge.py`，:5002，`/health` 返回 token 已配置）；`94c8f66` 删掉了那个 user 级副本，现在仓库映射是 `systemd/system/pushplus_bridge.service`，与 /etc 字节一致由漂移守卫比对。`docs/archive/pushplus_bridge_status_2026-10-16.md` 里「端口 :5002 关闭」只对那次 user 级操作负责。`onfailure-alert@` 和 Alertmanager 都往这个 :5002 投。
 - **Makefile ≠ 生产口径（已对齐）**：`make data-sync` 实为单标的 `tdxfeed.cli sync`（无参默认 `sh600000`，**不会拉全市场**）；全市场增量同步由 `make full-sync`（`tdxfeed.full_sync`，即系统级 `tdx-sync.timer` 工作日 16:30 调用的生产入口）负责。现已在 Makefile 新增 `full-sync` 目标并加注释澄清分工；改调度须同步两边，避免行为漂移。
 - **systemd 漂移铁律**：凡改 `systemd/` 下文件，提交后必须 `make timer-install` + `daemon-reload`，否则加载旧文件（被 canary 持续检测告警）。
 
@@ -672,7 +672,7 @@ tdx-data-feed/
 | 10-29 | **数据停更收口**：`tdx-sync.service` 挂两行 `ExecStartPost=-`（派生表 `--incremental` 约 1 分钟、复权因子增量全量约 60 分钟）；新增 `tdxfeed/adj_factor.py`；canary `data_files` 增检 `adj_factor` / `derived` 末日期；manifest `last_date` 落 8 位数字字符串 `YYYYMMDD`（`str`，不是 int） | 复权/派生表恢复每日刷新；`full_sync` 不产复权的事实写进本文档 |
 | 10-29 | **复权扩展层定夺：不落地**：`data/adj_factor_ext/` 撤下「因子权威」措辞（目录从未生成、零消费者、无回填驱动），`tdxfeed/adj_factor_history.py` 归为实验模块；现行复权链 = `data/adj_factor` + `data/hfq_factor`（均每日增量）| 规格与文档不再声称复权层「已就绪」；三表不可换算、禁回落约束保留 |
 
-> 详细逐日流水见 `docs/` 各专项报告；当日实况见 `docs/WORKFLOW_SNAPSHOT_2026-10-26.md`。
+> 详细逐日流水见 `docs/` 各专项报告；当日实况见 `docs/archive/WORKFLOW_SNAPSHOT_2026-10-26.md`。
 
 ---
 

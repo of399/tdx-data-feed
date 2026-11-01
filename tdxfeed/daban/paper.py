@@ -1,4 +1,4 @@
-"""DABAN cb≥3 接力纸盘（规则：docs/DABAN_PAPER_TRADE_RULES_20261022.md）。
+"""DABAN cb≥3 接力纸盘（规则：docs/archive/DABAN_PAPER_TRADE_RULES_20261022.md）。
 
 数据流::
 

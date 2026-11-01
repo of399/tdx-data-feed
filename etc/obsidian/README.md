@@ -48,7 +48,7 @@ bash scripts/install-math-templates.sh --vault <path>  # 指定 vault（指向�
 
 - 字段枚举、卡片语法（`::` 而非 `Q:`/`A:`）、`depends` 链接写法见 `etc/obsidian/math/README.md`。
 - 间隔重复用 **Spaced Repetition** 插件（`spaced-repetition`），不是 Flashcards。
-- 评审依据：`docs/obsidian_math_kb_plan_review_20261015.md`。
+- 评审依据：`docs/archive/obsidian_math_kb_plan_review_20261015.md`。
 
 ### 数学笔记库 · 安装同步纪律
 
