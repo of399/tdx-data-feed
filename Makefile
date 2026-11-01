@@ -226,6 +226,15 @@ lint-baseline:  ## 按当前实测收紧基线（只降不升；上升需 --allo
 lint-baseline-show:  ## 查看基线概览
 	cd $(ROOT) && $(PYTHON) scripts/ci_violation_gate.py show
 
+lint-semantic:  ## M-4 语义守卫扫描（三条 AST 守卫明细）
+	cd $(ROOT) && $(PYTHON) scripts/ci_semantic_guard.py scan --limit 20
+
+quality-trend:  ## 质量债务趋势报告（29 条遗留问题下降曲线）
+	cd $(ROOT) && $(PYTHON) scripts/quality_trend.py report
+
+quality-trend-snapshot:  ## 记录今日质量债务快照
+	cd $(ROOT) && $(PYTHON) scripts/quality_trend.py snapshot
+
 # ============== 已知问题台账（known-issues ledger）==============
 ledger-scan:  ## 复扫台账每条问题的 detect 规格（仍存在/已消失/守卫缺失）
 	cd $(ROOT) && $(PYTHON) scripts/audit_ledger.py scan

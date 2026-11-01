@@ -21,10 +21,16 @@ jobs:
       - name: 建议项：完整规则集（存量约 250 条，不阻断）
         continue-on-error: true
         run: ruff check . --statistics --ignore=E501
-      - name: 增量阻断：新增行不得引入新违规 + 基线只降不升
+      - name: 增量阻断：新增行不得引入新违规 + 基线只降不升（ruff + 语义双维度）
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin main || git fetch --no-tags origin main
           python scripts/ci_violation_gate.py check --base origin/main
       - name: 基线快照自检（基线不得低于实测 / 增长审批不得过期）
         run: python scripts/ci_violation_gate.py check --no-diff
+      - name: 语义守卫明细（M-4 三条 AST 守卫）
+        continue-on-error: true
+        run: python scripts/ci_semantic_guard.py scan --limit 20
+      - name: 质量债务趋势报告（29 条遗留问题的下降曲线）
+        continue-on-error: true
+        run: python scripts/quality_trend.py report

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -38,6 +39,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE_PATH = ROOT / "config" / "ruff_baseline.json"
+SEMANTIC_BASELINE_PATH = ROOT / "config" / "semantic_baseline.json"
+
 BASELINE_VERSION = 1
 GROWTH_APPROVAL_MAX_DAYS = 30
 
@@ -73,9 +76,12 @@ class Baseline:
         return cls(json.loads(path.read_text(encoding="utf-8")))
 
     def save(self, path: Path = BASELINE_PATH) -> None:
+        """原子写：先写 .tmp 再 os.replace（读者不会看到半截基线）。"""
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2,
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2,
                                   sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
 
     @property
     def quotas(self) -> dict[tuple[str, str], int]:
@@ -98,7 +104,7 @@ def run_ruff(ruff_cmd: list[str] | None = None,
     """跑 ruff 取 JSON 输出。ruff 有违规时退出码为 1，属正常。"""
     cmd = list(ruff_cmd or [sys.executable, "-m", "ruff"])
     cmd += ["check", ".", "--output-format=json", "--no-cache"]
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd))
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd), timeout=120)
     out = (proc.stdout or "").strip()
     if not out:
         if proc.returncode not in (0, 1):
@@ -152,7 +158,7 @@ def git_added_lines(base: str, cwd: Path = ROOT) -> tuple[dict[str, set[int]], s
     """取 base...HEAD 的新增行集合；base 不可用时返回空。"""
     for ref in (base, base + "...HEAD", "HEAD~1"):
         proc = subprocess.run(["git", "diff", "-U0", ref, "HEAD"],
-                              capture_output=True, text=True, cwd=str(cwd))
+                              capture_output=True, text=True, cwd=str(cwd), timeout=120)
         if proc.returncode == 0 and proc.stdout.strip():
             return parse_added_lines(proc.stdout), ref
     return {}, ""
@@ -160,6 +166,48 @@ def git_added_lines(base: str, cwd: Path = ROOT) -> tuple[dict[str, set[int]], s
 
 def measure(viols: list[Violation]) -> dict[tuple[str, str], int]:
     return Counter(v.key for v in viols)
+
+
+def _load_semantic_module():
+    """同目录模块动态导入（避免顶层 import 破坏 isort 规则）。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "ci_semantic_guard", Path(__file__).resolve().parent / "ci_semantic_guard.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError("无法加载 ci_semantic_guard 模块")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["ci_semantic_guard"] = mod      # dataclass 解析 __module__ 需要
+    spec.loader.exec_module(mod)
+    return mod
+
+
+semantic = _load_semantic_module()
+
+
+def dimension_of(code: str) -> str:
+    """维度划分：SEM* 是语义守卫维度，其余是 ruff 维度。
+
+    两个维度各有独立基线，因此"首次引入语义维度"不污染 ruff 维度的"只降不升"。
+    """
+    return "semantic" if code.startswith("SEM") else "ruff"
+
+
+def run_semantic(paths: list[str] | None = None) -> list[Violation]:
+    """跑三条 AST 语义守卫，返回统一格式的违规流。"""
+    findings = semantic.scan_paths(paths)
+    return [Violation(file=f.file, row=f.row, col=f.col, code=f.code,
+                      message=f.message) for f in findings]
+
+
+def collect_violations(source: str = "all", ruff_cmd: list[str] | None = None,
+                       paths: list[str] | None = None) -> list[Violation]:
+    """按 source 汇集违规流（ruff / semantic / all）。"""
+    out: list[Violation] = []
+    if source in ("ruff", "all"):
+        out += run_ruff(ruff_cmd)
+    if source in ("semantic", "all"):
+        out += run_semantic(paths)
+    return out
 
 
 def build_baseline(viols: list[Violation], *, ruff_version: str = "",
@@ -263,34 +311,50 @@ def check_a3_baseline_integrity(baseline: Baseline, current_total: int) -> list[
     return fails
 
 
-def evaluate(viols: list[Violation], baseline: Baseline,
+def evaluate(viols: list[Violation], baselines: dict[str, Baseline],
              added: dict[str, set[int]] | None) -> tuple[list[Failure], dict[str, Any]]:
-    """执行全部断言，返回 (失败列表, 统计)。"""
-    current = measure(viols)
-    quotas = baseline.quotas
-    a1 = check_a1_net_growth(current, quotas)
-    a2 = check_a2_added_lines(viols, quotas, added) if added is not None else []
-    a3 = check_a3_baseline_integrity(baseline, len(viols))
-    stats = {
-        "total": len(viols),
-        "baseline_total": baseline.total,
-        "files": len({v.file for v in viols}),
-        "rules": len({v.code for v in viols}),
-        "added_files": len(added or {}),
-        "on_added_lines": sum(1 for v in viols
-                              if added and added.get(v.file)
-                              and v.row in added[v.file]),
-        "a1": len(a1), "a2": len(a2), "a3": len(a3),
-    }
-    return a1 + a2 + a3, stats
+    """按维度执行断言。
+
+    ruff 与 semantic 两个维度各自持有独立基线，因此：
+      - 引入语义维度不会抬高 ruff 维度的基线；
+      - 任一维度出现净增长都失败；
+      - 增长审批到期检查按维度独立进行。
+    """
+    fails: list[Failure] = []
+    stats: dict[str, Any] = {"total": len(viols), "added_files": len(added or {})}
+    for dim in ("ruff", "semantic"):
+        dv = [v for v in viols if dimension_of(v.code) == dim]
+        b = baselines[dim]
+        a1 = check_a1_net_growth(measure(dv), b.quotas)
+        a2 = check_a2_added_lines(dv, b.quotas, added) if added is not None else []
+        a3 = check_a3_baseline_integrity(b, len(dv))
+        fails += a1 + a2 + a3
+        stats[dim] = {
+            "total": len(dv),
+            "baseline_total": b.total,
+            "files": len({v.file for v in dv}),
+            "rules": len({v.code for v in dv}),
+            "on_added_lines": sum(1 for v in dv
+                                  if added and added.get(v.file)
+                                  and v.row in added[v.file]),
+            "a1": len(a1), "a2": len(a2), "a3": len(a3),
+        }
+    return fails, stats
 
 
 # --------------------------------------------------------------------------- #
 # 命令
 # --------------------------------------------------------------------------- #
+DIM_LABEL = {"ruff": "ruff 维度（语法/风格规则）",
+             "semantic": "语义维度（M-4 三条 AST 守卫）"}
+
+
 def cmd_check(args: argparse.Namespace) -> int:
-    baseline = Baseline.load(Path(args.baseline))
-    viols = run_ruff(args.ruff_cmd or None)
+    baselines = {
+        "ruff": Baseline.load(Path(args.baseline)),
+        "semantic": Baseline.load(Path(args.semantic_baseline)),
+    }
+    viols = collect_violations(args.source, args.ruff_cmd or None, args.semantic_paths)
 
     added: dict[str, set[int]] | None = None
     used_ref = ""
@@ -300,19 +364,24 @@ def cmd_check(args: argparse.Namespace) -> int:
             print(f"⚠️  无法取得 diff（base={args.base} 不可用）→ 跳过 A2 新增行断言")
             added = None
 
-    fails, stats = evaluate(viols, baseline, added)
+    fails, stats = evaluate(viols, baselines, added)
 
     print("=" * 72)
     print("增量阻断门禁 · ci_violation_gate")
     print("=" * 72)
-    print(f"实测违规 {stats['total']} 条（{stats['files']} 文件 / {stats['rules']} 规则）"
-          f" · 基线 {stats['baseline_total']} 条")
-    if added is not None:
-        print(f"diff 基准 {used_ref}：{stats['added_files']} 个文件有新增行，"
-              f"其中 {stats['on_added_lines']} 条违规落在新增行上")
-    print(f"断言：A1 净增长 {stats['a1']} 失败 · A2 新增行 {stats['a2']} 失败 · "
-          f"A3 基线完整性 {stats['a3']} 失败")
-    base_ver = str(baseline.data.get("ruff_version", ""))
+    for dim in ("ruff", "semantic"):
+        st = stats[dim]
+        if st["total"] == 0 and st["baseline_total"] == 0:
+            continue
+        print(f"[{DIM_LABEL[dim]}] 实测 {st['total']} 条（{st['files']} 文件 / "
+              f"{st['rules']} 规则） · 基线 {st['baseline_total']} 条")
+        if added is not None:
+            print(f"    新增行上违规 {st['on_added_lines']} 条"
+              + (f"（diff 基准 {used_ref}）" if added is not None else ""))
+        print(f"    断言：A1 净增长 {st['a1']} 失败 · A2 新增行 {st['a2']} 失败 · "
+              f"A3 基线完整性 {st['a3']} 失败")
+    print(f"合计实测违规 {stats['total']} 条")
+    base_ver = str(baselines["ruff"].data.get("ruff_version", ""))
     cur_ver = _ruff_version(args.ruff_cmd or None)
     if base_ver and cur_ver and base_ver != cur_ver:
         print(f"⚠️  ruff 版本与基线不一致（基线 {base_ver} / 当前 {cur_ver}）："
@@ -338,90 +407,120 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_update(args: argparse.Namespace) -> int:
-    path = Path(args.baseline)
-    old = Baseline.load(path)
-    viols = run_ruff(args.ruff_cmd or None)
-    current = measure(viols)
-    old_quotas = old.quotas
+    """按维度更新基线（只降不升）。
 
-    grown = [(k, old_quotas.get(k, 0), cnt) for k, cnt in sorted(current.items())
-             if cnt > old_quotas.get(k, 0)]
-    dropped = [(k, old_quotas.get(k, 0), cnt) for k, cnt in sorted(old_quotas.items())
-               if cnt > current.get(k, 0)]
+    两个维度各自独立判定、独立审批：引入语义维度不会抬高 ruff 维度基线。
+    """
+    viols = collect_violations(args.source, args.ruff_cmd or None, args.semantic_paths)
+    dims = (("ruff", Path(args.baseline)), ("semantic", Path(args.semantic_baseline)))
+    plans = []
+    refusals = []
+    for dim, path in dims:
+        old = Baseline.load(path)
+        dv = [v for v in viols if dimension_of(v.code) == dim]
+        current = measure(dv)
+        old_quotas = old.quotas
+        grown = [(k, old_quotas.get(k, 0), cnt) for k, cnt in sorted(current.items())
+                 if cnt > old_quotas.get(k, 0)]
+        dropped = [(k, old_quotas.get(k, 0), cnt) for k, cnt in sorted(old_quotas.items())
+                   if cnt > current.get(k, 0)]
+        bootstrap = not path.exists()
+        ver = _ruff_version(args.ruff_cmd or None) if dim == "ruff" else ""
+        new = build_baseline(dv, ruff_version=ver, measured_at=_git_head(),
+                             existing=old.data)
+        plans.append((dim, path, old, dv, grown, dropped, bootstrap, new))
+        if grown and not bootstrap and not args.allow_growth:
+            refusals.append((dim, grown))
 
-    new = build_baseline(viols, ruff_version=_ruff_version(args.ruff_cmd or None),
-                         measured_at=_git_head(), existing=old.data)
-
-    bootstrap = not path.exists()
-    if bootstrap:
-        print(f"ℹ️  基线文件不存在 → 按当前实测创建初始基线（{len(current)} 格，"
-              f"{len(viols)} 条违规）")
-    elif grown and not args.allow_growth:
+    if refusals:
         print("❌ 拒绝更新基线：以下 (文件,规则) 违规数上升，基线只降不升。")
-        for (f, r), b, c in grown[:20]:
-            print(f"   {f} · {r}: {b} → {c}")
+        for dim, grown in refusals:
+            print(f"  [{DIM_LABEL[dim]}]")
+            for (f, r), b, c in grown[:20]:
+                print(f"     {f} · {r}: {b} → {c}")
         print()
         print("处理：① 先修掉新增违规；② 或显式 `--allow-growth --reason \"...\"` "
               f"写入 {GROWTH_APPROVAL_MAX_DAYS} 天有效期的增长审批（CI 到期会失败）。")
         return 1
 
-    if grown and not bootstrap:
-        if not args.reason:
-            print("❌ --allow-growth 必须同时给 --reason")
-            return 2
-        new["growth_approved"] = {
-            "reason": args.reason,
-            "approved_at": date.today().isoformat(),
-            "expires": (date.today() + timedelta(days=GROWTH_APPROVAL_MAX_DAYS)).isoformat(),
-            "grew": [{"file": f, "rule": r, "from": b, "to": c} for (f, r), b, c in grown],
-        }
-        print(f"⚠️ 已写入基线增长审批（{GROWTH_APPROVAL_MAX_DAYS} 天内须偿还）：{args.reason}")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(new, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8")
-    print(f"✅ 基线已更新：{path}")
-    print(f"   总量 {old.total} → {new['total']}"
-          f"（收紧 {len(dropped)} 格，放宽 {len(grown)} 格）")
+    for dim, path, old, dv, grown, dropped, bootstrap, new in plans:
+        if bootstrap:
+            print(f"ℹ️  [{DIM_LABEL[dim]}] 基线文件不存在 → 按当前实测创建初始基线"
+                  f"（{len(new['by_file_rule'])} 文件 / {len(measure(dv))} 格 / "
+                  f"{len(dv)} 条违规）")
+        if grown and not bootstrap:
+            if not args.reason:
+                print("❌ --allow-growth 必须同时给 --reason")
+                return 2
+            new["growth_approved"] = {
+                "reason": args.reason,
+                "approved_at": date.today().isoformat(),
+                "expires": (date.today() + timedelta(days=GROWTH_APPROVAL_MAX_DAYS)).isoformat(),
+                "grew": [{"file": f, "rule": r, "from": b, "to": c}
+                         for (f, r), b, c in grown],
+            }
+            print(f"⚠️ [{DIM_LABEL[dim]}] 已写入基线增长审批"
+                  f"（{GROWTH_APPROVAL_MAX_DAYS} 天内须偿还）：{args.reason}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(new, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                       encoding="utf-8")
+        os.replace(tmp, path)
+        print(f"✅ [{DIM_LABEL[dim]}] 基线已更新：{path}")
+        print(f"   总量 {old.total} → {new['total']}"
+              f"（收紧 {len(dropped)} 格，放宽 {len(grown)} 格）")
     return 0
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    b = Baseline.load(Path(args.baseline))
-    d = b.data
-    print(f"基线 {args.baseline}")
-    print(f"  version={d.get('version')} created={d.get('created')} "
-          f"updated={d.get('updated')}")
-    print(f"  measured_at={d.get('measured_at', '-')} ruff={d.get('ruff_version', '-')}")
-    print(f"  total={d.get('total')} files={d.get('files')}")
-    top = sorted(d.get("by_file_rule", {}).items(),
-                 key=lambda kv: -sum(kv[1].values()))[:10]
-    print("  违规最多的文件：")
-    for f, rules in top:
-        print(f"    {sum(rules.values()):>4}  {f}  {rules}")
-    growth = d.get("growth_approved")
-    if growth:
-        print(f"  ⚠️ 基线增长审批：{growth.get('reason')}"
-              f"（{growth.get('approved_at')} → {growth.get('expires')}）")
+    for dim, path in (("ruff", Path(args.baseline)),
+                      ("semantic", Path(args.semantic_baseline))):
+        b = Baseline.load(path)
+        d = b.data
+        if not d:
+            continue
+        print(f"基线[{DIM_LABEL[dim]}] {path}")
+        print(f"  version={d.get('version')} created={d.get('created')} "
+              f"updated={d.get('updated')}")
+        print(f"  measured_at={d.get('measured_at', '-')} ruff={d.get('ruff_version', '-')}")
+        print(f"  total={d.get('total')} files={d.get('files')}")
+        top = sorted(d.get("by_file_rule", {}).items(),
+                     key=lambda kv: -sum(kv[1].values()))[:10]
+        print("  违规最多的文件：")
+        for f, rules in top:
+            print(f"    {sum(rules.values()):>4}  {f}  {rules}")
+        growth = d.get("growth_approved")
+        if growth:
+            print(f"  ⚠️ 基线增长审批：{growth.get('reason')}"
+                  f"（{growth.get('approved_at')} → {growth.get('expires')}）")
+        print()
     return 0
 
 
+GIT_HEAD_FAILS = 0
+RUFF_VERSION_FAILS = 0
+
+
 def _git_head() -> str:
+    global GIT_HEAD_FAILS
     try:
         out = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                             capture_output=True, text=True, cwd=str(ROOT))
+                             capture_output=True, text=True, cwd=str(ROOT), timeout=120)
         return out.stdout.strip()
     except Exception:
+        GIT_HEAD_FAILS += 1
         return ""
 
 
 def _ruff_version(ruff_cmd: list[str] | None = None) -> str:
+    global RUFF_VERSION_FAILS
     cmd = list(ruff_cmd or [sys.executable, "-m", "ruff"])
     try:
         out = subprocess.run([*cmd, "--version"], capture_output=True, text=True,
-                             cwd=str(ROOT))
+                             cwd=str(ROOT), timeout=120)
         return out.stdout.strip()
     except Exception:
+        RUFF_VERSION_FAILS += 1
         return ""
 
 
@@ -433,11 +532,19 @@ def main(argv: list[str] | None = None) -> int:
     p_check.add_argument("--base", default="origin/main", help="diff 基准 ref")
     p_check.add_argument("--no-diff", action="store_true", help="只跑基线断言，跳过 A2")
     p_check.add_argument("--baseline", default=str(BASELINE_PATH))
+    p_check.add_argument("--semantic-baseline", default=str(SEMANTIC_BASELINE_PATH))
+    p_check.add_argument("--source", choices=["ruff", "semantic", "all"], default="all",
+                         help="纳入哪个维度（默认 all）")
+    p_check.add_argument("--semantic-paths", nargs="*",
+                         help="语义守卫扫描范围（默认为在役代码）")
     p_check.add_argument("--ruff-cmd", nargs="*", help="自定义 ruff 调用")
     p_check.set_defaults(func=cmd_check)
 
     p_update = sub.add_parser("update", help="按实测收紧基线（只降不升）")
     p_update.add_argument("--baseline", default=str(BASELINE_PATH))
+    p_update.add_argument("--semantic-baseline", default=str(SEMANTIC_BASELINE_PATH))
+    p_update.add_argument("--source", choices=["ruff", "semantic", "all"], default="all")
+    p_update.add_argument("--semantic-paths", nargs="*")
     p_update.add_argument("--allow-growth", action="store_true", help="允许基线上升（需 --reason）")
     p_update.add_argument("--reason", default="")
     p_update.add_argument("--ruff-cmd", nargs="*")
@@ -445,6 +552,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_show = sub.add_parser("show", help="查看基线概览")
     p_show.add_argument("--baseline", default=str(BASELINE_PATH))
+    p_show.add_argument("--semantic-baseline", default=str(SEMANTIC_BASELINE_PATH))
     p_show.set_defaults(func=cmd_show)
 
     args = ap.parse_args(argv)

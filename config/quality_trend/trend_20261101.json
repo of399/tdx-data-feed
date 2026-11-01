@@ -1,0 +1,98 @@
+{
+  "date": "2026-11-01",
+  "ledger": {
+    "total": 38,
+    "no_guard": 21,
+    "guarded": 17,
+    "still_present": 35,
+    "no_guard_ids": [
+      "KI-COMPETE-001",
+      "KI-COMPETE-002",
+      "KI-DOC-001",
+      "KI-DOC-002",
+      "KI-EXEC-001",
+      "KI-IMPORT-001",
+      "KI-MAKE-001",
+      "KI-MAKE-002",
+      "KI-MCP-002",
+      "KI-MCP-003",
+      "KI-OBS-001",
+      "KI-OBS-002",
+      "KI-OPS-001",
+      "KI-OPS-002",
+      "KI-OPS-003",
+      "KI-PERF-002",
+      "KI-PERF-003",
+      "KI-SINGLE-002",
+      "KI-SIZE-001",
+      "KI-SKILL-001",
+      "KI-SKILL-002"
+    ]
+  },
+  "semantic_pool": {
+    "total": 570,
+    "by_rule": {
+      "SEM001": 213,
+      "SEM002": 349,
+      "SEM003": 8
+    },
+    "files": 184
+  },
+  "ruff_pool": {
+    "total": 252
+  },
+  "baselines": {
+    "ruff": 252,
+    "semantic": 570
+  },
+  "coverage": {
+    "KI-ATOMIC-001": {
+      "rule": "SEM001",
+      "scope": "scripts/plan_e_backtest.py",
+      "hits": 11,
+      "note": ""
+    },
+    "KI-ATOMIC-002": {
+      "rule": "SEM001",
+      "scope": "scripts/plan_e_journal.py",
+      "hits": 6,
+      "note": ""
+    },
+    "KI-ATOMIC-003": {
+      "rule": "SEM001",
+      "scope": "scripts/plan_e_journal.py",
+      "hits": 6,
+      "note": ""
+    },
+    "KI-ATOMIC-004": {
+      "rule": "SEM001",
+      "scope": "scripts/train_daban_model.py",
+      "hits": 2,
+      "note": ""
+    },
+    "KI-SILENT-001": {
+      "rule": "SEM002",
+      "scope": "scripts",
+      "hits": 204,
+      "note": ""
+    },
+    "KI-SILENT-002": {
+      "rule": "SEM002",
+      "scope": "tdxfeed",
+      "hits": 73,
+      "note": ""
+    },
+    "KI-MCP-001": {
+      "rule": "SEM003",
+      "scope": "skill_router/runtime.py",
+      "hits": 1,
+      "note": ""
+    },
+    "KI-RULE-001": {
+      "rule": "SEM002",
+      "scope": "scripts",
+      "hits": 204,
+      "note": "ruff 的 BLE001 目录级豁免已被 SEM002 覆盖：新增行的盲吞错不再被豁免"
+    }
+  }
+}

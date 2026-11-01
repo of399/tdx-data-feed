@@ -1,0 +1,646 @@
+{
+  "by_file_rule": {
+    "conftest.py": {
+      "SEM002": 2
+    },
+    "mcp/servers/backtest.py": {
+      "SEM002": 6
+    },
+    "mcp/servers/calc.py": {
+      "SEM002": 3
+    },
+    "mcp/servers/finance_deep.py": {
+      "SEM001": 2,
+      "SEM002": 9
+    },
+    "mcp/servers/news.py": {
+      "SEM002": 9
+    },
+    "mcp/servers/parquet_reader.py": {
+      "SEM002": 3
+    },
+    "mcp/servers/vault.py": {
+      "SEM002": 7
+    },
+    "quant/fetch_history.py": {
+      "SEM001": 1
+    },
+    "quant/multifactor/engine.py": {
+      "SEM001": 3,
+      "SEM002": 1
+    },
+    "quant/multifactor/factors.py": {
+      "SEM002": 3
+    },
+    "quant/multifactor/portfolio.py": {
+      "SEM002": 4
+    },
+    "quant/multifactor/risk_model.py": {
+      "SEM002": 5
+    },
+    "quant/multifactor/valuation_data.py": {
+      "SEM002": 2
+    },
+    "scripts/akshare_concept_loader.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "scripts/akshare_industry_loader.py": {
+      "SEM001": 3,
+      "SEM002": 1
+    },
+    "scripts/analyze_one.py": {
+      "SEM002": 1
+    },
+    "scripts/analyze_pre90.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "scripts/audit_daily_adjust_convention.py": {
+      "SEM002": 1
+    },
+    "scripts/audit_daily_history_depth.py": {
+      "SEM001": 1,
+      "SEM002": 2
+    },
+    "scripts/audit_ledger.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "scripts/backfill_adj_etf.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/backfill_daily_history.py": {
+      "SEM002": 1
+    },
+    "scripts/backfill_hfq_history.py": {
+      "SEM002": 3
+    },
+    "scripts/backfill_six_ashare.py": {
+      "SEM002": 1
+    },
+    "scripts/backtest_daban_topk_pnl.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "scripts/batch_distill.py": {
+      "SEM001": 1
+    },
+    "scripts/bench_cls2000.py": {
+      "SEM001": 1,
+      "SEM002": 2
+    },
+    "scripts/bench_v567.py": {
+      "SEM001": 1,
+      "SEM002": 5
+    },
+    "scripts/bench_v7r.py": {
+      "SEM001": 1,
+      "SEM002": 5
+    },
+    "scripts/build_cls2000.py": {
+      "SEM001": 1
+    },
+    "scripts/build_distill_skeleton.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/build_industry_features.py": {
+      "SEM001": 2
+    },
+    "scripts/build_market_features.py": {
+      "SEM001": 2
+    },
+    "scripts/build_small_val.py": {
+      "SEM001": 1
+    },
+    "scripts/build_v4_forward_labels.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/build_vault_index.py": {
+      "SEM001": 2,
+      "SEM002": 3
+    },
+    "scripts/canary_health_check.py": {
+      "SEM002": 10
+    },
+    "scripts/check_schema.py": {
+      "SEM002": 1
+    },
+    "scripts/clean_double_up_detail.py": {
+      "SEM001": 3,
+      "SEM002": 1
+    },
+    "scripts/cleanup_math_template.py": {
+      "SEM001": 1,
+      "SEM002": 2
+    },
+    "scripts/cluster_pre90_patterns.py": {
+      "SEM001": 2
+    },
+    "scripts/compare_6year.py": {
+      "SEM001": 1,
+      "SEM003": 1
+    },
+    "scripts/compare_daban_vs_stage1.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/compare_plan_e_signals.py": {
+      "SEM002": 1
+    },
+    "scripts/convert_distill.py": {
+      "SEM001": 2
+    },
+    "scripts/create_concept_skeletons.py": {
+      "SEM001": 3
+    },
+    "scripts/create_v4_model_note.py": {
+      "SEM001": 1
+    },
+    "scripts/daban_alpha_sources.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/daban_backtest.py": {
+      "SEM001": 1,
+      "SEM002": 3
+    },
+    "scripts/daban_band_check.py": {
+      "SEM001": 1
+    },
+    "scripts/daban_entry.py": {
+      "SEM002": 1
+    },
+    "scripts/daban_event_table.py": {
+      "SEM001": 2,
+      "SEM002": 2
+    },
+    "scripts/daban_exec_research.py": {
+      "SEM001": 1
+    },
+    "scripts/daban_fill.py": {
+      "SEM002": 4
+    },
+    "scripts/daban_filter_oos.py": {
+      "SEM001": 1
+    },
+    "scripts/daban_formula1_screen.py": {
+      "SEM001": 2,
+      "SEM002": 3
+    },
+    "scripts/daban_formula1_validate.py": {
+      "SEM001": 1,
+      "SEM002": 3
+    },
+    "scripts/daban_intraday_ic.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/daban_label_diagnose.py": {
+      "SEM002": 1
+    },
+    "scripts/daban_limit_topk_eval.py": {
+      "SEM001": 1
+    },
+    "scripts/daban_min60_exec.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/daban_min60_features.py": {
+      "SEM001": 2,
+      "SEM002": 2
+    },
+    "scripts/daban_orderbook_logger.py": {
+      "SEM002": 4
+    },
+    "scripts/daban_paper.py": {
+      "SEM001": 3,
+      "SEM002": 1
+    },
+    "scripts/daban_relay3_robustness.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/daban_relturn_validation.py": {
+      "SEM002": 1
+    },
+    "scripts/daban_scan.py": {
+      "SEM001": 2,
+      "SEM002": 2
+    },
+    "scripts/daban_seal_research.py": {
+      "SEM001": 2
+    },
+    "scripts/daban_sector_features.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "scripts/daban_sector_loader.py": {
+      "SEM001": 2,
+      "SEM002": 3
+    },
+    "scripts/diagnose_sample_design.py": {
+      "SEM002": 1
+    },
+    "scripts/distill_outputs.py": {
+      "SEM001": 1,
+      "SEM002": 2
+    },
+    "scripts/download_adj_factor_b.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/download_adj_factor_bj.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/download_adj_factor_watch.py": {
+      "SEM001": 1
+    },
+    "scripts/download_bj_daily.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/download_hfq_factor.py": {
+      "SEM002": 1
+    },
+    "scripts/download_universe.py": {
+      "SEM002": 3
+    },
+    "scripts/download_valuation.py": {
+      "SEM001": 1,
+      "SEM002": 13
+    },
+    "scripts/eval_daban_pattern.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/eval_signal_forward.py": {
+      "SEM001": 1,
+      "SEM002": 6
+    },
+    "scripts/eval_signal_honest.py": {
+      "SEM002": 2
+    },
+    "scripts/export_clean_subset.py": {
+      "SEM001": 2
+    },
+    "scripts/factor_engine.py": {
+      "SEM001": 3,
+      "SEM002": 4
+    },
+    "scripts/factor_significance.py": {
+      "SEM001": 3,
+      "SEM002": 2
+    },
+    "scripts/feature_engineering.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/finalize_eval.py": {
+      "SEM002": 2
+    },
+    "scripts/find_d_signal_5d.py": {
+      "SEM001": 1,
+      "SEM002": 2
+    },
+    "scripts/find_double_30d.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "scripts/find_double_up_c.py": {
+      "SEM002": 2
+    },
+    "scripts/find_double_up_c_v2.py": {
+      "SEM001": 4,
+      "SEM002": 1
+    },
+    "scripts/find_double_up_hfq.py": {
+      "SEM001": 2
+    },
+    "scripts/fix_obsidian_metadata.py": {
+      "SEM001": 2,
+      "SEM002": 2
+    },
+    "scripts/gen_dashboard.py": {
+      "SEM001": 1
+    },
+    "scripts/greedy_feature_selection.py": {
+      "SEM001": 1
+    },
+    "scripts/hengpan_t1_eval.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/import_theory_notes.py": {
+      "SEM001": 3
+    },
+    "scripts/link_cross_vault.py": {
+      "SEM001": 3,
+      "SEM002": 2
+    },
+    "scripts/llm_signal_plan_e.py": {
+      "SEM001": 1,
+      "SEM002": 2
+    },
+    "scripts/merge_v5_v6_lora.py": {
+      "SEM001": 1
+    },
+    "scripts/migrate_v1_to_v2.py": {
+      "SEM002": 1
+    },
+    "scripts/monitor_plan_e_live.py": {
+      "SEM001": 4,
+      "SEM002": 4
+    },
+    "scripts/onfailure_alert.py": {
+      "SEM002": 3
+    },
+    "scripts/plan_e_backtest.py": {
+      "SEM001": 11,
+      "SEM002": 3
+    },
+    "scripts/plan_e_confidence.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "scripts/plan_e_journal.py": {
+      "SEM001": 6,
+      "SEM002": 8
+    },
+    "scripts/plan_e_real_samples.py": {
+      "SEM001": 2,
+      "SEM003": 1
+    },
+    "scripts/plan_e_sim_live.py": {
+      "SEM001": 2,
+      "SEM002": 2
+    },
+    "scripts/plan_e_subset_backtest.py": {
+      "SEM001": 2
+    },
+    "scripts/plan_e_v3_early_backtest.py": {
+      "SEM001": 2
+    },
+    "scripts/plan_e_v3_live_track.py": {
+      "SEM001": 4,
+      "SEM003": 1
+    },
+    "scripts/plan_e_validation.py": {
+      "SEM001": 2
+    },
+    "scripts/plot_loss.py": {
+      "SEM001": 1
+    },
+    "scripts/predict.py": {
+      "SEM001": 6,
+      "SEM002": 8
+    },
+    "scripts/recompute_pnl_labels.py": {
+      "SEM001": 1
+    },
+    "scripts/redo_finalize.py": {
+      "SEM002": 2
+    },
+    "scripts/report_daban_topk.py": {
+      "SEM001": 1
+    },
+    "scripts/report_writer.py": {
+      "SEM001": 1
+    },
+    "scripts/sentiment_factor.py": {
+      "SEM001": 1
+    },
+    "scripts/sim_daily_compare.py": {
+      "SEM001": 1
+    },
+    "scripts/stage1_baseline.py": {
+      "SEM001": 2,
+      "SEM002": 2
+    },
+    "scripts/stage1_gate.py": {
+      "SEM001": 2,
+      "SEM002": 3
+    },
+    "scripts/stage1_optuna.py": {
+      "SEM001": 3,
+      "SEM002": 4
+    },
+    "scripts/stage1_retrain.py": {
+      "SEM001": 3,
+      "SEM002": 5
+    },
+    "scripts/tdx_concept_loader.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "scripts/test_bjs_akshare.py": {
+      "SEM001": 2,
+      "SEM002": 2
+    },
+    "scripts/test_order_flow.py": {
+      "SEM002": 1
+    },
+    "scripts/top10_deep_dive.py": {
+      "SEM002": 1
+    },
+    "scripts/top_n_sensitivity.py": {
+      "SEM001": 1,
+      "SEM003": 1
+    },
+    "scripts/train_daban_model.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "scripts/train_pnl_proxy.py": {
+      "SEM001": 3,
+      "SEM002": 1
+    },
+    "scripts/trend_hold_eval.py": {
+      "SEM001": 1
+    },
+    "scripts/v3_premarket_top.py": {
+      "SEM001": 3,
+      "SEM002": 1
+    },
+    "scripts/v3_simulate.py": {
+      "SEM001": 3
+    },
+    "scripts/v3_simulate_rolling.py": {
+      "SEM001": 3
+    },
+    "scripts/verify_daily_freshness.py": {
+      "SEM001": 1,
+      "SEM002": 4
+    },
+    "scripts/verify_obsidian_links.py": {
+      "SEM002": 1
+    },
+    "scripts/verify_obsidian_metadata.py": {
+      "SEM002": 2
+    },
+    "scripts/verify_training_data_parity.py": {
+      "SEM002": 2
+    },
+    "scripts/verify_v2.py": {
+      "SEM002": 3
+    },
+    "scripts/xdxr_verify.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "skill_router/cli.py": {
+      "SEM002": 2
+    },
+    "skill_router/orchestrator.py": {
+      "SEM003": 2
+    },
+    "skill_router/runtime.py": {
+      "SEM002": 15,
+      "SEM003": 1
+    },
+    "tdxfeed/adj_factor.py": {
+      "SEM002": 3
+    },
+    "tdxfeed/amount_fix.py": {
+      "SEM002": 4
+    },
+    "tdxfeed/backfill_history.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "tdxfeed/cli.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "tdxfeed/client.py": {
+      "SEM002": 2
+    },
+    "tdxfeed/corp.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/daban/execution_backtest.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/daban/filter.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "tdxfeed/daban/order.py": {
+      "SEM001": 1
+    },
+    "tdxfeed/daban/paper.py": {
+      "SEM002": 4
+    },
+    "tdxfeed/daban/phase.py": {
+      "SEM001": 1
+    },
+    "tdxfeed/daban/realtime.py": {
+      "SEM002": 2
+    },
+    "tdxfeed/daban/risk_gateway.py": {
+      "SEM001": 1,
+      "SEM002": 1
+    },
+    "tdxfeed/daban/scanner.py": {
+      "SEM002": 3
+    },
+    "tdxfeed/daban/seal_ratio.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/daban/sector_features.py": {
+      "SEM002": 2
+    },
+    "tdxfeed/daban/tencent_source.py": {
+      "SEM002": 2
+    },
+    "tdxfeed/daban/ths_board.py": {
+      "SEM002": 2
+    },
+    "tdxfeed/daban/topk_pnl.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/daban/trial.py": {
+      "SEM001": 2,
+      "SEM002": 1
+    },
+    "tdxfeed/date_utils.py": {
+      "SEM002": 2
+    },
+    "tdxfeed/factors_candidates.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/fin_parquet.py": {
+      "SEM001": 4
+    },
+    "tdxfeed/finance.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/freshness.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/full_sync.py": {
+      "SEM001": 1,
+      "SEM002": 9
+    },
+    "tdxfeed/hfq_factor.py": {
+      "SEM002": 4
+    },
+    "tdxfeed/history_paging.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/incremental.py": {
+      "SEM002": 3
+    },
+    "tdxfeed/kline.py": {
+      "SEM001": 2,
+      "SEM002": 3
+    },
+    "tdxfeed/precompute/indicators.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/sources/akshare_source.py": {
+      "SEM002": 2
+    },
+    "tdxfeed/sources/mootdx_source.py": {
+      "SEM002": 6
+    },
+    "tdxfeed/sources/sina_source.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/sources/tencent_source.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/state.py": {
+      "SEM002": 1
+    },
+    "tdxfeed/symbols.py": {
+      "SEM002": 2
+    },
+    "tdxfeed/writers.py": {
+      "SEM002": 1
+    },
+    "training/eval/eval_v4_vs_v7r.py": {
+      "SEM001": 3,
+      "SEM002": 1
+    },
+    "training/scripts/train_lora.py": {
+      "SEM003": 1
+    }
+  },
+  "by_rule": {
+    "SEM001": 213,
+    "SEM002": 349,
+    "SEM003": 8
+  },
+  "created": "2026-11-01",
+  "files": 184,
+  "measured_at": "5e4cd85",
+  "ruff_version": "",
+  "total": 570,
+  "updated": "2026-11-01",
+  "version": 1
+}

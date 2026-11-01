@@ -109,33 +109,45 @@ def test_a3_accepts_valid_growth_approval() -> None:
 
 
 # ---------------- 5. 基线更新规则 ---------------- #
+def _update_args(base, sem_base, **kw):
+    """cmd_update 的参数集（双维度）。"""
+    d = {"baseline": str(base), "semantic_baseline": str(sem_base), "source": "all",
+         "semantic_paths": None, "allow_growth": False, "reason": "", "ruff_cmd": None}
+    d.update(kw)
+    return _ns(**d)
+
+
+def _patch_collect(monkeypatch, violations):
+    monkeypatch.setattr(gate, "collect_violations",
+                        lambda *a, **k: list(violations))
+
+
 def test_update_refuses_growth_without_flag(tmp_path, monkeypatch) -> None:
     base = tmp_path / "b.json"
+    sem = tmp_path / "s.json"
     gate.Baseline({"total": 1, "by_file_rule": {"a.py": {"E402": 1}}}).save(base)
-    monkeypatch.setattr(gate, "run_ruff",
-                        lambda *a, **k: [_v("a.py", 1, "E402"), _v("a.py", 2, "E402")])
-    assert gate.cmd_update(_ns(baseline=str(base), allow_growth=False, reason="",
-                               ruff_cmd=None)) == 1
+    _patch_collect(monkeypatch, [_v("a.py", 1, "E402"), _v("a.py", 2, "E402")])
+    assert gate.cmd_update(_update_args(base, sem)) == 1
     assert json.loads(base.read_text())["total"] == 1
 
 
 def test_update_allows_shrink(tmp_path, monkeypatch) -> None:
     base = tmp_path / "b.json"
+    sem = tmp_path / "s.json"
     gate.Baseline({"total": 2, "by_file_rule": {"a.py": {"E402": 2}}}).save(base)
-    monkeypatch.setattr(gate, "run_ruff", lambda *a, **k: [_v("a.py", 1, "E402")])
-    assert gate.cmd_update(_ns(baseline=str(base), allow_growth=False, reason="",
-                               ruff_cmd=None)) == 0
+    _patch_collect(monkeypatch, [_v("a.py", 1, "E402")])
+    assert gate.cmd_update(_update_args(base, sem)) == 0
     data = json.loads(base.read_text())
     assert data["total"] == 1 and data["by_file_rule"]["a.py"]["E402"] == 1
 
 
 def test_update_growth_writes_expiring_approval(tmp_path, monkeypatch) -> None:
     base = tmp_path / "b.json"
+    sem = tmp_path / "s.json"
     gate.Baseline({"total": 1, "by_file_rule": {"a.py": {"E402": 1}}}).save(base)
-    monkeypatch.setattr(gate, "run_ruff",
-                        lambda *a, **k: [_v("a.py", 1, "E402"), _v("a.py", 2, "E402")])
-    assert gate.cmd_update(_ns(baseline=str(base), allow_growth=True,
-                               reason="紧急修复引入", ruff_cmd=None)) == 0
+    _patch_collect(monkeypatch, [_v("a.py", 1, "E402"), _v("a.py", 2, "E402")])
+    assert gate.cmd_update(_update_args(base, sem, allow_growth=True,
+                                        reason="紧急修复引入")) == 0
     data = json.loads(base.read_text())
     assert data["growth_approved"]["reason"] == "紧急修复引入"
     assert date.fromisoformat(data["growth_approved"]["expires"]) == (
@@ -144,11 +156,33 @@ def test_update_growth_writes_expiring_approval(tmp_path, monkeypatch) -> None:
 
 def test_update_growth_requires_reason(tmp_path, monkeypatch) -> None:
     base = tmp_path / "b.json"
+    sem = tmp_path / "s.json"
     gate.Baseline({"total": 1, "by_file_rule": {"a.py": {"E402": 1}}}).save(base)
-    monkeypatch.setattr(gate, "run_ruff",
-                        lambda *a, **k: [_v("a.py", 1, "E402"), _v("a.py", 2, "E402")])
-    assert gate.cmd_update(_ns(baseline=str(base), allow_growth=True, reason="",
-                               ruff_cmd=None)) == 2
+    _patch_collect(monkeypatch, [_v("a.py", 1, "E402"), _v("a.py", 2, "E402")])
+    assert gate.cmd_update(_update_args(base, sem, allow_growth=True)) == 2
+
+
+def test_dimensions_are_independent(tmp_path, monkeypatch) -> None:
+    """语义维度可独立 bootstrap，不影响 ruff 维度的只降不升。"""
+    base = tmp_path / "b.json"
+    sem = tmp_path / "s.json"
+    gate.Baseline({"total": 1, "by_file_rule": {"a.py": {"E402": 1}}}).save(base)
+    _patch_collect(monkeypatch, [_v("a.py", 1, "E402"), _v("b.py", 3, "SEM002")])
+    # ruff 维度持平（允许），语义维度首次创建（bootstrap）
+    assert gate.cmd_update(_update_args(base, sem)) == 0
+    assert json.loads(sem.read_text())["total"] == 1
+    assert json.loads(base.read_text())["total"] == 1
+
+
+def test_semantic_growth_is_refused_independently(tmp_path, monkeypatch) -> None:
+    """语义维度出现净增长 → 同样拒绝（不放宽"只降不升"）。"""
+    base = tmp_path / "b.json"
+    sem = tmp_path / "s.json"
+    gate.Baseline({"total": 0, "by_file_rule": {}}).save(base)
+    gate.Baseline({"total": 1, "by_file_rule": {"b.py": {"SEM002": 1}}}).save(sem)
+    _patch_collect(monkeypatch, [_v("b.py", 3, "SEM002"), _v("b.py", 4, "SEM002")])
+    assert gate.cmd_update(_update_args(base, sem)) == 1
+    assert json.loads(sem.read_text())["total"] == 1
 
 
 # ---------------- 6. 真实基线快照 ---------------- #

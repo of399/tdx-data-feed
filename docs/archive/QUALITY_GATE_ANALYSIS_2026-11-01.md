@@ -192,12 +192,14 @@ Round3 明确记录：P0 把吞错从 37 处降到 4 处，**但 P1 改造又新
 | **M-1 审计模板两栏** | ✅ **已实施** | `docs/templates/AUDIT_REPORT_TEMPLATE.md`（栏1 口径差异 + 栏2 新增/复现/消失，含填写规范与 R1–R8 对照）|
 | 配套工具 | ✅ **已实施** | `scripts/audit_ledger.py`：`scan`（复扫 36 条 detect）/ `report`（生成两栏摘要）/ `new`（强制查重登记）/ `probe`（探测未登记模式判 NEW）|
 | 守卫 | ✅ **已实施** | `tests/test_known_issues_ledger.py`（7 项：结构、id 唯一、R5、R6、detect 合法、guard 文件存在、扫描语义、NEW 路径）|
-| 首轮报告 | ✅ **已产出** | `docs/AUDIT_ROUND_2026-11-01.md`（栏1 已按实填写；栏2：新增 0 / 复现 35 / 消失 0）|
+| 首轮报告 | ✅ **已产出** | `docs/archive/AUDIT_ROUND_2026-11-01.md`（栏1 已按实填写；栏2：新增 0 / 复现 35 / 消失 0）|
 | 入口 | ✅ | `make ledger-scan` / `make ledger-report` / `make ledger-probe PAT=... PATHS=...` |
 | **M-2 增量阻断** | ✅ **已实施**（19:30）| `scripts/ci_violation_gate.py`（check/update/show）+ `config/ruff_baseline.json`（252 条 / 153 格基线）+ `.github/workflows/lint.yml` 接入（PR 三断言全跑 / push 只跑基线断言）+ `tests/test_ci_violation_gate.py`（17 项）+ `docs/INCREMENTAL_LINT_GATE.md`（169 行规范）|
 | M-3 豁免行级化 | ⬜ 未实施 | — |
 | M-4 AST 语义守卫 | ⬜ 未实施 | — |
 | M-5/M-6、D-1~D-6 | ⬜ 未实施 | — |
+
+**M-4 三条 AST 语义守卫已落地（21:40）**：原子写（SEM001）/ 吞错必计数（SEM002）/外部调用必带 timeout（SEM003），独立基线 `config/semantic_baseline.json`（570 条），门禁升级为 **ruff + semantic 双维度**；台账 8 条语义类问题已绑定守卫（无守卫 29 → 21）；趋势追踪 `scripts/quality_trend.py` + `docs/SEMANTIC_GUARDS_M4.md`。
 
 **M-2 增量阻断已落地（19:30）**：完整 ruff 规则集由"仅报告"升级为**增量阻断**——存量 252 条冻结为 (文件×规则) 基线额度，新增行不得引入新违规，基线只降不升（上升需 30 天有效期的显式审批，到期 CI 自动变红）。实测三条断言均可触发（干净文件新增违规被 A1+A2 双拦、脏文件净增长被 A1 拦、基线被抬高被 A3 拦）。
 
@@ -249,7 +251,7 @@ Round3 明确记录：P0 把吞错从 37 处降到 4 处，**但 P1 改造又新
 | 吞错规模 | `grep -rn "except Exception"` 分目录计数；`except:\s*$` 模式计数 |
 | `sys.path.insert` | `grep -rln "sys.path.insert"` 命中文件数（73）|
 | 提交频率与类型 | `git log --since` 计数 + `--pretty=%s` 分类统计 |
-| 审计发现条目与主题分布 | 6 份报告（`docs/archive/CODE_AUDIT*.md`、`docs/WORKSPACE_AUDIT.md`、`docs/ARCHITECTURE_REVIEW_2026-11-01.md`）逐条阅读 + 关键词归类 |
+| 审计发现条目与主题分布 | 6 份报告（`docs/archive/CODE_AUDIT*.md`、`docs/WORKSPACE_AUDIT.md`、`docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md`）逐条阅读 + 关键词归类 |
 | 未修条目（≥12 项）| 报告条目 → 当前代码逐条 grep 核验 |
 | 门禁阻断范围 | `Makefile:159-216,587`、`ruff.toml:19-63`、`.github/workflows/{lint,tests,quick-sop}.yml` 逐行读 |
 | 原子写守卫覆盖面 | `tests/test_write_atomicity.py` 的 import 与 test 函数清单（只覆盖 `tdxfeed.{backfill_history,state,writers}`）|

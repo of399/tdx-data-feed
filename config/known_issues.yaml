@@ -61,7 +61,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:118", "logs/predict.log:3943"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:118", "logs/predict.log:3943"]
     locations: ["systemd/predict-daily.service", "systemd/system/tdx-sync.service"]
     detect:
       - kind: absent
@@ -83,7 +83,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:121"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:121"]
     locations: ["systemd/plan-e-double-up.service"]
     detect:
       - kind: grep
@@ -104,14 +104,14 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:127"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:127"]
     locations: ["scripts/plan_e_backtest.py"]
     detect:
       - kind: grep
         pattern: "plan_e_today\\.csv"
         paths: ["scripts/plan_e_backtest.py"]
     impact: "plan_e_journal 紧接着读同一文件，可能读到不完整清单"
-    guard: "NONE"
+    guard: "scripts/ci_semantic_guard.py"
     owner: "jiuben"
     due: "2026-11-10"
     exemption: "NONE"
@@ -125,14 +125,14 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:127"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:127"]
     locations: ["scripts/plan_e_journal.py"]
     detect:
       - kind: grep
         pattern: "POSITIONS_FILE\\.write_text"
         paths: ["scripts/plan_e_journal.py"]
     impact: "进程崩溃或并发覆盖会丢失持仓账本"
-    guard: "NONE"
+    guard: "scripts/ci_semantic_guard.py"
     owner: "jiuben"
     due: "2026-11-10"
     exemption: "NONE"
@@ -146,7 +146,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:127"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:127"]
     locations: ["scripts/plan_e_journal.py"]
     detect:
       - kind: absent
@@ -154,7 +154,7 @@ issues:
         path: "scripts/plan_e_journal.py"
         note: "缺失=无锁；命中=已加锁"
     impact: "定时器与人工 --mode buy 并发时 journal 丢行"
-    guard: "NONE"
+    guard: "scripts/ci_semantic_guard.py"
     owner: "jiuben"
     due: "2026-11-15"
     exemption: "NONE"
@@ -168,14 +168,14 @@ issues:
     first_seen: "2026-10-19"
     last_seen: "2026-11-01"
     seen_count: 2
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:128", ".codebuddy/memory/MEMORY.md"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:128", ".codebuddy/memory/MEMORY.md"]
     locations: ["scripts/train_daban_model.py"]
     detect:
       - kind: grep
         pattern: "model\\.save_model"
         paths: ["scripts/train_daban_model.py"]
     impact: "一次误跑即可毁掉生产模型；predict 可能读到半截模型"
-    guard: "NONE"
+    guard: "scripts/ci_semantic_guard.py"
     owner: "jiuben"
     due: "2026-11-10"
     exemption: "NONE"
@@ -192,7 +192,7 @@ issues:
     sources:
       - "docs/archive/CODE_AUDIT_2026-10-17.md:124"
       - "docs/archive/CODE_AUDIT_ROUND3_2026-10-19.md:113"
-      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:130"
+      - "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:130"
     locations: ["scripts/**/*.py", "tdxfeed/**/*.py"]
     detect:
       - kind: grep
@@ -200,7 +200,7 @@ issues:
         paths: ["scripts/**/*.py", "tdxfeed/**/*.py"]
         min_count: 1
     impact: "数据缺失/接口失败被静默吞掉，回测可能悄悄少样本；曾致实时 ST 校验防线失效"
-    guard: "NONE"
+    guard: "scripts/ci_semantic_guard.py"
     owner: "jiuben"
     due: "2026-11-20"
     exemption: "ruff.toml per-file-ignores BLE001（scripts/**, tdxfeed/**, agents/**, v5/** 等 10 条目）"
@@ -214,7 +214,7 @@ issues:
     first_seen: "2026-10-17"
     last_seen: "2026-11-01"
     seen_count: 3
-    sources: ["docs/archive/CODE_AUDIT_2026-10-17.md:124", "docs/ARCHITECTURE_REVIEW_2026-11-01.md:130"]
+    sources: ["docs/archive/CODE_AUDIT_2026-10-17.md:124", "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:130"]
     locations: ["scripts/**/*.py", "tdxfeed/**/*.py"]
     detect:
       - kind: grep
@@ -223,7 +223,7 @@ issues:
         multiline: true
         min_count: 1
     impact: "读取/解析失败被静默跳过，数据缺量无从发现"
-    guard: "NONE"
+    guard: "scripts/ci_semantic_guard.py"
     owner: "jiuben"
     due: "2026-11-20"
     exemption: "同上（BLE001 目录级豁免）"
@@ -237,7 +237,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:20"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:20"]
     locations: ["skill_router/runtime.py"]
     detect:
       - kind: absent
@@ -245,7 +245,7 @@ issues:
         path: "skill_router/runtime.py"
         note: "缺失=无真超时；命中=已实现"
     impact: "server 挂起即整个 SkillRuntime 死锁；daban_top_picks 为分钟级，必然触发"
-    guard: "NONE"
+    guard: "scripts/ci_semantic_guard.py"
     owner: "jiuben"
     due: "2026-11-10"
     exemption: "NONE"
@@ -259,7 +259,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:175"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:175"]
     locations: ["mcp/servers/"]
     detect:
       - kind: absent
@@ -281,7 +281,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:178"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:178"]
     locations: ["mcp/servers/parquet_reader.py"]
     detect:
       - kind: absent
@@ -303,7 +303,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:120"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:120"]
     locations: ["Makefile"]
     detect:
       - kind: absent
@@ -326,7 +326,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:119"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:119"]
     locations: ["scripts/onfailure_alert.py"]
     detect:
       - kind: grep
@@ -348,7 +348,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:121"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:121"]
     locations: ["systemd/predict-daily.service"]
     detect:
       - kind: absent
@@ -370,7 +370,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:26"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:26"]
     locations: ["skill_router/"]
     detect:
       - kind: glob_absent
@@ -390,7 +390,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:107"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:107"]
     locations: ["skills/*.yaml", "skill_router/runtime.py"]
     detect:
       - kind: absent
@@ -415,7 +415,7 @@ issues:
     sources:
       - "docs/archive/CODE_AUDIT_2026-10-17.md:87"
       - "docs/archive/CODE_AUDIT_ROUND2_2026-10-18.md:29"
-      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:200"
+      - "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:200"
     locations: ["quant/multifactor/factors.py", "scripts/factor_engine.py", "scripts/_common.py"]
     detect:
       - kind: grep
@@ -439,7 +439,7 @@ issues:
     seen_count: 3
     sources:
       - "docs/archive/CODE_AUDIT_ROUND3_2026-10-19.md:72"
-      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:200"
+      - "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:200"
     locations: ["tdxfeed/daban/limit_price.py", "scripts/find_double_up_c_v2.py", "scripts/predict.py"]
     detect:
       - kind: grep
@@ -461,7 +461,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:24"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:24"]
     locations: ["tdxfeed/names.py", "tdxfeed/daban/scanner.py", "scripts/predict.py"]
     detect:
       - kind: grep
@@ -485,7 +485,7 @@ issues:
     seen_count: 3
     sources:
       - "docs/archive/CODE_AUDIT_ROUND3_2026-10-19.md:74"
-      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:198"
+      - "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:198"
     locations: ["tdxfeed/features_5d.py", "tdxfeed/execution/limits.py", "quant/multifactor/factors.py"]
     detect:
       - kind: grep
@@ -510,7 +510,7 @@ issues:
     sources:
       - "docs/archive/CODE_AUDIT_2026-10-17.md:36"
       - "docs/archive/CODE_AUDIT_ROUND2_2026-10-18.md:54"
-      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:197"
+      - "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:197"
     locations: ["scripts/", "tdxfeed/", "quant/"]
     detect:
       - kind: grep
@@ -532,7 +532,7 @@ issues:
     first_seen: "2026-10-17"
     last_seen: "2026-11-01"
     seen_count: 3
-    sources: ["docs/archive/CODE_AUDIT_2026-10-17.md:36", "docs/ARCHITECTURE_REVIEW_2026-11-01.md:22"]
+    sources: ["docs/archive/CODE_AUDIT_2026-10-17.md:36", "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:22"]
     locations: ["scripts/", "tdxfeed/"]
     detect:
       - kind: grep
@@ -554,7 +554,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:245"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:245"]
     locations: ["tdxfeed/state.py"]
     detect:
       - kind: grep
@@ -576,7 +576,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:246"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:246"]
     locations: ["scripts/find_double_up_c.py"]
     detect:
       - kind: grep
@@ -598,7 +598,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:247"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:247"]
     locations: ["scripts/predict.py"]
     detect:
       - kind: grep
@@ -623,7 +623,7 @@ issues:
     sources:
       - "docs/archive/CODE_AUDIT_2026-10-17.md:64"
       - "docs/archive/CODE_AUDIT_ROUND2_2026-10-18.md:39"
-      - "docs/ARCHITECTURE_REVIEW_2026-11-01.md:243"
+      - "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:243"
     locations: ["scripts/plan_e_backtest.py"]
     detect:
       - kind: lines_gt
@@ -644,7 +644,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:196"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:196"]
     locations: ["scripts/compare_plan_e_signals.py", "scripts/plan_e_validation.py"]
     detect:
       - kind: grep
@@ -666,7 +666,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:114"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:114"]
     locations: [".codebuddy/README.md", ".codebuddy/skills/tdx-quant-workflow/SKILL.md"]
     detect:
       - kind: grep
@@ -689,7 +689,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:224"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:224"]
     locations: ["docs/WORKFLOW.md", ".codebuddy/skills/tdx-quant-workflow/SKILL.md"]
     detect:
       - kind: grep
@@ -712,7 +712,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:118"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:118"]
     locations: [".codebuddy/skills/tdx-obsidian-version-control/SKILL.md"]
     detect:
       - kind: grep
@@ -734,7 +734,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:222"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:222"]
     locations: ["Makefile"]
     detect:
       - kind: grep
@@ -756,7 +756,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:222"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:222"]
     locations: ["Makefile"]
     detect:
       - kind: grep
@@ -786,7 +786,7 @@ issues:
         paths: ["ruff.toml"]
         min_count: 1
     impact: "'老代码豁免'的原意被目录边界击穿；新增文件默认合法复制旧模式"
-    guard: "NONE"
+    guard: "scripts/ci_semantic_guard.py"
     owner: "jiuben"
     due: "2026-11-25"
     exemption: "ruff.toml per-file-ignores（10 条目）"
@@ -800,7 +800,7 @@ issues:
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:118"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:118"]
     locations: [".codebuddy/skills/tdx-obsidian-math-verify/SKILL.md"]
     detect:
       - kind: grep
@@ -843,7 +843,7 @@ issues:
     last_seen: "2026-11-01"
     seen_count: 5
     sources:
-      - "docs/QUALITY_GATE_ANALYSIS_2026-11-01.md:210"
+      - "docs/archive/QUALITY_GATE_ANALYSIS_2026-11-01.md:210"
       - "docs/INCREMENTAL_LINT_GATE.md"
     locations: [".github/workflows/lint.yml", "config/ruff_baseline.json"]
     detect:
@@ -858,6 +858,30 @@ issues:
     exemption: "NONE"
     fix_hint: "已完成（M-2）：基线只降不升 + 新增行零新增 + 基线完整性三条断言；详见 docs/INCREMENTAL_LINT_GATE.md"
 
+  - id: KI-RULE-003
+    title: "门禁仅覆盖 ruff 规则：原子写/吞错/超时三类语义问题无法自动检测"
+    theme: rule
+    severity: P0
+    status: FIXED
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources:
+      - "docs/archive/QUALITY_GATE_ANALYSIS_2026-11-01.md:196"
+      - "docs/SEMANTIC_GUARDS_M4.md"
+    locations: ["scripts/ci_semantic_guard.py", "config/semantic_baseline.json"]
+    detect:
+      - kind: grep
+        pattern: 'SEM001|SEM002|SEM003'
+        paths: ["scripts/ci_semantic_guard.py"]
+        min_count: 3
+    impact: "（已修）新增三条 AST 语义守卫（原子写/吞错必计数/外部调用必带 timeout），门禁升级为 ruff+semantic 双维度；台账 8 条语义类问题由无守卫迁到有守卫（29 → 21）"
+    guard: "tests/test_ci_semantic_guard.py"
+    owner: "jiuben"
+    due: "2026-11-01"
+    exemption: "NONE"
+    fix_hint: "已完成（M-4）：独立基线 config/semantic_baseline.json + 趋势追踪 scripts/quality_trend.py；详见 docs/SEMANTIC_GUARDS_M4.md"
+
   # ---------------- 已修复并有守卫（示例：固化"修完有守卫"的范式）----------------
   - id: KI-SINGLE-005
     title: "股票池路径访问器已单源化（universe_path）"
@@ -867,7 +891,7 @@ issues:
     first_seen: "2026-10-16"
     last_seen: "2026-11-01"
     seen_count: 1
-    sources: ["docs/ARCHITECTURE_REVIEW_2026-11-01.md:24"]
+    sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:24"]
     locations: ["tdxfeed/paths.py"]
     detect:
       - kind: grep
