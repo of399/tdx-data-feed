@@ -4,6 +4,12 @@
 > 用途：避免 docs/ 47 个文档再次"散落过时"，按主题分类便于查阅/检索/治理。
 > 上游索引：根目录 `README.md`（新手 5 分钟上手）；本索引面向**工程内**查阅与维护。
 
+> **历史快照 ≠ 现状规格**：docs/ 根目录里凡文件名带日期（`YYYY-MM-DD` / `YYYYMMDD`）的文档
+> （`CODE_AUDIT_*`、`COMPARE_*`、`*_RESEARCH_*`、`INCIDENT_*`、各阶段 plan/report 等）都是
+> 一次性研究快照，记录的是当时的历史结论，**非现状规格**；引用前先确认是否已被后续决定取代。
+> 现状规格是不带日期的长期文档（`ARCHITECTURE.md` / `API.md` / `WORKFLOW.md` / `PLAN_E.md` /
+> `MULTIFACTOR.md` / `VERSIONING.md` 等）。分类由 `tests/test_docs_classification.py` 守着。
+
 ---
 
 ## 阅读路径
