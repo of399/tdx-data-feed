@@ -98,6 +98,9 @@ if str(ROOT) not in sys.path:
 # P0-1 ④：置换检验（H0 策略日盈亏顺序随机 = 随机抽样同分布）
 from quant.multifactor.cv_utils import permutation_return_test  # noqa: E402
 
+# KI-ATOMIC-001：报告/清单写入走原子落位，读者不会读到半截文件
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402
+
 # 出场阶梯唯一实现（AGENTS.md「回测成交口径」）：plan_e 只算入场日，结算委托内核
 from tdxfeed.execution.costs import CostModel  # noqa: E402
 from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
@@ -688,7 +691,7 @@ def emit_today_signals(sig: pd.DataFrame, out_dir: Path) -> Path:
     frame = sig.drop(columns=['daily'], errors='ignore')
     if frame.empty:
         frame = pd.DataFrame(columns=TODAY_SIGNAL_COLS)
-    frame.to_csv(fp, index=False, encoding='utf-8-sig')
+    atomic_write_frame(frame, fp, encoding='utf-8-sig')
     return fp
 
 
@@ -1859,7 +1862,7 @@ def main():
         header = f"# 方案 E 参数敏感性扫描 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
         footer = (f"\n---\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                   f"生成者：plan_e_backtest.py\n模型版本：v2\n数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
-        fp_md.write_text(header + md + footer, encoding='utf-8')
+        atomic_write_text(fp_md, header + md + footer)
         print(f"  ✓ MD: {fp_md.name}")
         print("\n=== ✅ 完成 ===")
         return
@@ -1872,7 +1875,7 @@ def main():
         header = f"# 方案 E 分层回测 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
         footer = (f"\n---\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                   f"生成者：plan_e_backtest.py\n模型版本：v2\n数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
-        fp_md.write_text(header + md + footer, encoding='utf-8')
+        atomic_write_text(fp_md, header + md + footer)
         print(f"  ✓ MD: {fp_md.name}")
         print("\n=== ✅ 完成 ===")
         return
@@ -1885,7 +1888,7 @@ def main():
         header = f"# 方案 E 按年份分层回测 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
         footer = (f"\n---\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                   f"生成者：plan_e_backtest.py\n模型版本：v2\n数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
-        fp_md.write_text(header + md + footer, encoding='utf-8')
+        atomic_write_text(fp_md, header + md + footer)
         print(f"  ✓ MD: {fp_md.name}")
         print("\n=== ✅ 完成 ===")
         return
@@ -1898,7 +1901,7 @@ def main():
         header = f"# 方案 E Walk-forward 滚动验证 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
         footer = (f"\n---\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                   f"生成者：plan_e_backtest.py\n模型版本：v2\n数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
-        fp_md.write_text(header + md + footer, encoding='utf-8')
+        atomic_write_text(fp_md, header + md + footer)
         print(f"  ✓ MD: {fp_md.name}")
         print("\n=== ✅ 完成 ===")
         return
@@ -1912,7 +1915,7 @@ def main():
         header = f"# 方案 E Walk-forward 参数重选 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
         footer = (f"\n---\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                   f"生成者：plan_e_backtest.py\n模型版本：v2\n数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
-        fp_md.write_text(header + md + footer, encoding='utf-8')
+        atomic_write_text(fp_md, header + md + footer)
         print(f"  ✓ MD: {fp_md.name}")
         print("\n=== ✅ 完成 ===")
         return
@@ -1929,7 +1932,7 @@ def main():
                   f"生成者：plan_e_backtest.py --real\n模型版本：v2（实盘观测）\n"
                   f"数据来源：data/double_up/real_trades.csv（由 plan_e_real_samples.py 从 journal 回灌）\n"
                   f"数据日期：{datetime.now().strftime('%Y-%m-%d')}\n")
-        fp_md.write_text(header + md + footer, encoding='utf-8')
+        atomic_write_text(fp_md, header + md + footer)
         print(f"  ✓ MD: {fp_md.name}")
         print("\n=== ✅ 完成 ===")
         return
@@ -1949,7 +1952,7 @@ def main():
     print("\n[3/3] 输出...")
     mode = 'v1' if args.no_filter else 'v2'
     fp_csv = OUTPUT_DIR / f'plan_e_backtest_{mode}_{ts}.csv'
-    bt.to_csv(fp_csv, index=False, encoding='utf-8-sig')
+    atomic_write_frame(bt, fp_csv, encoding='utf-8-sig')
     print(f"  ✓ CSV: {fp_csv.name}")
 
     md = summarize(bt, daily, args.hold, args.tp, args.sl, mode, fee=fee, slippage=slippage)
@@ -1963,13 +1966,12 @@ def main():
               f"生成者：plan_e_backtest.py\n模型版本：v2\n"
               f"数据日期：{bt['signal_date'].max() if not bt.empty else 'N/A'}\n")
     full = header + md + footer
-    with open(fp_md, 'w', encoding='utf-8') as f:
-        f.write(full)
+    atomic_write_text(fp_md, full)
     print(f"  ✓ MD: {fp_md.name}")
 
     # latest
     fp_latest = OUTPUT_DIR / f'plan_e_backtest_{mode}_latest.md'
-    fp_latest.write_text(full, encoding='utf-8')
+    atomic_write_text(fp_latest, full)
     print(f"  ✓ latest: {fp_latest.name}")
 
     # v1 vs v2 对比
@@ -1987,7 +1989,7 @@ def main():
 | 平均收益 | {bt_v1['return_pct'].mean()*100:.2f}% | {bt['return_pct'].mean()*100:.2f}% | {(bt['return_pct'].mean()-bt_v1['return_pct'].mean())*100:+.2f}pp |
 """
             fp_cmp = OUTPUT_DIR / f'plan_e_compare_{ts}.md'
-            fp_cmp.write_text(md_cmp, encoding='utf-8')
+            atomic_write_text(fp_cmp, md_cmp)
             print(f"  ✓ 对比: {fp_cmp.name}")
             print(md_cmp)
 

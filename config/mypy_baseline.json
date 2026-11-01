@@ -1,0 +1,72 @@
+{
+  "by_file_code": {
+    "mcp/servers/backtest.py": {
+      "arg-type": 2,
+      "assignment": 1,
+      "operator": 3
+    },
+    "mcp/servers/calc.py": {
+      "operator": 1,
+      "return-value": 3
+    },
+    "mcp/servers/finance_deep.py": {
+      "index": 1,
+      "no-redef": 1,
+      "operator": 1,
+      "union-attr": 1
+    },
+    "mcp/servers/news.py": {
+      "operator": 1
+    },
+    "mcp/servers/parquet_reader.py": {
+      "operator": 1,
+      "return-value": 1
+    },
+    "mcp/servers/vault.py": {
+      "assignment": 6,
+      "attr-defined": 2,
+      "call-overload": 1,
+      "index": 1,
+      "operator": 1,
+      "return-value": 1,
+      "var-annotated": 1
+    },
+    "skill_router/runtime.py": {
+      "arg-type": 1,
+      "assignment": 3,
+      "attr-defined": 8,
+      "misc": 1,
+      "union-attr": 13
+    },
+    "tdxfeed/daban/scanner.py": {
+      "arg-type": 1,
+      "assignment": 1
+    },
+    "tdxfeed/daban/sector.py": {
+      "index": 1,
+      "operator": 1
+    },
+    "tdxfeed/daban/ths_board.py": {
+      "assignment": 1
+    },
+    "tdxfeed/execution/single.py": {
+      "arg-type": 2,
+      "operator": 4,
+      "type-var": 2
+    },
+    "tdxfeed/freshness.py": {
+      "arg-type": 1
+    }
+  },
+  "created": "2026-11-01",
+  "files": 12,
+  "measured_at": "2026-11-01",
+  "targets": [
+    "skill_router/",
+    "mcp/",
+    "tdxfeed/execution/"
+  ],
+  "total": 70,
+  "updated": "2026-11-01",
+  "version": 1
+}

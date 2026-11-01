@@ -88,6 +88,8 @@
 """
 
 import argparse
+import contextlib
+import fcntl
 import json
 import sys
 import warnings
@@ -113,6 +115,9 @@ from quant.execution.optimal_execution import (  # noqa: E402
     execution_table_markdown,
     suggest_execution,
 )
+
+# KI-ATOMIC-002/003：账本与日志写入走原子落位 + 互斥锁，崩溃/并发下不丢行
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402
 from tdxfeed.execution.single import SingleTradePlan, check_exit  # noqa: E402
 
 warnings.filterwarnings('ignore')
@@ -224,9 +229,30 @@ def load_positions() -> dict:
     }
 
 
+@contextlib.contextmanager
+def _journal_lock(target: Path):
+    """journal/positions 的读-改-写互斥锁（KI-ATOMIC-003：并发追加会丢行）。
+
+    用 sidecar `.lock` 文件承载 flock；进程退出即自动释放，无需清理。
+    """
+    lock_path = target.with_name(target.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
 def save_positions(pos: dict):
-    POSITIONS_FILE.write_text(json.dumps(pos, ensure_ascii=False, indent=2),
-                              encoding='utf-8')
+    """原子写持仓账本（先写临时再 replace；覆盖前留一份带时间戳的备份）。
+
+    KI-ATOMIC-002：原来是裸 write_text —— 崩溃即半截/丢失，且无备份可回退。
+    """
+    atomic_write_text(POSITIONS_FILE,
+                      json.dumps(pos, ensure_ascii=False, indent=2),
+                      encoding="utf-8", backup=True)
 
 
 # ============== journal ==============
@@ -242,10 +268,12 @@ def append_journal(records: list):
     df = pd.DataFrame(records)
     if 'source' not in df.columns:
         df['source'] = SOURCE_REAL
-    if JOURNAL_FILE.exists():
-        old = pd.read_csv(JOURNAL_FILE, dtype={'code': str})  # 保留前导 0
-        df = pd.concat([old, df], ignore_index=True)
-    df.to_csv(JOURNAL_FILE, index=False, encoding='utf-8-sig')
+    # 读-改-写必须加锁（并发追加会丢行），落位必须原子（读者不会读到半截）
+    with _journal_lock(JOURNAL_FILE):
+        if JOURNAL_FILE.exists():
+            old = pd.read_csv(JOURNAL_FILE, dtype={'code': str})  # 保留前导 0
+            df = pd.concat([old, df], ignore_index=True)
+        atomic_write_frame(df, JOURNAL_FILE, encoding='utf-8-sig')
 
 
 def append_sim_journal(records: list):
@@ -258,10 +286,11 @@ def append_sim_journal(records: list):
         return
     df = pd.DataFrame(records)
     df['source'] = SOURCE_SIM
-    if SIM_JOURNAL_FILE.exists():
-        old = pd.read_csv(SIM_JOURNAL_FILE, dtype={'code': str})  # 保留前导 0
-        df = pd.concat([old, df], ignore_index=True)
-    df.to_csv(SIM_JOURNAL_FILE, index=False, encoding='utf-8-sig')
+    with _journal_lock(SIM_JOURNAL_FILE):
+        if SIM_JOURNAL_FILE.exists():
+            old = pd.read_csv(SIM_JOURNAL_FILE, dtype={'code': str})  # 保留前导 0
+            df = pd.concat([old, df], ignore_index=True)
+        atomic_write_frame(df, SIM_JOURNAL_FILE, encoding='utf-8-sig')
 
 
 # ============== 当日信号 ==============
@@ -324,7 +353,7 @@ def get_daily_signals(today: str | None = None) -> pd.DataFrame:
         print("\n  今日无触发信号")
         return pd.DataFrame()
     archive = SIGNALS_DIR / f'signals_{today.replace("-", "")}.csv'
-    sig.to_csv(archive, index=False, encoding='utf-8-sig')
+    atomic_write_frame(sig, archive, encoding='utf-8-sig')
     return sig
 
 
@@ -876,7 +905,7 @@ def mode_weekly(args):
 """
 
     fp = WEEKLY_DIR / f'week_{week_id}.md'
-    fp.write_text(md, encoding='utf-8')
+    atomic_write_text(fp, md, encoding='utf-8')
     print(f"✓ 周报已生成: {fp}")
     print(md[:500])
 
@@ -904,7 +933,7 @@ def mode_purge_sim():
         df = df[df['reason'] == 'MANUAL']
         removed = before - len(df)
     if removed:
-        df.to_csv(JOURNAL_FILE, index=False, encoding='utf-8-sig')
+        atomic_write_frame(df, JOURNAL_FILE, encoding='utf-8-sig')
         print(f"✓ 已清理模拟污染记录 {removed} 行，保留实盘 {len(df)} 行 → {JOURNAL_FILE}")
     else:
         print(f"✓ journal.csv 无模拟污染记录（保留 {len(df)} 行）")

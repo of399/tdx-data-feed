@@ -18,11 +18,14 @@ import json
 import os
 import sys
 from collections import Counter
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# 守卫自检：指针读取失败必须计数，不能静默吞掉
+POINTER_READ_FAILS = 0
 # 快照放在 config/ 下（data/ 被 .gitignore 忽略 → 曲线必须进版本库才能被 review）
 SNAP_DIR = ROOT / "config" / "quality_trend"
 
@@ -119,21 +122,47 @@ def snapshots() -> list[Path]:
 def save_snapshot(data: dict[str, Any]) -> Path:
     """原子写：先写 .tmp 再 os.replace（快照是趋势依据，不能出现半截文件）。"""
     SNAP_DIR.mkdir(parents=True, exist_ok=True)
-    path = SNAP_DIR / f"trend_{data['date'].replace('-', '')}.json"
+    stamp = datetime.now().strftime("%H%M%S")
+    path = SNAP_DIR / f"trend_{data['date'].replace('-', '')}_{stamp}.json"
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
                    encoding="utf-8")
     os.replace(tmp, path)
+    # 指针：记录"上一次快照"，让 report 能算出相邻两点差值（同一天多次记录也能链上）
+    latest = SNAP_DIR / "latest.json"
+    global POINTER_READ_FAILS
+    prev_name = None
+    if latest.exists():
+        try:
+            prev_name = json.loads(latest.read_text(encoding="utf-8")).get("snapshot")
+        except (json.JSONDecodeError, OSError):
+            POINTER_READ_FAILS += 1
+            prev_name = None
+    ltmp = latest.with_suffix(".json.tmp")
+    ltmp.write_text(json.dumps({"snapshot": path.name, "prev": prev_name},
+                                ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(ltmp, latest)
     return path
 
 
 def load_previous() -> dict[str, Any] | None:
     """上一次快照（不含今日）。"""
-    today = date.today().strftime("%Y%m%d")
-    prev = [p for p in snapshots() if p.stem != f"trend_{today}"]
-    if not prev:
+    latest = SNAP_DIR / "latest.json"
+    if not latest.exists():
         return None
-    return json.loads(prev[-1].read_text(encoding="utf-8"))
+    global POINTER_READ_FAILS
+    try:
+        pointer = json.loads(latest.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        POINTER_READ_FAILS += 1
+        return None
+    prev_name = pointer.get("prev")
+    if not prev_name:
+        return None
+    prev_path = SNAP_DIR / str(prev_name)
+    if not prev_path.exists():
+        return None
+    return json.loads(prev_path.read_text(encoding="utf-8"))
 
 
 def cmd_snapshot(args: argparse.Namespace) -> int:
@@ -172,6 +201,8 @@ def cmd_report(args: argparse.Namespace) -> int:
     print(f"  语义债务池：{data['semantic_pool']['total']} 条 "
           f"{data['semantic_pool']['by_rule']}")
     print(f"  ruff 债务池：{data['ruff_pool']['total']} 条")
+    if POINTER_READ_FAILS:
+        print(f"  ⚠️ 指针读取失败 {POINTER_READ_FAILS} 次（已计数）")
 
     if prev:
         print("\n【与上次快照的差值】")

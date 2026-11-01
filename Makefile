@@ -34,6 +34,7 @@ PYTEST := $(VENV)/bin/pytest
 RUFF := $(PYTHON) -m ruff
 OLLAMA := ollama
 ROOT := $(shell pwd)
+BASE ?= origin/main
 SCRIPTS := $(ROOT)/scripts
 V5_SCRIPTS := $(ROOT)/v5/scripts
 SYSTEMD_DIR := $(ROOT)/systemd
@@ -156,9 +157,10 @@ sync-lock:  ## 锁定当前环境精确版本（代码审计 P0-1）
 	@echo "$(GREEN)✓ requirements.lock 已生成 ($(shell wc -l < requirements.lock) 个包)$(NC)"
 
 # ============== 代码质量 ==============
-lint:  ## ruff check（不修改）
-	$(RUFF) check v5/ --statistics
-	@echo "$(GREEN)✓ lint 完成$(NC)"
+lint:  ## ruff 全仓：阻断集（语法/未定义名）+ 完整规则集只统计（M-6 ③）
+	$(RUFF) check . --select E9,F63,F7,F82
+	@$(RUFF) check . --statistics --ignore=E501 2>/dev/null | tail -8 || true
+	@echo "$(GREEN)✓ lint 完成（阻断集全仓通过；完整规则集存量由 M-2 基线兜住）$(NC)"
 
 lint-all:  ## ruff 全仓：语法/未定义名阻断，其余规则只报告（存量约 200 条）
 	$(RUFF) check . --select E9,F63,F7,F82
@@ -171,7 +173,11 @@ lint-pipeline:  ## 检查 shell 脚本中未被 pipefail 保护的管道（防 `
 	    if grep -qE '\|\s*(tail|head|grep|awk|sed)\b' "$$f"; then \
 	      echo "  ⚠ 未受 pipefail 保护: $$f"; missing=1; fi; fi; \
 	done; \
-	if [ "$$missing" -eq 0 ]; then echo "$(GREEN)✓ 所有含管道的脚本均已启用 pipefail$(NC)"; else echo "$(YELLOW)⚠ 存在未保护脚本，请补齐 set -uo pipefail$(NC)"; fi
+	if [ "$$missing" -eq 0 ]; then \
+	  echo "$(GREEN)✓ 所有含管道的脚本均已启用 pipefail$(NC)"; \
+	else \
+	  echo "$(RED)❌ 存在未受 pipefail 保护的脚本，请补齐 set -uo pipefail$(NC)"; exit 1; \
+	fi
 
 fix:  ## ruff 自动 fix（safe）
 	$(RUFF) check v5/ --fix
@@ -185,6 +191,11 @@ fix-unsafe:  ## ruff 自动 fix（含 unsafe，需 review）
 format:  ## ruff format（与 black 兼容）
 	$(RUFF) format v5/
 	@echo "$(GREEN)✓ format 完成$(NC)"
+
+format-check:  ## ruff format --check：只检查不改文件（M-6 ①，CI 不得改工作树）
+	@n=$$($(RUFF) format --check . 2>&1 | grep -c "would be reformatted" || true); \
+	if [ "$$n" = "0" ]; then echo "$(GREEN)✓ 全仓已格式化$(NC)"; \
+	else echo "$(YELLOW)⚠ $$n 个文件未格式化（只报告不阻断：格式债需独立批次处理，CI 不得改工作树）$(NC)"; fi
 
 format-all:  ## format 全部
 	$(RUFF) format .
@@ -616,7 +627,23 @@ pipeline: install data-universe data-sync data-adj analyze-all deploy-all timer-
 
 quickstart: install predict  ## 5 分钟快速上手
 
-ci: lint format test canary  ## CI 检查（lint + test + health）
+# ============== 门禁链（M-2 / M-5 / M-6）=============
+gate:  ## M-2 增量阻断：新增行不得引入新违规 + 基线只降不升（ruff + semantic 双维度）
+	cd $(ROOT) && $(PYTHON) scripts/ci_violation_gate.py check --no-diff
+
+gate-diff:  ## M-2 带 diff 的完整版（PR 场景，base 可用 BASE 覆盖）
+	cd $(ROOT) && $(PYTHON) scripts/ci_violation_gate.py check --base $(BASE)
+
+typecheck-gate:  ## M-6 mypy 增量阻断：新增模块不得引入新类型错误
+	cd $(ROOT) && $(PYTHON) scripts/ci_typecheck_gate.py check
+
+fix-tests-check:  ## M-5 修复必须附带测试（台账绑定 + 变更配对）
+	cd $(ROOT) && $(PYTHON) scripts/audit_fix_tests.py check --base $(BASE)
+
+ci-gate: lint format-check lint-pipeline gate typecheck-gate fix-tests-check test  ## 纯门禁链（不含宿主健康检查）
+	@echo "$(GREEN)✓ 门禁链全部通过$(NC)"
+
+ci: lint format-check lint-pipeline gate typecheck-gate fix-tests-check test canary  ## CI 检查（门禁链 + 宿主健康）
 
 # ============== 帮助分类 ==============
 help-install:  ## 安装类目标

@@ -1,4 +1,8 @@
-"""M-4 三条 AST 语义守卫的守卫测试。"""
+"""M-4 三条 AST 语义守卫的守卫测试。
+
+关联台账条目：KI-RULE-003（门禁仅覆盖 ruff 规则，语义类问题无法自动检测）。
+"""
+
 from __future__ import annotations
 
 import json

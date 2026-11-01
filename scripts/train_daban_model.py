@@ -30,9 +30,15 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tdxfeed"))
 
+# KI-ATOMIC-004：模型/报告落位走原子写（predict 不会读到半截模型）
 from _common import daily_dir  # noqa: E402
 
 from tdxfeed import adjusted  # noqa: E402
+from tdxfeed.atomic import (  # noqa: E402
+    atomic_write_path,
+    atomic_write_text,
+    tmp_sibling,
+)
 from tdxfeed.daban.sector import load_industry_map  # noqa: E402
 from tdxfeed.daban.sector_features import (  # noqa: E402
     EXTRA_FEATURE_COLS,
@@ -183,7 +189,8 @@ def build_dataset(
     if exclude_open_limit:
         print(f"       (剔除 T 日开盘即涨停样本 {n_excluded} 条)")
     if hfq_skipped_out is not None:
-        hfq_skipped_out.write_text(
+        atomic_write_text(
+            hfq_skipped_out,
             json.dumps({"symbols": sorted(set(hfq_skipped))}), encoding="utf-8")
         print(f"       (hfq 覆盖不足跳过 {len(set(hfq_skipped))} 只 -> {hfq_skipped_out})")
     return pd.DataFrame(rows)
@@ -221,7 +228,15 @@ def train(df: pd.DataFrame, model_out: Path | None = None) -> dict:
     model = lgb.train(params, dtr, num_boost_round=500,
                       valid_sets=[dte], valid_names=["test"],
                       callbacks=[lgb.early_stopping(30, verbose=False)])
-    model.save_model(str(model_out), num_iteration=model.best_iteration)
+    # KI-ATOMIC-004：模型先写临时文件再原子落位 —— predict 绝不会读到半截模型，
+    # 且覆盖现役模型前自动留一份带时间戳的备份。
+    tmp_model = tmp_sibling(model_out)
+    try:
+        model.save_model(str(tmp_model), num_iteration=model.best_iteration)
+        atomic_write_path(tmp_model, model_out, backup=True)
+    finally:
+        if tmp_model.exists():
+            tmp_model.unlink(missing_ok=True)
     print(f"模型保存: {model_out} (best_iter={model.best_iteration})")
 
     imp = sorted(zip(feat_cols, model.feature_importance("gain"), strict=True),
@@ -243,7 +258,7 @@ def write_report(r: dict, report_out: Path | None = None, basis: str = "raw") ->
              "## 特征重要性 Top 15", "", "| 特征 | gain |", "|---|---:|"]
     for name, g in r["imp"][:15]:
         lines.append(f"| {name} | {g:.0f} |")
-    report_out.write_text("\n".join(lines), encoding="utf-8")
+    atomic_write_text(report_out, "\n".join(lines), encoding="utf-8")
     print(f"报告: {report_out}")
 
 

@@ -6,6 +6,7 @@
   R3 赋值/返回的字面量（≤160 字符）里出现该字面量。
 白名单只有两个路径权威层（v5 是零耦合孪生）。
 """
+# 关联台账条目：KI-SINGLE-005
 from __future__ import annotations
 
 import ast

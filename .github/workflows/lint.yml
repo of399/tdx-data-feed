@@ -34,3 +34,13 @@ jobs:
       - name: 质量债务趋势报告（29 条遗留问题的下降曲线）
         continue-on-error: true
         run: python scripts/quality_trend.py report
+      - name: mypy 增量阻断（M-6：新增模块不得引入新类型错误）
+        run: |
+          set -euo pipefail
+          pip install mypy==2.3.1
+          python scripts/ci_typecheck_gate.py check
+      - name: 修复必须附带测试（M-5：台账绑定 + 变更配对）
+        run: python scripts/audit_fix_tests.py check --base origin/main
+      - name: 格式化只检查不改文件（M-6 ①：CI 不得改工作树）
+        continue-on-error: true
+        run: ruff format --check . || true

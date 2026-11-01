@@ -360,7 +360,6 @@
       "SEM002": 3
     },
     "scripts/plan_e_backtest.py": {
-      "SEM001": 11,
       "SEM002": 3
     },
     "scripts/plan_e_confidence.py": {
@@ -368,7 +367,6 @@
       "SEM002": 1
     },
     "scripts/plan_e_journal.py": {
-      "SEM001": 6,
       "SEM002": 8
     },
     "scripts/plan_e_real_samples.py": {
@@ -452,7 +450,6 @@
       "SEM003": 1
     },
     "scripts/train_daban_model.py": {
-      "SEM001": 2,
       "SEM002": 1
     },
     "scripts/train_pnl_proxy.py": {
@@ -632,15 +629,15 @@
     }
   },
   "by_rule": {
-    "SEM001": 213,
+    "SEM001": 194,
     "SEM002": 349,
     "SEM003": 8
   },
   "created": "2026-11-01",
   "files": 184,
-  "measured_at": "5e4cd85",
+  "measured_at": "ac54cfd",
   "ruff_version": "",
-  "total": 570,
+  "total": 551,
   "updated": "2026-11-01",
   "version": 1
 }

@@ -100,7 +100,7 @@ issues:
     title: "plan_e_today.csv 非原子写，读者可能读到半截文件"
     theme: atomicity
     severity: P0
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -110,18 +110,19 @@ issues:
       - kind: grep
         pattern: "plan_e_today\\.csv"
         paths: ["scripts/plan_e_backtest.py"]
-    impact: "plan_e_journal 紧接着读同一文件，可能读到不完整清单"
-    guard: "scripts/ci_semantic_guard.py"
+    impact: "（已修）plan_e_today.csv 改为原子落位（atomic_write_frame），读者不会读到半截文件"
+    guard: "tests/test_plan_e_atomic_write.py"
+    test: "tests/test_plan_e_atomic_write.py"
     owner: "jiuben"
-    due: "2026-11-10"
+    due: "2026-11-01"
     exemption: "NONE"
-    fix_hint: "改 tmp+os.replace（参照 scripts/find_double_up_c.py 的 write_atomic）"
+    fix_hint: "plan_e_today.csv 改为原子落位（atomic_write_frame），读者不会读到半截文件（M-5：修复已附测试）"
 
   - id: KI-ATOMIC-002
     title: "positions.json 裸 write_text，无原子写无备份，崩溃即丢持仓"
     theme: atomicity
     severity: P0
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -131,18 +132,19 @@ issues:
       - kind: grep
         pattern: "POSITIONS_FILE\\.write_text"
         paths: ["scripts/plan_e_journal.py"]
-    impact: "进程崩溃或并发覆盖会丢失持仓账本"
-    guard: "scripts/ci_semantic_guard.py"
+    impact: "（已修）positions.json 改为原子写并留带时间戳备份，崩溃不丢账本"
+    guard: "tests/test_plan_e_atomic_write.py"
+    test: "tests/test_plan_e_atomic_write.py"
     owner: "jiuben"
-    due: "2026-11-10"
+    due: "2026-11-01"
     exemption: "NONE"
-    fix_hint: "tmp+os.replace；并把该文件纳入 tests/test_write_atomicity.py 覆盖清单"
+    fix_hint: "positions.json 改为原子写并留带时间戳备份，崩溃不丢账本（M-5：修复已附测试）"
 
   - id: KI-ATOMIC-003
     title: "journal.csv 读-改-写追加且无文件锁，并发下丢行"
     theme: atomicity
     severity: P1
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -153,18 +155,19 @@ issues:
         pattern: "flock"
         path: "scripts/plan_e_journal.py"
         note: "缺失=无锁；命中=已加锁"
-    impact: "定时器与人工 --mode buy 并发时 journal 丢行"
-    guard: "scripts/ci_semantic_guard.py"
+    impact: "（已修）journal.csv 读-改-写加 flock 互斥锁 + 原子落位，并发不丢行"
+    guard: "tests/test_plan_e_atomic_write.py"
+    test: "tests/test_plan_e_atomic_write.py"
     owner: "jiuben"
-    due: "2026-11-15"
+    due: "2026-11-01"
     exemption: "NONE"
-    fix_hint: "fcntl.flock 独占锁（带超时）+ 锁内完成读-改-写"
+    fix_hint: "journal.csv 读-改-写加 flock 互斥锁 + 原子落位，并发不丢行（M-5：修复已附测试）"
 
   - id: KI-ATOMIC-004
     title: "训练脚本默认覆盖现役模型文件，与 predict 读取存在竞态"
     theme: atomicity
     severity: P0
-    status: OPEN
+    status: FIXED
     first_seen: "2026-10-19"
     last_seen: "2026-11-01"
     seen_count: 2
@@ -174,12 +177,13 @@ issues:
       - kind: grep
         pattern: "model\\.save_model"
         paths: ["scripts/train_daban_model.py"]
-    impact: "一次误跑即可毁掉生产模型；predict 可能读到半截模型"
-    guard: "scripts/ci_semantic_guard.py"
+    impact: "（已修）训练产物先写临时文件再原子落位（覆盖现役模型前自动备份），predict 不会读到半截模型"
+    guard: "tests/test_train_daban_atomic_model.py"
+    test: "tests/test_train_daban_atomic_model.py"
     owner: "jiuben"
-    due: "2026-11-10"
+    due: "2026-11-01"
     exemption: "NONE"
-    fix_hint: "默认写 <tag>.txt，仅 --promote 才覆盖现役；模型写改 tmp+replace（复用 stage1_retrain.guard_output_path）"
+    fix_hint: "训练产物先写临时文件再原子落位（覆盖现役模型前自动备份），predict 不会读到半截模型（M-5：修复已附测试）"
 
   - id: KI-SILENT-001
     title: "盲吞错 except Exception（ruff BLE001 目录级豁免，新代码同样豁免）"
@@ -853,6 +857,7 @@ issues:
         min_count: 1
     impact: "（已修）完整规则集升级为增量阻断：存量 252 条冻结为基线额度，新增行不得引入新违规"
     guard: "tests/test_ci_violation_gate.py"
+    test: "tests/test_ci_violation_gate.py"
     owner: "jiuben"
     due: "2026-11-01"
     exemption: "NONE"
@@ -877,10 +882,61 @@ issues:
         min_count: 3
     impact: "（已修）新增三条 AST 语义守卫（原子写/吞错必计数/外部调用必带 timeout），门禁升级为 ruff+semantic 双维度；台账 8 条语义类问题由无守卫迁到有守卫（29 → 21）"
     guard: "tests/test_ci_semantic_guard.py"
+    test: "tests/test_ci_semantic_guard.py"
     owner: "jiuben"
     due: "2026-11-01"
     exemption: "NONE"
     fix_hint: "已完成（M-4）：独立基线 config/semantic_baseline.json + 趋势追踪 scripts/quality_trend.py；详见 docs/SEMANTIC_GUARDS_M4.md"
+
+  - id: KI-RULE-004
+    title: "修复可以不带测试：无强制闭环，修完无证据、易回退"
+    theme: rule
+    severity: P0
+    status: FIXED
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources:
+      - "docs/archive/QUALITY_GATE_ANALYSIS_2026-11-01.md:173"
+      - "docs/FIX_REQUIRED_TESTS_M5_M6.md"
+    locations: ["scripts/audit_fix_tests.py", "config/known_issues.yaml"]
+    detect:
+      - kind: grep
+        pattern: 'M5-R3'
+        paths: ["scripts/audit_fix_tests.py"]
+        min_count: 1
+    impact: "（已修）M-5 机制落地：台账 FIXED 条目必须绑定并可被测试证明（M5-R1/R2）+ 改了生产代码必须同时改测试（M5-R3）+ 新增语义违规必须配测试（M5-R4）；CI 已接入"
+    guard: "tests/test_audit_fix_tests.py"
+    test: "tests/test_audit_fix_tests.py"
+    owner: "jiuben"
+    due: "2026-11-01"
+    exemption: "NONE"
+    fix_hint: "已完成（M-5）：scripts/audit_fix_tests.py + CI 步骤；详见 docs/FIX_REQUIRED_TESTS_M5_M6.md"
+
+  - id: KI-RULE-005
+    title: "门禁不纯：make ci 会改工作树、lint 只查 v5/、lint-pipeline 不失败、mypy 无门禁"
+    theme: rule
+    severity: P0
+    status: FIXED
+    first_seen: "2026-11-01"
+    last_seen: "2026-11-01"
+    seen_count: 1
+    sources:
+      - "docs/archive/QUALITY_GATE_ANALYSIS_2026-11-01.md:174"
+      - "docs/FIX_REQUIRED_TESTS_M5_M6.md"
+    locations: ["Makefile", "scripts/ci_typecheck_gate.py", ".github/workflows/lint.yml"]
+    detect:
+      - kind: grep
+        pattern: 'typecheck-gate'
+        paths: ["Makefile"]
+        min_count: 1
+    impact: "（已修）M-6 门禁纯化：ci 改为 format --check（不改工作树）、lint 扩到全仓阻断集、lint-pipeline 补 exit 1、mypy 新增模块走基线门禁（70 条存量冻结）、ci 串入完整门禁链"
+    guard: "tests/test_ci_typecheck_gate.py"
+    test: "tests/test_ci_typecheck_gate.py"
+    owner: "jiuben"
+    due: "2026-11-01"
+    exemption: "NONE"
+    fix_hint: "已完成（M-6）：Makefile 目标 gate/typecheck-gate/fix-tests-check/ci-gate + scripts/ci_typecheck_gate.py；详见 docs/FIX_REQUIRED_TESTS_M5_M6.md"
 
   # ---------------- 已修复并有守卫（示例：固化"修完有守卫"的范式）----------------
   - id: KI-SINGLE-005
@@ -900,6 +956,7 @@ issues:
         min_count: 1
     impact: "（已修）路径口径统一到单一访问器"
     guard: "tests/test_universe_path_single_source.py"
+    test: "tests/test_universe_path_single_source.py"
     owner: "jiuben"
     due: "2026-10-20"
     exemption: "NONE"
