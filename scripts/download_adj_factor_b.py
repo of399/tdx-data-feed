@@ -2,7 +2,6 @@
 输出: data/adj_factor/{code}.parquet
   - date, adj_factor, qfq_close, raw_close
 """
-import json
 import socket
 import sys
 import time
@@ -20,7 +19,9 @@ warnings.filterwarnings("ignore")
 # baostock 网络调用全局 30s 超时（避免某只 hang 阻塞整个流程）
 socket.setdefaulttimeout(30)
 
-from _common import adj_factor_dir, universe_path  # noqa: E402
+from _common import adj_factor_dir
+
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -28,7 +29,6 @@ _ERROR_COUNT: Counter[str] = Counter()
 OUT_DIR = adj_factor_dir()
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 LOG = Path('/tmp/adj_factor_baostock.log')
-ALL_STOCKS = universe_path()
 
 START_DATE = '2020-01-01'
 END_DATE = datetime.now().strftime('%Y-%m-%d')
@@ -126,9 +126,7 @@ def main():
         log("❌ 登录失败")
         sys.exit(1)
 
-    with open(ALL_STOCKS) as _f:
-        name_map = json.load(_f)
-    codes = sorted(name_map.keys())
+    codes = sorted(load_universe())
     log(f"A 股总数: {len(codes)}, 时间窗口: {START_DATE} ~ {END_DATE}")
 
     cached_n = sum(1 for c in codes if (OUT_DIR / f'{c}.parquet').exists())

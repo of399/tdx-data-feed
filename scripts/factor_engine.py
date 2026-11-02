@@ -43,12 +43,13 @@ from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import daily_files, daily_path, get_limit, read_path, universe_path  # noqa: E402
+from _common import daily_files, daily_path, get_limit, read_path
+
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
-ALL_STOCKS = universe_path()
 DOUBLE_UP = ROOT / 'data/double_up/double_up_hfq_2020_2026_detail.csv'
 OUT_DIR = ROOT / 'data/factors'
 ST_VAULT = Path('/home/jiuben/StockVault/01-标的')
@@ -292,7 +293,7 @@ def main():
     t0 = time.time()
 
     # 加载股票清单
-    name_map = json.load(open(ALL_STOCKS))
+    name_map = load_universe()
 
     # ST 集合
     st_set = set()

@@ -4,7 +4,6 @@ baostock 不支持 920XXX → 改用 akshare.stock_zh_a_daily(symbol='bj920000',
 输出格式与 baostock 版完全一致：date, adj_factor, qfq_close, raw_close, code
 直接覆盖 data/adj_factor/{code}.parquet
 """
-import json
 import socket
 import sys
 import time
@@ -22,13 +21,14 @@ from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
 
-from _common import adj_factor_dir, universe_path  # noqa: E402
+from _common import adj_factor_dir
+
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
 OUT_DIR = adj_factor_dir()
-ALL_STOCKS = universe_path()
 LOG = Path('/tmp/adj_factor_bj_akshare.log')
 
 
@@ -88,9 +88,7 @@ def main():
     LOG.unlink(missing_ok=True)
     log('=== 方案 B 补充启动 (akshare 新浪源 · 北交所 920XXX) ===')
 
-    with open(ALL_STOCKS) as _f:
-        name_map = json.load(_f)
-    codes = sorted(name_map.keys())
+    codes = sorted(load_universe())
 
     targets = [c for c in codes if c.startswith('920') and not (OUT_DIR / f'{c}.parquet').exists()]
     log(f'目标: {len(targets)} 只 (北交所 920XXX，未下)')

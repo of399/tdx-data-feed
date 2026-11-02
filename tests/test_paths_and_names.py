@@ -90,7 +90,6 @@ def test_load_universe_reads_code_to_name(tmp_path, monkeypatch):
     fp = tmp_path / "all_a_stocks.json"
     fp.write_text(json.dumps({"000001": "平安银行", "000010": "*ST美丽"}), encoding="utf-8")
     monkeypatch.setattr(paths, "universe_path", lambda: fp)
-    monkeypatch.setattr(names, "_CACHE", None)
     uni = names.load_universe()
     assert uni["000001"] == "平安银行"
     assert names.name_of("sz000010") == "*ST美丽"

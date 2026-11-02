@@ -19,7 +19,6 @@ v3 提前版盘前实时打分（每日开盘前自动跑）
 - data/plan_e/live_v3/daily_reports/premarket_YYYYMMDD.md
 """
 import argparse
-import json
 import sys
 from collections import Counter
 from datetime import datetime
@@ -32,14 +31,15 @@ from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原�
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import adj_factor_dir, daily_dir, get_limit, universe_path  # noqa: E402
+from _common import adj_factor_dir, daily_dir, get_limit
+
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
-ALL_STOCKS = universe_path()
 SIGNALS_DIR = ROOT / 'data/plan_e/live_v3/signals'
 DAILY_DIR = ROOT / 'data/plan_e/live_v3/daily_reports'
 SIGNIF_FP = ROOT / 'data/factor_significance_detail.csv'
@@ -157,7 +157,7 @@ def main():
     print(f'  今日: {today.date()} ({today.day_name()})')
     print(f'  参考日: {ref_date.date()} ({ref_date.day_name()})')
 
-    name_map = json.load(open(ALL_STOCKS))
+    name_map = load_universe()
     files = sorted(p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name)
     if args.limit_stocks > 0:
         files = files[:args.limit_stocks]

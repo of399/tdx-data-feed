@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import socket
 import sys
@@ -32,10 +31,11 @@ socket.setdefaulttimeout(30)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pandas as pd  # noqa: E402
-from _common import hfq_factor_dir, universe_path  # noqa: E402
+import pandas as pd
+from _common import hfq_factor_dir
 
-from tdxfeed.parquet_io import write_table  # noqa: E402
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
+from tdxfeed.parquet_io import write_table
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -43,7 +43,6 @@ _ERROR_COUNT: Counter[str] = Counter()
 OUT_DIR = hfq_factor_dir()
 # OUT_DIR.mkdir() 随废弃一并移除：import 阶段不许有任何写盘动作（main() 在参数解析前
 # 就退出，`--limit 1` 之类必须连目录都不碰）。回滚本脚本时在 fetch_one 开头自行补建。
-ALL_STOCKS = universe_path()
 LOG = Path("/tmp/hfq_factor.log")
 
 START_DATE = "2020-01-01"
@@ -144,9 +143,7 @@ def main() -> None:
         codes = [s.strip() for s in Path(args.codes_file).read_text().splitlines() if s.strip()]
         codes = [c.zfill(6) for c in codes]
     else:
-        with open(ALL_STOCKS) as f:
-            name_map = json.load(f)
-        codes = sorted(name_map.keys())
+        codes = sorted(load_universe())
 
     if args.limit:
         codes = codes[: args.limit]

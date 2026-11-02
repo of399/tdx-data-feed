@@ -17,7 +17,6 @@
   - data/double_up/double_up_v2_compare.csv (v1 vs v2 diff)
   - data/double_up/double_up_v2_report_YYYYMMDD.md
 """
-import json
 import re
 import sys
 from collections import Counter
@@ -28,9 +27,10 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
-from _common import adj_factor_dir, daily_dir, get_limit, universe_path
+from _common import adj_factor_dir, daily_dir, get_limit
 
 from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -38,7 +38,6 @@ _ERROR_COUNT: Counter[str] = Counter()
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
 VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
-ALL_STOCKS = universe_path()
 V1_DETAIL = Path('/home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_detail.csv')
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 
@@ -149,8 +148,7 @@ def main():
     print("  数据源: parquet/daily × parquet/adj_factor (5221 只)")
     print()
 
-    with open(ALL_STOCKS) as _f:
-        name_map = json.load(_f)
+    name_map = load_universe()
 
     st_set = set()
     for md in VAULT_DIR.glob('*.md'):

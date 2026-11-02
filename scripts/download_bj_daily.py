@@ -18,13 +18,14 @@ from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
 
-from _common import daily_dir, universe_path  # noqa: E402
+from _common import daily_dir
+
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET_DIR = daily_dir()
-ALL_STOCKS = universe_path()
 LOG = Path('/tmp/bj_daily_download.log')
 
 
@@ -73,10 +74,7 @@ def main():
     LOG.unlink(missing_ok=True)
     log('=== 北交所日 K 下载启动 (akshare) ===')
 
-    import json
-    with open(ALL_STOCKS) as _f:
-        name_map = json.load(_f)
-    codes = sorted(name_map.keys())
+    codes = sorted(load_universe())
 
     targets = [c for c in codes if c.startswith('920') and not (PARQUET_DIR / f'bj{c}.parquet').exists()]
     log(f'目标: {len(targets)} 只')

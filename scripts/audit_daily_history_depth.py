@@ -33,22 +33,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import pandas as pd  # noqa: E402
+import pandas as pd
 
-from tdxfeed.history_paging import PAGE_CAP, PageRequestError, http_page  # noqa: E402
-from tdxfeed.symbols import (  # noqa: E402,F401  # sym_of_a_share 为再导出（tests/test_history_depth_gap_plan.py 直接断言）
+from tdxfeed.history_paging import PAGE_CAP, PageRequestError, http_page
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
+from tdxfeed.symbols import (  # sym_of_a_share 为再导出（tests/test_history_depth_gap_plan.py 直接断言）
     a_share_symbols,
     sym_of_a_share,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import daily_dir, universe_path  # noqa: E402
+from _common import daily_dir
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
 DAILY = daily_dir()
-UNIVERSE = universe_path()
 TARGET_DEFAULT = 20000101
 PROBE_END = "2000-12-31"   # 窗右端：窗内有行就说明源能给到 2000 年之前
 PROBE_COUNT = PAGE_CAP     # 1024：实测 2000 可用、2100 起 param error，取安全阈值
@@ -144,8 +144,7 @@ def main() -> int:
     ap.add_argument("--target", type=int, default=TARGET_DEFAULT)
     args = ap.parse_args()
 
-    with open(UNIVERSE, encoding="utf-8") as fh:
-        syms = a_share_symbols(json.load(fh))
+    syms = a_share_symbols(load_universe())
     if args.limit:
         syms = syms[: args.limit]
     print(f"待审计 {len(syms)} 只 target={args.target} "

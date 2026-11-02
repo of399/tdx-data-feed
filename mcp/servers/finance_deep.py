@@ -45,8 +45,12 @@ logging.basicConfig(
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from tdxfeed.atomic import atomic_write_text  # noqa: E402  # SEM001 原子写
-from tdxfeed.paths import finance_deep_dir, finance_parquet, universe_path  # noqa: E402
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
+from tdxfeed.names import (  # 股票池唯一入口（P1-9）
+    load_universe as _load_pool,
+    name_of as _name_of_pool,
+)
+from tdxfeed.paths import finance_deep_dir, finance_parquet
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -54,7 +58,6 @@ _ERROR_COUNT: Counter[str] = Counter()
 FIN_PARQUET = finance_parquet()
 DEEP_DIR = finance_deep_dir()
 DEEP_DIR.mkdir(parents=True, exist_ok=True)
-UNIVERSE_FILE = universe_path()
 CACHE_TTL_DAYS = 7
 
 STATEMENTS = {
@@ -105,7 +108,7 @@ def _norm_code(code: str) -> tuple[str, str]:
 
 def _name_of(six: str) -> str:
     try:
-        return json.loads(UNIVERSE_FILE.read_text(encoding="utf-8")).get(six, "")
+        return _name_of_pool(six)
     except Exception:
         _ERROR_COUNT['_name_of'] += 1
         return ""
@@ -114,7 +117,7 @@ def _name_of(six: str) -> str:
 def _validate_on_demand(sym: str, six: str) -> None:
     """股票池可读且明确不含该代码时直接 404，避免 akshare 抛出难懂的 KeyError/TypeError。"""
     try:
-        universe = json.loads(UNIVERSE_FILE.read_text(encoding="utf-8"))
+        universe = _load_pool()
     except Exception:
         _ERROR_COUNT['_validate_on_demand'] += 1
         return

@@ -21,7 +21,6 @@
 """
 from __future__ import annotations
 
-import json
 import re
 import sys
 from collections import Counter
@@ -32,16 +31,16 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
-from _common import adj_factor_dir, daily_dir, universe_path
+from _common import adj_factor_dir, daily_dir
 
 from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
-NAME_MAP_PATH = universe_path()
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 
 WINDOW_CAL_DAYS = 30          # 自然日窗口
@@ -143,8 +142,7 @@ def main() -> None:
     print(f'  时间范围: {START_DATE.date()} ~ {DATA_END.date()}')
     print('  价格类型: 前复权收盘价 / 前复权最高价 (qfq=不复权价×复权因子)')
 
-    with open(NAME_MAP_PATH, encoding='utf-8') as f:
-        name_map = json.load(f)
+    name_map = load_universe()
 
     files = sorted(p for p in PARQUET.glob('*.parquet') if '.bak' not in p.name)
     short_to_codes: dict[str, list[str]] = {}

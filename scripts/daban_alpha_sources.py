@@ -12,7 +12,6 @@ C. 分组因子扫描：T 日相对换手、板块共振家数、板块 Sec
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -24,13 +23,14 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-from _common import daily_dir, universe_path  # noqa: E402
+from _common import daily_dir
 
-from tdxfeed.atomic import atomic_write_parquet  # noqa: E402  # SEM001 原子写
-from tdxfeed.daban.filter import SectorFilter, load_sector_features  # noqa: E402
-from tdxfeed.daban.limit_price import limit_ratio, limit_up_price  # noqa: E402
-from tdxfeed.daban.sector import load_industry_map  # noqa: E402
-from tdxfeed.date_utils import parse_date_series  # noqa: E402
+from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
+from tdxfeed.daban.filter import SectorFilter, load_sector_features
+from tdxfeed.daban.limit_price import limit_ratio, limit_up_price
+from tdxfeed.daban.sector import load_industry_map
+from tdxfeed.date_utils import parse_date_series
+from tdxfeed.names import load_universe, universe_codes  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -151,8 +151,8 @@ def main() -> int:
     ap.add_argument("--no-filter", action="store_true", help="不做阶段0 过滤（归因对照）")
     args = ap.parse_args()
 
-    universe = json.loads(universe_path().read_text(encoding="utf-8"))
-    codes = [str(c).zfill(6) for c in universe]
+    universe = load_universe()
+    codes = universe_codes()
     if args.limit:
         codes = codes[: args.limit]
     print(f"[info] 股票池 {len(codes)} 只 · {args.start}~{args.end}")

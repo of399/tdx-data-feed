@@ -22,7 +22,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import Counter
 from datetime import datetime
@@ -37,26 +36,25 @@ from _common import (
     compute_window_features,
     compute_window_features_extended,
     model_path,
-    universe_path,
 )
 
 ROOT = Path(__file__).parent.parent
 # 显式把项目根加入 sys.path，确保 `import tdxfeed`（如 freshness）在直接运行时可用。
 sys.path.insert(0, str(ROOT))
-from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
 
 # 结算内核（唯一实现）：出场阶梯与时间窗跟 plan_e_backtest 同源。
-from tdxfeed.execution.bars import as_bars  # noqa: E402
-from tdxfeed.execution.costs import PLAN_E_COSTS  # noqa: E402
-from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
+from tdxfeed.execution.bars import as_bars
+from tdxfeed.execution.costs import PLAN_E_COSTS
+from tdxfeed.execution.single import SingleTradePlan, settle_single_trade
+from tdxfeed.names import universe_codes  # 股票池唯一入口（P1-9）
 
 MODEL_FILE = model_path("d_signal_5d_model.txt")
-UNIVERSE_FILE = universe_path()
 
 # v9 兼容: predict.py FEATURE_COLS 是 18 维;v9 模型是 26 维(需在 predict 路径兼容)。
 # sim_live 用相同的 DataFrame + LightGBM predict,模型自动按特征顺序匹配。
 
-from _common import daily_path  # noqa: E402
+from _common import daily_path
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -86,21 +84,15 @@ FEATURE_COLS_NEW_8 = [
 FEATURE_COLS = list(FEATURE_COLS_BASE_18)
 
 
-def load_universe(limit: int | None = None) -> list[str]:
-    """从 data/all_a_stocks.json 加载宇宙（默认全量）。JSON 实际为 {code: name} 字典。"""
-    if not UNIVERSE_FILE.exists():
-        return []
-    with open(UNIVERSE_FILE) as f:
-        data = json.load(f)
-    # JSON 实际为 {code: name} 字典，统一转为 code 列表
-    if isinstance(data, dict):
-        codes = list(data.keys())
-    else:
-        codes = list(data)
-    if limit and limit > 0:
-        rng = np.random.default_rng(42)
-        codes = list(rng.choice(codes, min(limit, len(codes)), replace=False))
-    return codes
+def _sample_codes(codes: list[str], limit: int | None) -> list[str]:
+    """从候选里随机抽样（seed 固定 42，保证复现）。
+
+    抽样是**策略**不是加载：池的读取与代码枚举统一走 `tdxfeed.names.universe_codes()`。
+    """
+    if not limit or limit <= 0:
+        return codes
+    rng = np.random.default_rng(42)
+    return list(rng.choice(codes, min(limit, len(codes)), replace=False))
 
 
 def find_parquet(code: str) -> Path | None:
@@ -334,7 +326,7 @@ def main():
     use_extended = len(feature_cols) > 18
     print(f"  模型: {model_file.name} | 特征数: {len(feature_cols)} | 模式: {'extended(26维)' if use_extended else 'base(18维)'}")
 
-    codes = load_universe(limit=args.limit_codes if args.limit_codes > 0 else None)
+    codes = _sample_codes(universe_codes(), args.limit_codes if args.limit_codes > 0 else None)
     if not codes:
         sys.exit("❌ 宇宙清单为空")
 

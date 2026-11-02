@@ -56,7 +56,7 @@ def test_tool_registered_in_server_and_schema():
 
 
 def test_universe_contains_only_sh_sz_stocks():
-    universe = backtest._load_universe()
+    universe = backtest._pool()
     assert len(universe) > 5000
     assert all(code[:2] in ("60", "68", "00", "30") for code in universe)
     assert not any(code.startswith("920") for code in universe)

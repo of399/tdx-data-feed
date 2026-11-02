@@ -46,26 +46,27 @@ logging.basicConfig(
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tdxfeed.paths import (  # noqa: E402
+from tdxfeed.names import (  # 股票池唯一入口（P1-9）
+    load_universe as _load_pool,
+    universe_codes as _universe_codes,
+)
+from tdxfeed.paths import (
     adj_factor_dir,
     daily_dir,
-    daily_files,
     model_path,
-    universe_path,
 )
 
 DABAN_MODEL = model_path("d_signal_5d_model_daban.txt")
-UNIVERSE_FILE = universe_path()
 DAILY_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
 
-from tdxfeed.daban.limit_price import (  # noqa: E402
+from tdxfeed.daban.limit_price import (
     is_st as _is_st_name,
     limit_ratio,
     limit_up_price,
 )
-from tdxfeed.execution import single as _single  # noqa: E402
-from tdxfeed.features_5d import (  # noqa: E402
+from tdxfeed.execution import single as _single
+from tdxfeed.features_5d import (
     compute_window_features_extended,
     get_limit,
     is_open_limit_up,
@@ -683,23 +684,15 @@ def _load_daban_model():
     return _DABAN_MODEL_CACHE
 
 
-def _load_universe() -> dict[str, str]:
-    """沪深个股 {6位代码: 名称}，仅 60/68/00/30 前缀（不含指数/ETF/北交所）。"""
-    names: dict[str, str] = {}
-    if UNIVERSE_FILE.exists():
-        try:
-            raw = json.loads(UNIVERSE_FILE.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                names = {str(k).zfill(6): str(v) for k, v in raw.items() if str(k).isdigit()}
-        except Exception as e:
-            _ERROR_COUNT['_load_universe'] += 1
-            logging.warning("股票池读取失败，回退扫描 parquet：%s", e)
-    if not names:
-        for fp in daily_files():
-            stem = fp.stem
-            six = stem[2:] if stem[:2] in ("sh", "sz", "bj") else stem
-            names[six] = ""
-    return {c: n for c, n in names.items() if c[:2] in ("60", "68", "00", "30")}
+def _pool() -> dict[str, str]:
+    """沪深个股 {6位代码: 名称}，仅 60/68/00/30 前缀（不含指数/ETF/北交所）。
+
+    池的读取与代码枚举统一走 `tdxfeed.names`（唯一入口），这里只做**口径组合**：
+    前缀过滤 + 名单缺失时回退扫日线目录。
+    """
+    mapping = _load_pool()
+    codes = _universe_codes(prefixes=("60", "68", "00", "30"), fallback=True)
+    return {c: mapping.get(c, "") for c in codes}
 
 
 def _to_ymd(series: pd.Series) -> pd.Series:
@@ -822,7 +815,7 @@ def daban_top_picks(date: str | None = None, top: int = 5,
         date_source = "requested"
 
     t0 = time.time()
-    universe = _load_universe()
+    universe = _pool()
     codes = [c for c, n in universe.items()
              if include_st or not _is_st_name(n)]
     with ProcessPoolExecutor(max_workers=DABAN_WORKERS) as ex:

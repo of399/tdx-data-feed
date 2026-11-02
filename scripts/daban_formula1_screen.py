@@ -34,15 +34,16 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
-from tdxfeed.daban.limit_price import (  # noqa: E402
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
+from tdxfeed.daban.limit_price import (
     board_label,
     exchange_prefix,
     is_st,
     limit_ratio,
     limit_up_price,
 )
-from tdxfeed.paths import DATA_ROOT, daily_dir, universe_path  # noqa: E402
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
+from tdxfeed.paths import DATA_ROOT, daily_dir
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -51,11 +52,6 @@ DATA = DATA_ROOT
 DAILY = daily_dir()
 OUT = DATA / "daban"
 EPS = 0.001  # 与通达信公式里的 -0.001 保持一致
-
-
-def load_universe() -> dict[str, str]:
-    payload = json.loads(universe_path().read_text(encoding="utf-8"))
-    return {str(k).zfill(6): str(v) for k, v in payload.items()}
 
 
 def read_daily(code: str, tail: int = 40) -> pd.DataFrame | None:

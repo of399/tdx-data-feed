@@ -69,7 +69,6 @@
 
 import argparse
 import atexit
-import json
 import os
 import sys
 import warnings
@@ -87,22 +86,18 @@ warnings.filterwarnings('ignore')
 ROOT = Path(__file__).parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from _common import (  # noqa: E402
+from _common import (
     adj_factor_dir,
-    daily_dir,
     daily_path,
     model_dir,
     model_path,
-    universe_path,
 )
 
-from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001 原子写
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
 
-PARQUET_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
 MODEL_FILE = model_path('d_signal_5d_model.txt')
 OUTPUT_DIR = ROOT / 'data' / 'predictions'
-UNIVERSE_FILE = universe_path()
 
 # ============== 多模型注册表(信号突破:分类 → PnL 回归)==============
 # kind: cls=分类器(输出概率,阈值过滤); reg=回归器(输出预期 PnL,Top-N 排序)
@@ -183,20 +178,23 @@ FEATURE_COLS = [
 # 涨停限制与 18/26 维特征：单一数据源见 tdxfeed/features_5d（向后兼容 v8 18 维与 v9+ 26 维）
 # compute_features() 始终返回 26 维（含 8 维扩展），main() 按 model.feature_name() 取子集
 # Step 7：polars 候选因子路径（新模型 vpnl_huber_stage1 必需）
-import polars as pl  # noqa: E402
-from _common import compute_window_features_extended  # noqa: E402
+import polars as pl
+from _common import compute_window_features_extended
 
-from tdxfeed import adjusted  # noqa: E402
-from tdxfeed.daban.limit_price import normalize_code  # noqa: E402
-from tdxfeed.daban.sector_features import (  # noqa: E402
+from tdxfeed import adjusted
+from tdxfeed.daban.sector_features import (
     EXTRA_FEATURE_COLS,
     build_lookup,
 )
-from tdxfeed.errors import (  # noqa: E402
+from tdxfeed.errors import (
     flush as _flush_swallowed_counts,
 )
-from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
-from tdxfeed.names import is_st_name  # noqa: E402
+from tdxfeed.factors_candidates import compute_candidate_features
+from tdxfeed.names import (  # 股票池唯一入口（P1-9）
+    is_st_name,
+    load_universe,
+    universe_codes,
+)
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -530,56 +528,6 @@ def load_all_stocks(codes: list, max_workers: int = 8) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def load_names() -> dict:
-    """加载代码 -> 名称映射（all_a_stocks.json 实为 code->name 结构）。
-
-    审计 P1-5 补丁 (2026-10-18): 用于实时 ST 二次校验。
-    背景: 特征层 is_st 基于训练时名称判断, 名称映射已更新为 *ST 但特征未同步
-    -> 300338(*ST开元)/301139(*ST元道) 漏进 Top 20。
-    """
-    fp = universe_path()
-    try:
-        with open(fp, encoding='utf-8') as f:
-            data = json.load(f)
-        if isinstance(data, dict) and data and not any(k in data for k in ('codes', 'stocks')):
-            return {str(k).zfill(6): str(v) for k, v in data.items()}
-    except Exception as e:
-        # 审计 Round3 修复: 原静默 pass 会致 ST 实时校验静默失效
-        # (load_names 返回空 -> 名称二次校验被跳过 -> ST 股重新漏网)
-        _ERROR_COUNT['load_names'] += 1
-        print(f"[WARN] 名称映射读取失败, 实时 ST 校验将失效: {e!r}")
-    return {}
-
-
-def load_universe() -> list:
-    """加载全 A 股代码清单"""
-    fp = universe_path()
-    if fp.exists():
-        with open(fp) as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            codes = data.get('codes', data.get('stocks', []))
-            if not codes:
-                # 实际结构是 {code: name}；漏掉这一分支会回退扫 parquet，
-                # 把 ETF/指数也纳入预测（实测 6,882 个代码、1,670 次失败）。
-                codes = [k for k in data if str(k).isdigit()]
-        elif isinstance(data, list):
-            codes = data
-        else:
-            codes = []
-        if codes:
-            return [str(c).zfill(6) for c in codes]
-        print(f"[WARN] {fp.name} 未解析出代码，回退扫描 parquet 目录")
-    # 回退：扫 parquet 目录
-    codes = set()
-    for fp in PARQUET_DIR.glob('*.parquet'):
-        name = fp.stem
-        if '.bak' in name:  # 跳过 v2 迁移备份 (.v1.bak), 非活数据
-            continue
-        codes.add(normalize_code(name))
-    return sorted(codes)
-
-
 def run_predict(args):
     """核心预测逻辑：返回 (feat_df, high_score)。CLI 与 Web UI 共用。
 
@@ -594,7 +542,7 @@ def run_predict(args):
     if args.codes:
         codes = [c.strip().zfill(6) for c in args.codes.split(',')]
     else:
-        codes = load_universe()
+        codes = universe_codes(fallback=True)
         if not args.no_skip_bj:
             codes = [c for c in codes if not c.startswith('920')]
     feat_df = load_all_stocks(codes, args.workers)
@@ -835,7 +783,7 @@ def run_prediction(args, model, feature_cols):
     if args.codes:
         codes = [c.strip().zfill(6) for c in args.codes.split(',')]
     else:
-        codes = load_universe()
+        codes = universe_codes(fallback=True)
         # 默认跳过北交所
         if not args.no_skip_bj:
             codes = [c for c in codes if not c.startswith('920')]
@@ -856,7 +804,15 @@ def run_prediction(args, model, feature_cols):
         feat_df = feat_df[feat_df['is_st'] == 0]
         # 实时名称 ST 二次校验（审计 P1-5 补丁 2026-10-18）:
         # 特征层 is_st 滞后(名称映射已更新 *ST 但特征未同步) -> 用最新名称兜底
-        names = load_names()
+        # 实时名称 ST 二次校验（审计 P1-5 补丁 2026-10-18）：
+        # 特征层 is_st 滞后(名称映射已更新 *ST 但特征未同步) -> 用最新名称兜底。
+        # 名单读取失败不能静默：吞掉会让 ST 股重新漏网（审计 Round3）。
+        try:
+            names = load_universe()
+        except Exception as e:
+            _ERROR_COUNT['run_prediction'] += 1
+            print(f"[WARN] 名称映射读取失败, 实时 ST 校验将失效: {e!r}")
+            names = {}
         n_extra = 0
         if names:
             st_mask = feat_df['code'].map(

@@ -40,12 +40,11 @@ logging.basicConfig(
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tdxfeed.paths import universe_path  # noqa: E402
+from tdxfeed.names import load_universe as _load_pool  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
-UNIVERSE_FILE = universe_path()
 CACHE_TTL_SEC = 300
 
 
@@ -75,11 +74,12 @@ def _norm_code(code: str) -> tuple[str, str]:
     return sym, six
 
 
-def _universe() -> dict[str, str]:
+def _pool() -> dict[str, str]:
+    """股票池 {代码: 名称}（唯一入口：tdxfeed.names.load_universe）。"""
     try:
-        return json.loads(UNIVERSE_FILE.read_text(encoding="utf-8"))
+        return _load_pool()
     except Exception as e:
-        _ERROR_COUNT['_universe'] += 1
+        _ERROR_COUNT['_pool'] += 1
         logging.warning("读取股票池失败：%s", e)
         return {}
 
@@ -134,7 +134,7 @@ def search_stock_news(code: str, days: int = 7, limit: int = 20,
     sym, six = _norm_code(code)
     days = max(1, min(int(days), 365))
     limit = max(1, min(int(limit), 100))
-    universe = _universe()
+    universe = _pool()
     if universe and six not in universe:
         raise McpError(404, f"{sym} 不在股票池（data/all_a_stocks.json）")
     name = re.sub(r"\s+", "", universe.get(six, ""))
@@ -213,7 +213,7 @@ def search_announcements(code: str, days: int = 30, limit: int = 20,
     sym, six = _norm_code(code)
     days = max(1, min(int(days), 365))
     limit = max(1, min(int(limit), 100))
-    universe = _universe()
+    universe = _pool()
     if universe and six not in universe:
         raise McpError(404, f"{sym} 不在股票池（data/all_a_stocks.json）")
     name = re.sub(r"\s+", "", universe.get(six, ""))

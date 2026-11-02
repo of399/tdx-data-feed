@@ -1,6 +1,6 @@
 """MCP daban 股票池回退枚举也要走 paths.daily_files() 单源。
 
-`_load_universe` 在股票池文件缺失时回退扫 parquet；旧 `.bak` 过滤会把
+`backtest._pool()` 在股票池文件缺失时回退扫 parquet；旧 `.bak` 过滤会把
 `sh600999.amountfix.tmp.parquet` 这类残留当成一只股票（600999 并非真实标的）。
 """
 from __future__ import annotations
@@ -34,10 +34,9 @@ def test_universe_fallback_excludes_residue(tmp_path, monkeypatch):
     (daily / "sh600999.amountfix.tmp.parquet").write_bytes(b"")  # 残留，非真实标的
 
     mod = _load()
-    monkeypatch.setattr(mod, "UNIVERSE_FILE", tmp_path / "no_universe.json")
     monkeypatch.setattr(mod, "DAILY_DIR", daily)
 
-    names = mod._load_universe()
+    names = mod._pool()
     assert "600000" in names
     # 残留会被旧枚举收成 malformed 键 "600999.amountfix.tmp"；规范枚举后只剩 6 位代码。
     assert all(len(c) == 6 and c.isdigit() for c in names), f"非规范代码混入: {sorted(names)}"

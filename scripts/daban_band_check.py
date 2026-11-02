@@ -23,7 +23,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -32,9 +31,10 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-from tdxfeed.atomic import atomic_write_frame  # noqa: E402  # SEM001 原子写
-from tdxfeed.daban.limit_price import exchange_prefix, is_st, limit_ratio  # noqa: E402
-from tdxfeed.paths import DATA_ROOT, daily_dir, universe_path  # noqa: E402
+from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
+from tdxfeed.daban.limit_price import exchange_prefix, is_st, limit_ratio
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
+from tdxfeed.paths import DATA_ROOT, daily_dir
 
 DATA = DATA_ROOT
 DAILY = daily_dir()
@@ -46,8 +46,7 @@ def main() -> int:
     ap.add_argument("--window", type=int, default=30, help="回看交易日数")
     args = ap.parse_args()
 
-    payload = json.loads(universe_path().read_text(encoding="utf-8"))
-    universe = {str(k).zfill(6): str(v) for k, v in payload.items()}
+    universe = load_universe()
     print(f"股票池 {len(universe)} 只，回看 {args.window} 个交易日\n")
 
     rows = []

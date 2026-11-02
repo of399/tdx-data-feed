@@ -20,7 +20,6 @@
 """
 from __future__ import annotations
 
-import json
 import time
 from collections import Counter
 from collections.abc import Iterable
@@ -51,6 +50,7 @@ from tdxfeed.daban.session import SESSION_AUCTION, current_session
 from tdxfeed.daban.tencent_source import TQuote, fetch_tencent_map
 from tdxfeed.daban.ths_board import ConceptStrength, load_concept_snapshot, match_concepts
 from tdxfeed.date_utils import parse_date_series
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 from tdxfeed.paths import universe_path
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -177,19 +177,6 @@ class ScanResult:
         if not self.candidates:
             return pd.DataFrame()
         return pd.DataFrame([c.to_dict() for c in self.candidates])
-
-
-def load_universe(path: str | Path = UNIVERSE_PATH) -> dict[str, str]:
-    """载入全市场股票池 {6位代码: 名称}。"""
-    p = Path(path)
-    if not p.exists():
-        return {}
-    raw = json.loads(p.read_text(encoding="utf-8"))
-    out: dict[str, str] = {}
-    for code, name in raw.items():
-        c = normalize_code(code)
-        out[c] = str(name).replace(" ", "")
-    return out
 
 
 def daily_path(code: str, daily_dir: Path | None = None) -> Path | None:

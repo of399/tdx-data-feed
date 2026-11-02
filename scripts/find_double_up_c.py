@@ -5,7 +5,6 @@
 所以失败必须非零退出：这份 CSV 是 `plan_e_backtest.py --today` 的候选池，
 静默缩水的样本会让盘前清单在没人看日志的情况下换口径。
 """
-import json
 import os
 import re
 import sys
@@ -17,16 +16,15 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import daily_dir, daily_files, get_limit, universe_path
+from _common import daily_dir, daily_files, get_limit
 
 from tdxfeed.execution.limits import limit_ratio
-from tdxfeed.names import is_st_name
+from tdxfeed.names import is_st_name, load_universe
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
-ALL_STOCKS = universe_path()
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 DOUBLE_UP_DETAIL = OUT_DIR / 'double_up_2020_2026_detail.csv'
 
@@ -215,8 +213,7 @@ def main():
     print()
 
     # 加载标的信息
-    with open(ALL_STOCKS) as _f:
-        name_map = json.load(_f)
+    name_map = load_universe()
 
     # ST 按名称规范判定（is_st_name），在 screen_one 内逐票计算
     st_count = sum(is_st_name(str(n)) for n in name_map.values())

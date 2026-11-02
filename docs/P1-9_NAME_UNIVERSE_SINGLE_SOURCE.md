@@ -38,6 +38,10 @@
 
 ### 2.2 `load_universe` —— 8 份实现，返回类型分裂
 
+> **批次 A 后状态**：主仓已全部收编到 `tdxfeed/names.py`，下表的 8 份实现**只剩第 1 行**
+> （其余 7 份删除，调用点改走统一入口）；另有 **20 处「直接读名单文件」**的散点
+> （`json.loads(universe_path().read_text())` 一类）一并收编 → 详见 §5。
+
 | # | 位置 | 返回 | 备注 |
 |---|---|---|---|
 | 1 | `tdxfeed/names.py:11` | `dict[str, str]` | **权威**：带 `_CACHE`，文件缺失返回 `{}` 由调用方决定是否致命 |
@@ -87,21 +91,92 @@
 
 ## 4. 迁移步骤（分批，每批独立可回滚）
 
-| 批次 | 范围 | 风险 | 验收 |
-|---|---|---|---|
-| **A** | `tdxfeed/names.py` 加 `load_universe(path=...)` 重载 + `universe_codes()`；`tdxfeed/daban/scanner.py`、`scripts/hengpan_t1_eval.py` 收编 | 低 | 对应模块单测绿；`def load_universe` 计数 8 → 6 |
-| **B** | `scripts/daban_formula1_screen.py`、`scripts/daban_formula1_validate.py`、`mcp/servers/backtest.py` 收编 | 低（研究脚本 + MCP 工具） | `make test` 无新增红；MCP 工具返回与改前一致（抽样比对） |
-| **C** | `scripts/predict.py`、`scripts/plan_e_sim_live.py` 的 list 版收编 | **中**：这两处带过滤逻辑，误改会改变生产候选池 | 收编前后候选池逐票 diff = 0（用同一份 universe 快照比对）；`predict` Top5 输出一致 |
-| **D** | `norm_code` 收敛：`paths.strip_exchange_prefix()` + `factor_engine` / `factors.py` 改委托 | 低 | `def norm_code` 计数 ≤ 2 且必须转发；两处调用点输出逐条一致（回归用例） |
-| **E** | 守卫升级：`tests/test_names_single_source.py` 扩为 AST 全仓断言；`tests/test_universe_path_single_source.py` 升到"实现数 = 1" | 低 | **反例必红**：造第二份 `load_universe` / ST 判定 / `norm_code` 必须让守卫失败 |
-| **F** | 文档与台账：更新 `AGENTS.md`「数据路径与表口径」小节、`config/known_issues.yaml`（KI-SINGLE-001/002/003 状态） | 低 | 守卫绿 + 台账与代码一致 |
+| 批次 | 范围 | 风险 | 验收 | 状态 |
+|---|---|---|---|---|
+| **A** | `tdxfeed/names.py` 加 `load_universe(path=...)` 重载 + `universe_codes()`；`tdxfeed/daban/scanner.py`、`scripts/hengpan_t1_eval.py` 收编 | 低 | 对应模块单测绿；`def load_universe` 计数 8 → 6 | ✅ **已完成（2026-11-02）**，并把 B/C/E 一并提前落地（见 §5） |
+| **B** | `scripts/daban_formula1_screen.py`、`scripts/daban_formula1_validate.py`、`mcp/servers/backtest.py` 收编 | 低（研究脚本 + MCP 工具） | `make test` 无新增红；MCP 工具返回与改前一致（抽样比对） | ✅ 随 A 完成 |
+| **C** | `scripts/predict.py`、`scripts/plan_e_sim_live.py` 的 list 版收编 | **中**：这两处带过滤逻辑，误改会改变生产候选池 | 收编前后候选池逐票 diff = 0（用同一份 universe 快照比对）；`predict` Top5 输出一致 | ✅ 随 A 完成（候选池逐票 diff = 0） |
+| **D** | `norm_code` 收敛：`paths.strip_exchange_prefix()` + `factor_engine` / `factors.py` 改委托 | 低 | `def norm_code` 计数 ≤ 2 且必须转发；两处调用点输出逐条一致（回归用例） | ⬜ 未开始 |
+| **E** | 守卫升级：`tests/test_names_single_source.py` 扩为 AST 全仓断言；`tests/test_universe_path_single_source.py` 升到"实现数 = 1" | 低 | **反例必红**：造第二份 `load_universe` / ST 判定 / `norm_code` 必须让守卫失败 | 🟡 **部分完成**：universe 维度已升级（实现数 = 1 + 端到端反例自检）；`norm_code` / ST 维度待 D 批 |
+| **F** | 文档与台账：更新 `AGENTS.md`「数据路径与表口径」小节、`config/known_issues.yaml`（KI-SINGLE-001/002/003 状态） | 低 | 守卫绿 + 台账与代码一致 | ⬜ 未开始 |
 
 **每批都要跑**：`venv/bin/python -m pytest tests/ -q` + `make gate`。
 **每批单独提交**，显式路径（共享工作树，禁止 `-A`）。
 
 ---
 
-## 5. 依赖关系
+## 5. 批次 A 落地记录（2026-11-02）
+
+### 5.1 统一入口（`tdxfeed/names.py`）
+
+```python
+load_universe(path=None) -> dict[str, str]      # 唯一的加载实现：{代码: 名称}
+universe_codes(path=None, *, prefixes=None, fallback=False) -> list[str]   # 唯一的代码枚举实现
+```
+
+- `load_universe(path=...)`：**按可配置路径加载**（`None` = `paths.universe_path()`），兼容三种历史结构
+  （`{code: name}` / `{"codes"|"stocks": [...]}` / `[code, ...]`），文件缺失返回 `{}`（是否致命由调用方决定）。
+- `universe_codes()`：代码零填充到 6 位；`prefixes` 过滤 2 位前缀；`fallback=True` 时名单缺失/为空
+  回退扫日线 parquet 目录（predict 与 MCP 回测的降级路径同源）。
+- **刻意不缓存**：名单每日由 `download_universe.py` 更新，而 MCP server 是长驻进程——缓存会让名称映射
+  在进程存活期内一直是旧的（ST 改名当天穿帮）。143 KB 的 JSON 解析约 1 ms，每次重读成本可忽略。
+
+### 5.2 语义口径的选择（为什么是"原样"）
+
+`load_universe` 返回**文件原样**的 `{代码: 名称}`：不 zfill、不去空格、不改键。
+
+- 实测名单 5221 条：键全是 6 位数字 ⇒ `zfill`/`normalize_code` 实为 no-op；名称有 **36 条带排版空格**
+  （`万  科Ａ`）。
+- 旧 8 份实现里 **6 份返回原样**，只有 `tdxfeed/daban/scanner.py` 额外去空格 → 统一取"原样"，
+  **行为差异最小**：8 份里 6 份逐字节不变，scanner 侧的 6 个调用方（研究脚本）显示口径由
+  `万科Ａ` 变回 `万  科Ａ`（36 只）。
+- 反过来取"去空格"会改动 **MCP 对外 API** 返回的名称（news / finance_deep），风险更高，故不取。
+
+### 5.3 收编范围（远超原定 2 个文件）
+
+守卫要断言"实现数 = 1"且**必须绿**，所以把全库读池点一次收干净：
+
+| 类别 | 数量 | 处理 |
+|---|---|---|
+| `def load_universe` 类实现 | 8 | 删 7 份，调用点改走 `tdxfeed.names` |
+| 直接读名单文件（`json.loads(universe_path().read_text())` 一类） | **20 处 / 19 文件** | 全部改走 `load_universe()` / `universe_codes()` |
+| `predict.load_names`（ST 实时兜底） | 1 | 改为 `load_universe()` + 原有 try/except（吞错计数键改为 `run_prediction`） |
+| `mcp/servers/backtest.py::_load_universe` / `news.py::_universe` | 2 | 改名 `_pool()`（入口名唯一性要求），内部改为委托统一入口 |
+| `plan_e_sim_live` 的 `limit` 抽样 | 1 | 抽成 `_sample_codes()`（抽样是**策略**，不是加载） |
+| 顺带清理 | — | 各文件残留的 `universe_path` 导入、`ALL_STOCKS`/`UNIVERSE_PATH` 等常量、未用的 `json` 导入 |
+
+**例外（显式登记）**：v5 按 `AGENTS.md` 是**零耦合孪生**（不 import tdxfeed），它自己那一份读取留在
+`v5/scripts/scan_double.py`；守卫同时断言 v5 域内也只有这一处——即"每个依赖域各一份实现"。
+
+### 5.4 守卫升级（路径层 + 实现层双层强制）
+
+`tests/test_universe_path_single_source.py` 从 4 条扩到 **10 条**：
+
+- **路径层（R1–R3）**：沿用原规则（不自拼 `all_a_stocks.json` 路径）。
+- **实现层（R4·行为）**：除权威层外**任何代码都不得读取名单文件**——AST 识别「`universe_path()` 直接读」
+  与「存进变量再 `open()/read_text()`」两种形态，**改名躲不过去**。
+- **实现层（R5·入口）**：`load_universe` / `universe_codes` / `load_names` / `universe` 这类入口的
+  **函数定义**只允许在权威层（历史上 `load_universe` 有 8 份）。
+- **反例必红**：直接读 / 别名读 / 改名藏起来的入口三类反例样本（`tmp_path`）各自必须被报出；
+  再加一条**扫描器端到端自检**（把第二实现放进临时扫描域 → 扫描器必须报出来），
+  防止"探测器认得出、扫描器没算进去"的哑守卫。
+
+### 5.5 等价性验证（怎么证明没改行为）
+
+改造前后对 **17 个实现点**各取一次返回值落 JSON，**逐点 diff**：
+
+- **16 项逐字节一致**（names / scanner 键 / hengpan / predict 两处 / plan_e 两处 / formula1 两处 /
+  MCP backtest / MCP news / finance_deep / 原始 JSON 三个视图）。
+- **1 项有差异且已声明**：`scanner.load_universe` 的 36 个名称由"去空格"回到"原样"（§5.2）。
+
+此外：`make lint` 阻断集全绿；`ci_semantic_guard` 的 SEM001/SEM003 仍为 0、SEM002 仍是既有 5 条
+（未因本次改造增加）；`pytest tests/` = **1755 passed / 10 failed**，10 项全为基线既有红
+（与改造前逐项对照确认）。
+
+> 附带效果：`make lint` 的 F821 当场抓到一处**真实破坏**
+> （`daban_alpha_sources.py` 收编时丢了 `universe` 变量）——这正是"删实现、换调用"最典型的漏网方式。
+
+## 6. 依赖关系
 
 ```
 P1-8 步骤 4（systemd 模板+渲染）──► P1-9（✅ 本会话已完成上游）
@@ -120,7 +195,7 @@ D2 决策（执行研究线是否归档）──⚠─► 归档会让 6 份副�
 
 ---
 
-## 6. 成功判据（可执行）
+## 7. 成功判据（可执行）
 
 | # | 判据 | 验证方式 |
 |---|---|---|
@@ -134,7 +209,7 @@ D2 决策（执行研究线是否归档）──⚠─► 归档会让 6 份副�
 
 ---
 
-## 7. 风险与缓解
+## 8. 风险与缓解
 
 | 风险 | 说明 | 缓解 |
 |---|---|---|
@@ -146,7 +221,7 @@ D2 决策（执行研究线是否归档）──⚠─► 归档会让 6 份副�
 
 ---
 
-## 8. 当前基线（2026-11-02，供批次验收对表）
+## 9. 当前基线（2026-11-02，供批次验收对表）
 
 改动前 `venv/bin/python -m pytest tests/ -q` 的**既有红（10 项，与本项无关）**：
 
@@ -163,18 +238,25 @@ D2 决策（执行研究线是否归档）──⚠─► 归档会让 6 份副�
 
 ---
 
-## 9. 下一步（立即可做的第一步）
+## 10. 下一步（批次 A 已完成，剩余 D / E / F）
 
-1. **批次 A**：`tdxfeed/names.py` 加 `load_universe(path=...)` 与 `universe_codes()`，
-   `tdxfeed/daban/scanner.py` + `scripts/hengpan_t1_eval.py` 改委托。
-2. 同批升级守卫：`tests/test_universe_path_single_source.py` 从"路径"扩到"实现数 = 1"，
-   并加 `tmp_path` 反例自检（造第二份 `load_universe` 必红）。
-3. 批次 A 绿 → **批次 B** → **批次 D**（`norm_code`）→ **批次 E**（守卫全量升级）→
-   **批次 C**（生产口径最敏感，最后做）→ **批次 F**（文档与台账）。
+1. **批次 D（下一个）· `norm_code` 收敛**：现存 3 份、实为**两种契约**——
+   `scripts/_common.py`（lower + 去前缀 + zfill6，给 CLI 输入）与
+   `scripts/factor_engine.py` / `quant/multifactor/factors.py`（仅剥前缀，给内部文件名）。
+   方案＝**一份前缀剥离实现 + 两个命名明确的入口**（`limits.normalize_code` 保持不变，
+   新增 `paths.strip_exchange_prefix()`），**不合并成一种口径**（两份代码的注释已写明"契约不同"）。
+   验收：`def norm_code` 计数 ≤ 2 且必须转发；两处调用点输出逐条一致。
+2. **批次 E 收尾 · 守卫全量升级**：`tests/test_names_single_source.py` 从"predict 委托 names"
+   扩为**全仓 AST 断言**（ST 判定实现唯一、`norm_code` 唯一）+ 反例自检。
+   注：`is_st` **现状已是单源**（`tdxfeed.names.is_st_name`），本步是"把既有事实钉死"，不是重构。
+3. **批次 F · 文档与台账**：更新 `AGENTS.md`「数据路径与表口径」小节（股票池唯一入口 + v5 双域例外）、
+   `config/known_issues.yaml`（KI-SINGLE-001/002/003 状态）。
 4. P1-12（涨停判定单源）与本项合并成一轮 KI-SINGLE 审计，但**分提交**。
+5. 顺带（不属本项，但同一批改到的文件里发现）：`scripts/find_double_30d.py` 仍有字面量
+   `Path('/home/jiuben/tdx-data-feed/data/double_up')`——数据路径的硬编码，交给 P1-8 后续或 P2-2。
 
 ---
-生成时间：2026-11-02 11:45
-生成者：P1-9 启动会话
+生成时间：2026-11-02 13:20（批次 A 落地后更新）
+生成者：P1-9 批次 A 会话
 模型版本：不适用（工程改造）
 数据日期：不适用
