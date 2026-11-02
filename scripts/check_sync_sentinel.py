@@ -18,12 +18,16 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SENTINEL = ROOT / "data" / ".state" / "sync-done"
 SYNC_UNIT = "tdx-sync.service"
+
+# 吞错计数（SEM002）：兜底通道查询失败仍不放行，但必须留痕
+_ERROR_COUNT: Counter[str] = Counter()
 
 
 def _sentinel_fresh(max_age_hours: float) -> bool:
@@ -41,6 +45,7 @@ def _unit_success_recent(max_age_hours: float) -> bool:
             capture_output=True, text=True, timeout=10,
         ).stdout
     except Exception:
+        _ERROR_COUNT["_unit_success_recent"] += 1
         return False
     info: dict[str, str] = {}
     for line in out.splitlines():
@@ -55,6 +60,7 @@ def _unit_success_recent(max_age_hours: float) -> bool:
     try:
         exited = datetime.fromisoformat(ts)
     except Exception:
+        _ERROR_COUNT["_unit_success_recent"] += 1
         return False
     age_h = (datetime.now() - exited).total_seconds() / 3600
     return age_h <= max_age_hours

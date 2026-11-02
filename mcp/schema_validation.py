@@ -20,12 +20,17 @@ mcp/schema_validation.py — MCP 运行时结构化 schema 校验
 """
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
+
+# 吞错计数（SEM002）：依赖缺失退化必须留痕（键 "<module>" = 模块级 import 退化）
+_ERROR_COUNT: Counter[str] = Counter()
 
 try:
     import jsonschema
     _HAS_JSONSCHEMA = True
 except Exception:  # pragma: no cover - 依赖缺失时退化
+    _ERROR_COUNT["<module>"] += 1
     jsonschema = None
     _HAS_JSONSCHEMA = False
 

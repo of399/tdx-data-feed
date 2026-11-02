@@ -39,6 +39,10 @@ if str(ROOT) not in sys.path:
 
 from tdxfeed.paths import daily_dir, finance_parquet, xdxr_path  # noqa: E402
 
+# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
+# 声明必须在下方 import 兜底之前——退化路径触发时计数器要已存在
+_ERROR_COUNT: Counter[str] = Counter()
+
 # P1-5：MCP 运行时结构化 schema 校验（入站信封/工具入参 + 出站响应自检）。
 # 以脚本方式运行或无 mcp 包时，按文件直载兜底，保证两种加载方式都可用。
 try:
@@ -49,6 +53,7 @@ try:
         validate_tool_args,
     )
 except Exception:  # pragma: no cover - 退化路径
+    _ERROR_COUNT["<module>"] += 1
     import importlib.util as _ilu
     import os as _os
     _vs = _ilu.spec_from_file_location(
@@ -60,9 +65,6 @@ except Exception:  # pragma: no cover - 退化路径
     validate_tool_args = _vm.validate_tool_args
     validate_response = _vm.validate_response
     McpValidationError = _vm.McpValidationError
-
-# 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
-_ERROR_COUNT: Counter[str] = Counter()
 
 DAILY_DIR = daily_dir()
 FINANCE_PARQUET = finance_parquet()
