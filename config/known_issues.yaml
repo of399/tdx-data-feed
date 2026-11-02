@@ -411,61 +411,84 @@ issues:
     fix_hint: "W2-2：入口按 input_schema 校验 + 输出按 output_schema 校验 + 超时取 yaml + route 读 yaml priority"
 
   - id: KI-SINGLE-001
-    title: "norm_code 仍有 3 份实现，代码归一口径可能分叉"
+    title: "代码归一实现分散（剥前缀 / 规范化两份口径各自复制）"
     theme: single-source
     severity: P1
-    status: OPEN
+    status: FIXED
     first_seen: "2026-10-17"
-    last_seen: "2026-11-01"
+    last_seen: "2026-11-02"
     seen_count: 6
     sources:
       - "docs/archive/CODE_AUDIT_2026-10-17.md:87"
       - "docs/archive/CODE_AUDIT_ROUND2_2026-10-18.md:29"
       - "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:200"
-    locations: ["quant/multifactor/factors.py", "scripts/factor_engine.py", "scripts/_common.py"]
+      - "docs/P1-9_NAME_UNIVERSE_SINGLE_SOURCE.md:80"
+    locations: ["tdxfeed/execution/limits.py", "scripts/_common.py", "scripts/factor_engine.py", "quant/multifactor/factors.py"]
     detect:
       - kind: grep
-        pattern: "def\\s+_?norm_code"
-        paths: ["quant/**/*.py", "scripts/**/*.py", "mcp/servers/*.py"]
+        pattern: "def\\s+_?(norm|normalize)_code"
+        paths: ["quant/**/*.py", "scripts/**/*.py", "mcp/servers/*.py", "tdxfeed/**/*.py"]
         min_count: 1
     impact: "同一代码在不同链路被归一成不同前缀，直接影响行情文件定位与涨跌停判定"
     guard: "tests/test_names_single_source.py"
     owner: "jiuben"
     due: "2026-11-25"
     exemption: "NONE"
+    fix_note: >
+      2026-11-02（P1-9 批次 D）：归一收敛到 tdxfeed/execution/limits.py 的**两个契约入口**——
+      normalize_code（契约 A：CLI 用户输入 → lower + 剥前缀 + 零填充 6 位）与
+      strip_exchange_prefix（契约 B：内部生成的文件名/裸代码 → 只剥前缀）；两者**共用同一条底层**
+      （normalize_code 调用 strip_exchange_prefix，不各写一份前缀剥离）。
+      原 3 份副本（scripts/_common.norm_code、scripts/factor_engine.norm_code、
+      quant/multifactor/factors.py.norm_code）已删除或改为权威实现的别名。
+      **两个契约不合并**（审计 Round2 注记："契约不同, 勿盲目统一"）。
+      另发现 5 处台账 detect 模式（def\\s+_?norm_code）覆盖不到的归一实现：
+      akshare_industry_loader（裸码→带前缀的**反向**映射）、tdx_concept_loader（通达信脏输入清洗）、
+      limit_price（转发别名）、MCP 两个 symbol 解析器——均为另一契约，已登记进守卫例外表，
+      并由「例外表不得腐化」守卫锁住。
     fix_hint: "收敛到 tdxfeed/names.py（已有转发），扩展 single_source AST 断言覆盖 norm_code"
 
   - id: KI-SINGLE-002
-    title: "is_st 存在 3 种语义实现"
+    title: "ST 名称判定的实现分散（函数层已单源，内联写法散落各处）"
     theme: single-source
     severity: P1
-    status: OPEN
+    status: FIXED
     first_seen: "2026-10-19"
-    last_seen: "2026-11-01"
+    last_seen: "2026-11-02"
     seen_count: 3
     sources:
       - "docs/archive/CODE_AUDIT_ROUND3_2026-10-19.md:72"
       - "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:200"
-    locations: ["tdxfeed/daban/limit_price.py", "scripts/find_double_up_c_v2.py", "scripts/predict.py"]
+      - "docs/P1-9_NAME_UNIVERSE_SINGLE_SOURCE.md:70"
+    locations: ["tdxfeed/names.py", "tdxfeed/daban/limit_price.py", "scripts/predict.py"]
     detect:
       - kind: grep
-        pattern: "def\\s+is_st"
+        pattern: "def\\s+_?is_st"
         paths: ["tdxfeed/**/*.py", "scripts/**/*.py"]
         min_count: 1
     impact: "ST 判定语义不一致会直接改变涨停阈值与候选池口径"
-    guard: "NONE"
+    guard: "tests/test_names_single_source.py"
     owner: "jiuben"
     due: "2026-11-25"
+    fix_note: >
+      2026-11-02（P1-9 批次 E）：核查确认 **ST 名称判定的实现本来就只有一处**
+      （tdxfeed/names.py::is_st_name）——predict.is_st 与 limit_price.is_st 都是转发，
+      find_double_up_c_v2.is_st(code, st_set) 判的是「代码在不在 ST 名单里」属另一契约。
+      因此**不重构**，改为用 AST 守卫把既有事实固化：(1) 权威层外不得再定义 ST 判定函数，
+      登记为「转发」的例外必须真的转发（函数体里调用 is_st_name）；
+      (2) 内联 ST 字符串判定必须**逐条登记理由**——实测 16 处且口径各异（含退市整理'退'、
+      判 vault 文件名词干、仅前缀匹配等），新增未登记必红；
+      (3) 例外表不得腐化（登记了却已无命中 = 该重新评估）。
     exemption: "NONE"
     fix_hint: "统一到 tdxfeed/names.py 的 is_st_name，并让 limit_price 与 predict 共用"
 
   - id: KI-SINGLE-003
-    title: "load_universe 有 7 份副本，清单路径口径分散"
+    title: "load_universe 有多份副本，清单路径口径分散"
     theme: single-source
     severity: P2
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
-    last_seen: "2026-11-01"
+    last_seen: "2026-11-02"
     seen_count: 1
     sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:24"]
     locations: ["tdxfeed/names.py", "tdxfeed/daban/scanner.py", "scripts/predict.py"]
@@ -480,6 +503,11 @@ issues:
     due: "2026-12-05"
     exemption: "NONE"
     fix_hint: "收敛到 tdxfeed/names.py + tdxfeed/paths.py 的 paths.universe_path()"
+    fix_note: >
+      2026-11-02（P1-9 批次 A）：股票池唯一入口 = tdxfeed/names.py::load_universe(path=...) +
+      universe_codes(path=..., prefixes=..., fallback=...)；实测 8 份 load_universe 实现 +
+      20 处「直接读名单文件」散点全部收编；守卫从「路径单一来源」扩展为
+      「路径 + 实现数量 = 1」（行为层 R4 + 入口层 R5 + 反例必红 + 扫描器端到端自检）。
 
   - id: KI-SINGLE-004
     title: "涨停判定 9 处实现（含内联 limit-0.001），常量来源不一致"

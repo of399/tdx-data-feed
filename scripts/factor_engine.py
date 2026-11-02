@@ -45,6 +45,7 @@ ROOT = Path('/home/jiuben/tdx-data-feed')
 
 from _common import daily_files, daily_path, get_limit, read_path
 
+from tdxfeed.execution.limits import strip_exchange_prefix  # 代码归一（P1-9 批次 D）
 from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -55,26 +56,13 @@ OUT_DIR = ROOT / 'data/factors'
 ST_VAULT = Path('/home/jiuben/StockVault/01-标的')
 
 
-def norm_code(code: str) -> str:
-    """剥离 sh/sz/bj 前缀，返回裸 6 位代码。
-
-    data/parquet/daily 的文件名是 sh/sz 前缀；裸名只存在于 `.v1.bak` 迁移备份里，
-    统一归一后 name_map / ST 集合 / 翻倍样本匹配才一致。
-
-    审计 Round2 复核注记(2026-10-18): 与 scripts/_common.norm_code 语义不同——
-    本版仅"剥前缀"(无 lower/zfill), 输入是内部生成的文件名/裸代码;
-    _common 版是"规范化"(lower+zfill6)给 CLI 用户输入用。契约不同, 勿盲目统一。
-    """
-    return re.sub(r"^(sh|sz|bj)", "", code)
-
-
 def resolve_parquet(code: str) -> Path:
     """code 带不带 sh/sz/bj 前缀都行；路径由 paths.daily_path 唯一决定，缺文件抛 FileNotFoundError。"""
     return read_path(daily_path(code))
 
 
 def get_board(code: str) -> str:
-    short = norm_code(code)
+    short = strip_exchange_prefix(code)
     if short.startswith("920") or short.startswith("8"):
         return "bj"
     if short.startswith("688"):
@@ -348,10 +336,10 @@ def main():
             if feat is None:
                 continue
             feat['code'] = code
-            feat['name'] = name_map.get(norm_code(code), '?')
+            feat['name'] = name_map.get(strip_exchange_prefix(code), '?')
             feat['signal_date'] = row['start_date']
             feat['label'] = 1
-            feat['is_st'] = norm_code(code) in st_set
+            feat['is_st'] = strip_exchange_prefix(code) in st_set
             feat['board'] = get_board(code)
             feat['limit'] = get_limit(code)
             feat['pct_change_20d_actual'] = float(row['pct_change'])
@@ -405,10 +393,10 @@ def main():
                 if feat is None:
                     continue
                 feat['code'] = code
-                feat['name'] = name_map.get(norm_code(code), '?')
+                feat['name'] = name_map.get(strip_exchange_prefix(code), '?')
                 feat['signal_date'] = pos_date
                 feat['label'] = 0
-                feat['is_st'] = norm_code(code) in st_set
+                feat['is_st'] = strip_exchange_prefix(code) in st_set
                 feat['board'] = get_board(code)
                 feat['limit'] = get_limit(code)
                 feat['pct_change_20d_actual'] = np.nan

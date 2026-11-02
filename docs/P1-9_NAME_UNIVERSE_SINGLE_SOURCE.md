@@ -96,16 +96,16 @@
 | **A** | `tdxfeed/names.py` 加 `load_universe(path=...)` 重载 + `universe_codes()`；`tdxfeed/daban/scanner.py`、`scripts/hengpan_t1_eval.py` 收编 | 低 | 对应模块单测绿；`def load_universe` 计数 8 → 6 | ✅ **已完成（2026-11-02）**，并把 B/C/E 一并提前落地（见 §5） |
 | **B** | `scripts/daban_formula1_screen.py`、`scripts/daban_formula1_validate.py`、`mcp/servers/backtest.py` 收编 | 低（研究脚本 + MCP 工具） | `make test` 无新增红；MCP 工具返回与改前一致（抽样比对） | ✅ 随 A 完成 |
 | **C** | `scripts/predict.py`、`scripts/plan_e_sim_live.py` 的 list 版收编 | **中**：这两处带过滤逻辑，误改会改变生产候选池 | 收编前后候选池逐票 diff = 0（用同一份 universe 快照比对）；`predict` Top5 输出一致 | ✅ 随 A 完成（候选池逐票 diff = 0） |
-| **D** | `norm_code` 收敛：`paths.strip_exchange_prefix()` + `factor_engine` / `factors.py` 改委托 | 低 | `def norm_code` 计数 ≤ 2 且必须转发；两处调用点输出逐条一致（回归用例） | ⬜ 未开始 |
-| **E** | 守卫升级：`tests/test_names_single_source.py` 扩为 AST 全仓断言；`tests/test_universe_path_single_source.py` 升到"实现数 = 1" | 低 | **反例必红**：造第二份 `load_universe` / ST 判定 / `norm_code` 必须让守卫失败 | 🟡 **部分完成**：universe 维度已升级（实现数 = 1 + 端到端反例自检）；`norm_code` / ST 维度待 D 批 |
-| **F** | 文档与台账：更新 `AGENTS.md`「数据路径与表口径」小节、`config/known_issues.yaml`（KI-SINGLE-001/002/003 状态） | 低 | 守卫绿 + 台账与代码一致 | ⬜ 未开始 |
+| **D** | `norm_code` 收敛：`limits.strip_exchange_prefix()` + `factor_engine` / `factors.py` 改委托 | 低 | `def norm_code` 计数 ≤ 2 且必须转发；两处调用点输出逐条一致（回归用例） | ✅ **已完成**（权威层实为 `tdxfeed/execution/limits.py`，见 §5.6） |
+| **E** | 守卫升级：`tests/test_names_single_source.py` 扩为 AST 全仓断言；`tests/test_universe_path_single_source.py` 升到"实现数 = 1" | 低 | **反例必红**：造第二份 `load_universe` / ST 判定 / `norm_code` 必须让守卫失败 | ✅ **已完成**：universe 维度（实现数 = 1）+ ST/归一维度（4 → 16 条，含端到端自检与例外表防腐化） |
+| **F** | 文档与台账：更新 `AGENTS.md`「数据路径与表口径」小节、`config/known_issues.yaml`（KI-SINGLE-001/002/003 状态） | 低 | 守卫绿 + 台账与代码一致 | ✅ **已完成**：三条 FIXED + `fix_note` + AGENTS.md 两条约定 |
 
 **每批都要跑**：`venv/bin/python -m pytest tests/ -q` + `make gate`。
 **每批单独提交**，显式路径（共享工作树，禁止 `-A`）。
 
 ---
 
-## 5. 批次 A 落地记录（2026-11-02）
+## 5. 落地记录（2026-11-02）
 
 ### 5.1 统一入口（`tdxfeed/names.py`）
 
@@ -176,6 +176,65 @@ universe_codes(path=None, *, prefixes=None, fallback=False) -> list[str]   # 唯
 > 附带效果：`make lint` 的 F821 当场抓到一处**真实破坏**
 > （`daban_alpha_sources.py` 收编时丢了 `universe` 变量）——这正是"删实现、换调用"最典型的漏网方式。
 
+### 5.6 批次 D / E / F 落地记录（2026-11-02）
+
+#### D · 代码归一：两种契约、一份实现
+
+权威 = `tdxfeed/execution/limits.py`，两个契约入口**共用同一条底层**：
+
+```python
+strip_exchange_prefix(code)   # 契约 B：只剥 sh/sz/bj 前缀，其余原样（大小写、长度都不动）
+normalize_code(code)          # 契约 A：lower + 剥前缀 + 零填充 6 位 → 内部调用 strip_exchange_prefix
+```
+
+| 入口 | 调用场景 | 输入 | 输出 |
+|---|---|---|---|
+| `normalize_code`（契约 A） | **CLI 用户输入** | `600519` / `sh600519` / `" 600519 "` | 6 位裸码（`"1"` → `"000001"`） |
+| `strip_exchange_prefix`（契约 B） | **内部生成的标识** | 日线文件名 `sh600000`、带前缀裸码 | 只去前缀（`"1"` 仍是 `"1"`） |
+
+三份副本的处置：`scripts/_common.py::norm_code` → 改为权威实现的**别名**（大量脚本在用，不再包一层）；
+`scripts/factor_engine.py::norm_code`（5 处调用）、`quant/multifactor/factors.py::norm_code`（1 处调用）
+→ 删除定义、改调 `strip_exchange_prefix`（**契约 B**，因为它们喂的是文件名/裸代码）。
+
+**"勿盲目统一"的意图保留**：两个入口的 docstring 都写明契约边界与差异后果
+（审计 Round2 2026-10-18 注记："契约不同, 勿盲目统一"）——合并会静默改口径。
+
+**行为不变的证据**：用 20 组输入（含 `SH600000` / `" 600519 "` / `"1"` / `sz000001extra` / 空串）
+逐一对照**三份旧实现**（limits 版、`factor_engine` 严格版、`factors` 宽松版）→ 全部逐字节一致；
+调用点抽查（`get_board` / `is_stock_code` / `_common.norm_code`）取值与改造前相同。
+
+#### E · ST 判定：确认单源，只固化不重构
+
+核查结论（**比"3 种语义"更精确**）：
+- **函数层确已单源**：权威 = `tdxfeed/names.py::is_st_name`；`predict.is_st`（int 契约）与
+  `limit_price.is_st`（bool 契约）都是转发；`find_double_up_c_v2.is_st(code, st_set)` 判的是
+  「代码在不在 ST 名单里」，属**另一契约**（不是名称判定的副本）。
+- **但内联写法散落 16 处**，且口径各异：含退市整理「退」（2 处）、判 vault 文件名词干（2 处）、
+  仅前缀匹配（1 处，与权威的"任意位置含 ST"不同）、与权威等价待收编（1 处）等。
+
+因此**不重构**，改为用 AST 守卫（`tests/test_names_single_source.py`，4 → 16 条）固化三条校验目标：
+
+1. **实现唯一**：权威层外不得再定义 ST 判定函数；登记为「转发」的例外**必须真的转发**
+   （函数体里调用 `is_st_name`），否则名不副实。
+2. **内联可见**：内联 ST 字符串判定必须**逐条登记理由**（例外表），新增未登记的必红；
+   并加「例外表不得腐化」——登记了却已无命中 = 代码变了，该重新评估这条例外。
+3. **归一单源**（与 D 同文件）：两个入口只在权威层、`norm_code` 这个第三种命名不得再出现、
+   两入口必须共用底层（断言 `normalize_code` 调用 `strip_exchange_prefix`，且前缀正则只出现一次）。
+
+**检测器的坑（实测）**：用「常量含 ST 子串」判定会误报 9 处（`"tests/"`、`"state"`、`"step"`、
+`"OBSIDIAN_SYSTEMD:"`、`"inst_net"`…）→ 改为**精确 marker 匹配**（`"ST"` / `"*ST"`）。
+
+#### F · 台账与文档
+
+- 台账三条 KI-SINGLE 全部转 **FIXED**（KI-SINGLE-001 代码归一 / 002 ST 判定 / 003 股票池），
+  各自绑定真实存在的守卫文件 + `fix_note` 写清处置与遗留；
+  **detect 规格一并修正**：原 `def\s+_?norm_code` 漏掉 `normalize_code`——正是它让 5 处实现
+  一直没被台账看见（守卫改口径后一次挖出 8 处）。
+- `AGENTS.md` 同步两条约定（代码归一的两个契约 + ST 单源与守卫的三条校验目标），
+  并与批次 A 写入的「股票池唯一入口」条目**逐条核对无冲突**。
+- M-5（修复必附测试）要求 FIXED 条目绑定的测试里出现条目 ID → 两个守卫文件补了
+  `KI-SINGLE-001/002/003` marker。
+
 ## 6. 依赖关系
 
 ```
@@ -238,25 +297,22 @@ D2 决策（执行研究线是否归档）──⚠─► 归档会让 6 份副�
 
 ---
 
-## 10. 下一步（批次 A 已完成，剩余 D / E / F）
+## 10. 下一步（批次 A / D / E / F 已完成）
 
-1. **批次 D（下一个）· `norm_code` 收敛**：现存 3 份、实为**两种契约**——
-   `scripts/_common.py`（lower + 去前缀 + zfill6，给 CLI 输入）与
-   `scripts/factor_engine.py` / `quant/multifactor/factors.py`（仅剥前缀，给内部文件名）。
-   方案＝**一份前缀剥离实现 + 两个命名明确的入口**（`limits.normalize_code` 保持不变，
-   新增 `paths.strip_exchange_prefix()`），**不合并成一种口径**（两份代码的注释已写明"契约不同"）。
-   验收：`def norm_code` 计数 ≤ 2 且必须转发；两处调用点输出逐条一致。
-2. **批次 E 收尾 · 守卫全量升级**：`tests/test_names_single_source.py` 从"predict 委托 names"
-   扩为**全仓 AST 断言**（ST 判定实现唯一、`norm_code` 唯一）+ 反例自检。
-   注：`is_st` **现状已是单源**（`tdxfeed.names.is_st_name`），本步是"把既有事实钉死"，不是重构。
-3. **批次 F · 文档与台账**：更新 `AGENTS.md`「数据路径与表口径」小节（股票池唯一入口 + v5 双域例外）、
-   `config/known_issues.yaml`（KI-SINGLE-001/002/003 状态）。
-4. P1-12（涨停判定单源）与本项合并成一轮 KI-SINGLE 审计，但**分提交**。
-5. 顺带（不属本项，但同一批改到的文件里发现）：`scripts/find_double_30d.py` 仍有字面量
-   `Path('/home/jiuben/tdx-data-feed/data/double_up')`——数据路径的硬编码，交给 P1-8 后续或 P2-2。
+1. **收编可收编的内联 ST 判定**（批次 E 留下的尾巴）：16 处例外里，
+   `scripts/find_double_up_hfq.py` 那处与权威等价 → 可直接改调 `names.is_st_name`；
+   含「退」的两处（`daban_min60_features.py`、`tdxfeed/daban/scanner.py`）是**另一契约**
+   （权威 `is_st_name` 不含「退」），要么给权威加 `is_st_or_delisting` 入口、要么继续登记为例外
+   ——**收编前必须先确认口径**（动了会改变涨停候选池）。
+2. **P1-12（原 P1-8「涨停判定单源」KI-SINGLE-004）**：与本项同属 KI-SINGLE，可合并一轮审计，
+   但**分提交**。
+3. **台账 detect 规格复查**：本批发现 `def\s+_?norm_code` 这类过窄模式会让实现长期不被看见
+   （5 处归一实现因此漏网）→ 其余 38 条 detect 也值得按此例过一遍。
+4. `scripts/find_double_30d.py` 仍有字面量数据路径（`Path('/home/jiuben/tdx-data-feed/data/double_up')`）
+   → 交给 P1-8 后续 / P2-2「裸写残留清理」。
 
 ---
-生成时间：2026-11-02 13:20（批次 A 落地后更新）
-生成者：P1-9 批次 A 会话
+生成时间：2026-11-02 14:40（批次 A / D / E / F 落地后更新）
+生成者：P1-9 批次 A/D/E/F 会话
 模型版本：不适用（工程改造）
 数据日期：不适用

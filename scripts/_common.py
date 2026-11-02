@@ -15,7 +15,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from tdxfeed.date_utils import parse_date, parse_date_series, to_date_str  # noqa: E402
-from tdxfeed.execution.limits import normalize_code as _normalize_code  # noqa: E402
+from tdxfeed.execution.limits import normalize_code as norm_code  # noqa: E402  # 代码归一权威实现（P1-9 批次 D）
 from tdxfeed.features_5d import (  # noqa: E402
     compute_window_features,
     compute_window_features_extended,
@@ -41,11 +41,6 @@ from tdxfeed.paths import (  # noqa: E402
     universe_path,
     xdxr_path,
 )
-
-
-def norm_code(c) -> str:
-    """股票代码规范化: 小写 + 去 sh/sz/bj 前缀 + 6 位零填充（委托 limits）。"""
-    return _normalize_code(c)
 
 
 def is_bj(c) -> bool:

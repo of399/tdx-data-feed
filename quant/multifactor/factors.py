@@ -8,7 +8,6 @@
 """
 from __future__ import annotations
 
-import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from tdxfeed.execution.limits import strip_exchange_prefix  # 代码归一（P1-9 批次 D）
 from tdxfeed.paths import daily_path, read_path
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -28,20 +28,13 @@ SENT_DIR = ROOT / "data" / "sentiment"
 # --------------------------------------------------------------------------
 # 日 K 加载（内联最小实现，与 factor_engine 口径一致）
 # --------------------------------------------------------------------------
-def norm_code(code: str) -> str:
-    # 审计 Round2 复核注记(2026-10-18): 与 scripts/_common.norm_code 语义不同——
-    # 本版仅"剥前缀"(无 lower/zfill), 调用方传内部生成的裸代码/文件名;
-    # _common 版是"规范化"(lower+zfill6)给 CLI 输入用。契约不同, 勿盲目统一。
-    return re.sub(r"^(sh|sz|bj)", "", str(code))
-
-
 def is_stock_code(code: str) -> bool:
     """判定是否为沪深 A 股个股（剔除指数 / ETF / 债券 / 北交所微盘股）。
 
     指数（sh000xxx、sz399xxx、sh950xxx）、ETF（sh51/sh56、sz15/sz16）、
     债券（sh01/sh10/sh11/sh12、sz10/sz11/sz12）均不参与截面选股。
     """
-    s = norm_code(code)
+    s = strip_exchange_prefix(code)
     if s.startswith(("920", "8")):
         return False  # 北交所微盘股（流动性差、30% 涨跌停）
     if code.startswith("sh"):

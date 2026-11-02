@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -32,14 +33,36 @@ RET_TOLERANCE = 0.001
 _CENT = Decimal("0.01")
 _ONE = Decimal("1")
 
+# 交易所前缀（sh/sz/bj）：代码归一的**唯一**一份，两个契约共用同一条底层逻辑。
+EXCHANGE_PREFIXES = ("sh", "sz", "bj")
+_EXCHANGE_PREFIX_RE = re.compile(r"^(sh|sz|bj)")
+
+
+def strip_exchange_prefix(code: str) -> str:
+    """【契约 B · 仅剥前缀】去掉 sh/sz/bj 前缀，其余**原样**（大小写、长度都不动）。
+
+    调用场景：输入是**内部生成**的标识——日线文件名（`sh600000`）、带前缀的裸代码。
+    这类输入必须与文件路径 / 名称映射逐字对齐（名称映射的键是 6 位裸码），
+    所以不能顺手 lower / 补零：`sz000001` 与 `000001` 在这里必须保持可区分。
+
+    与 `normalize_code` 的差别只有「不做 lower、不做 zfill(6)」，其余共用同一条底层实现。
+    **两个契约都要保留**（审计 Round2 2026-10-18 注记："契约不同, 勿盲目统一"）：
+    把这里的调用换成 `normalize_code` 会把 `"1"` 变成 `"000001"`、把 `"SH600000"` 变成小写，
+    改变的是「同一输入在两条链路上得到同一字符串」这件事本身。
+    """
+    return _EXCHANGE_PREFIX_RE.sub("", str(code))
+
 
 def normalize_code(code: str) -> str:
+    """【契约 A · 规范化】lower + 剥前缀 + 零填充到 6 位。
+
+    调用场景：输入是 **CLI 用户输入**（`600519` / `sh600519` / `" 600519 "`），
+    需要一个能直接与日线文件名对齐的 6 位裸码。
+
+    底层与 `strip_exchange_prefix` 共用同一条前缀剥离逻辑（不复制粘贴）。
+    """
     c = str(code).lower().strip()
-    for p in ("sh", "sz", "bj"):
-        if c.startswith(p):
-            c = c[2:]
-            break
-    return c.zfill(6)
+    return strip_exchange_prefix(c).zfill(6)
 
 
 def market_of(code: str) -> str:
