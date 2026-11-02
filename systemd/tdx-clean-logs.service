@@ -1,16 +1,16 @@
 [Unit]
 Description=tdx-data-feed 旧日志清理（保留最近 7 天）
 # 手动跑同一个清理：make clean-logs
-Documentation=file:///home/jiuben/tdx-data-feed/docs/WORKFLOW.md
+Documentation=file://@TDX_HOME@/docs/WORKFLOW.md
 OnFailure=onfailure-alert@tdx-clean-logs.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/jiuben/tdx-data-feed
+WorkingDirectory=@TDX_HOME@
 # clean-logs 委托 scripts/clean_logs.py：删 >7 天旧文件 + 截断超 8MB 的追加日志
-ExecStart=/usr/bin/make -C /home/jiuben/tdx-data-feed clean-logs
-StandardOutput=append:/home/jiuben/tdx-data-feed/logs/tdx-clean-logs.log
-StandardError=append:/home/jiuben/tdx-data-feed/logs/tdx-clean-logs.err
+ExecStart=/usr/bin/make -C @TDX_HOME@ clean-logs
+StandardOutput=append:@TDX_HOME@/logs/tdx-clean-logs.log
+StandardError=append:@TDX_HOME@/logs/tdx-clean-logs.err
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7

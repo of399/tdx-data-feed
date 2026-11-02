@@ -39,6 +39,12 @@ SCRIPTS := $(ROOT)/scripts
 V5_SCRIPTS := $(ROOT)/v5/scripts
 SYSTEMD_DIR := $(ROOT)/systemd
 USER_SYSTEMD := $(HOME)/.config/systemd/user
+# systemd 单元是模板：仓库根一律写作 @TDX_HOME@，由 scripts/render_systemd_units.py
+# 从单一源（scripts/lib/tdx-env.sh 的 TDX_HOME）渲染成真实绝对路径后再安装。
+# systemd 只在 ExecStart 一类指令上展开 ${VAR}，WorkingDirectory/StandardOutput/
+# Environment 都不展开（实测见 docs/P1-8_DEPLOY_PATH_UNIFICATION.md §5），
+# 所以唯一能拿到绝对路径的做法是渲染，而不是变量展开。
+SYSTEMD_RENDER := $(ROOT)/build/systemd
 
 # 白名单：make timer-install 只复制这些 unit，timer-enable 也只启用这些。
 # 明确排除 pushplus-bridge.service（系统级 pushplus_bridge.service 已在跑，
@@ -438,24 +444,28 @@ simulate:  ## 模拟交易（START=2026-08-27 END=2026-09-25 CAPITAL=100000）
 
 # ============== 自动化调度 ==============
 # ⚠️ 部署铁律：凡修改 systemd/ 目录下任何 *.service / *.timer / *.path 文件，提交后
-#    必须执行 `make timer-install`（将文件复制到 ~/.config/systemd/user/，即 systemd 实际加载目录），
-#    再 `systemctl --user daemon-reload`；对 *.path 还需 `restart <单元>.path` 重建 inotify 监视，
-#    对处于 start-limit-hit 的单元还需 `reset-failed`。否则 systemd 加载的仍是旧文件。
+#    必须执行 `make timer-install`（先把模板渲染成真实路径，再复制到 ~/.config/systemd/user/，
+#    即 systemd 实际加载目录），再 `systemctl --user daemon-reload`；对 *.path 还需
+#    `restart <单元>.path` 重建 inotify 监视，对处于 start-limit-hit 的单元还需
+#    `reset-failed`。否则 systemd 加载的仍是旧文件。
 #    漂移与限流会被 `make status` / `make canary` 的 obsidian 监控持续检测并告警。
-timer-install:  ## 安装白名单 systemd unit 到 user systemd（凡改 systemd/ 必跑）
+systemd-render:  ## 渲染 systemd 单元模板（@TDX_HOME@ → 真实绝对路径）
+	@$(PYTHON) $(SCRIPTS)/render_systemd_units.py --out-dir $(SYSTEMD_RENDER)
+
+timer-install: systemd-render  ## 安装白名单 systemd unit 到 user systemd（凡改 systemd/ 必跑）
 	@echo "$(CYAN)▶ 复制白名单 unit 到 user systemd$(NC)"
 	@mkdir -p $(USER_SYSTEMD)
 	@for t in $(USER_TIMERS); do \
-	  cp --remove-destination $(SYSTEMD_DIR)/$$t.service $(USER_SYSTEMD)/; \
-	  cp --remove-destination $(SYSTEMD_DIR)/$$t.timer   $(USER_SYSTEMD)/; \
+	  cp --remove-destination $(SYSTEMD_RENDER)/$$t.service $(USER_SYSTEMD)/; \
+	  cp --remove-destination $(SYSTEMD_RENDER)/$$t.timer   $(USER_SYSTEMD)/; \
 	done
 	@for f in $(USER_UNIT_TEMPLATES); do \
-	  cp --remove-destination $(SYSTEMD_DIR)/$$f $(USER_SYSTEMD)/; \
+	  cp --remove-destination $(SYSTEMD_RENDER)/$$f $(USER_SYSTEMD)/; \
 	done
 	@echo "$(GREEN)✓ 已安装以下 timer：$(NC)"
 	@ls -1 $(USER_SYSTEMD)/*.timer 2>/dev/null | xargs -n1 basename
 	@for f in $(USER_PATHS); do \
-	  cp --remove-destination $(SYSTEMD_DIR)/$$f $(USER_SYSTEMD)/; \
+	  cp --remove-destination $(SYSTEMD_RENDER)/$$f $(USER_SYSTEMD)/; \
 	done
 	@echo "$(CYAN)提示：改 systemd/ 后记得 systemctl --user daemon-reload$(NC)"
 # 方案 E 六只 timer 里的三只在启用列表里：2026-10-24 晚 plan-e-today（工作日 08:45 出盘前清单）

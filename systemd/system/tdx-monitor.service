@@ -7,8 +7,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/jiuben/tdx-data-feed
-ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/tdx_monitor.py
+WorkingDirectory=@TDX_HOME@
+ExecStart=@TDX_HOME@/venv/bin/python @TDX_HOME@/v5/scripts/tdx_monitor.py
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=tdx-monitor

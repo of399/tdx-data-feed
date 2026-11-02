@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts.render_systemd_units import render_text
+
 # 镜像/调度静态守卫不读行情数据；需要本机 /etc 部署的用例自己 skip。
 NEEDS_DATA = False
 
@@ -63,7 +65,17 @@ MIRRORED = {
 
 
 def _text(path: Path) -> str:
+    """部署文件的原文（/etc 下就是渲染后的真实绝对路径）。"""
     return path.read_text(encoding="utf-8").rstrip("\n")
+
+
+def _mirror_text(path: Path) -> str:
+    """仓库镜像的**渲染后**文本。
+
+    仓库里存的是模板（仓库根写作 @TDX_HOME@），部署物是渲染结果——两边要按同一口径比，
+    所以这里先渲染再比；渲染用的仓库根取本机 ROOT，CI 里 checkout 在别处也成立。
+    """
+    return render_text(path.read_text(encoding="utf-8"), str(ROOT)).rstrip("\n")
 
 
 def _deployed_units() -> dict[str, Path]:
@@ -82,9 +94,9 @@ def _deployed_units() -> dict[str, Path]:
             continue
 
     referenced = {name for name, body in bodies.items()
-                  if name.endswith(".service") and REPO_MARK in body}
+                  if name.endswith(".service") and _mentions_repo(body)}
     found = {name: DEPLOYED_ROOT / name for name in bodies
-             if name in referenced or (name.endswith(".timer") and REPO_MARK in bodies[name])}
+             if name in referenced or (name.endswith(".timer") and _mentions_repo(bodies[name]))}
     for name, body in bodies.items():
         if not name.endswith(".timer"):
             continue
@@ -92,6 +104,15 @@ def _deployed_units() -> dict[str, Path]:
         if target in referenced:
             found[name] = DEPLOYED_ROOT / name
     return found
+
+
+def _mentions_repo(body: str) -> bool:
+    """部署文件里出现了仓库根就算「引用本仓库」。
+
+    部署物是渲染结果，路径随渲染时的 TDX_HOME 变：本机是 REPO_MARK，CI/换机器后可能是别的
+    绝对路径，所以两个标记都认——认不出就会把「引用本仓库」误判成「外部服务」。
+    """
+    return REPO_MARK in body or str(ROOT) in body
 
 
 def test_mirror_lists_the_units_we_track():
@@ -124,7 +145,7 @@ def test_mirror_matches_deployed_bytes():
         if not local.is_file() or not remote.is_file():
             drifts.append(f"{name}: 缺副本或缺部署")
             continue
-        if _text(local) != _text(remote):
+        if _mirror_text(local) != _text(remote):
             drifts.append(f"{name}: 仓库与 /etc 内容不同")
     assert not drifts, "system 单元漂移：\n" + "\n".join(drifts)
 
@@ -135,13 +156,13 @@ def test_mirrored_services_use_the_repo_venv():
     for name in sorted(MIRRORED):
         if not name.endswith(".service") or name in EXTERNAL_SERVICES:
             continue
-        body = _text(MIRROR / name)
+        body = _mirror_text(MIRROR / name)
         execs = re.findall(r"^ExecStart=(.+)$", body, re.M)
         if not execs:
             problems.append(f"{name}: 没有 ExecStart")
             continue
         for cmd in execs:
-            if f"{REPO_MARK}/venv/bin/python" not in cmd:
+            if f"{ROOT}/venv/bin/python" not in cmd:
                 problems.append(f"{name}: ExecStart 未用仓库 venv：{cmd}")
     assert not problems, "\n".join(problems)
 
@@ -155,7 +176,7 @@ def test_sync_has_exactly_one_scheduling_source():
     assert "tdxfeed-sync" not in recipe, \
         "timer-enable 仍会拉起用户级 tdxfeed-sync.timer，与系统级 tdx-sync.timer 重复"
 
-    sync_timer = _text(MIRROR / "tdx-sync.timer")
+    sync_timer = _mirror_text(MIRROR / "tdx-sync.timer")
     assert re.search(r"^OnCalendar=Mon\.\.Fri 16:30:00$", sync_timer, re.M), \
         "系统级同步时刻被改过，先确认没有第二个调度源"
 

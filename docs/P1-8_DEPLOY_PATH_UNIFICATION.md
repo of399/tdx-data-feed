@@ -52,36 +52,86 @@
 
 ## 5. 迁移步骤
 
-- **步骤 1（本回合已完成）· Python 入口**：`cli.py` / `full_sync.py` / `fin_parquet.py` 改用 `tdxfeed.paths.ROOT` / `DATA_ROOT` / `_ROOT` 推导，删除仓库根字面量。
-- **步骤 2（本回合已完成）· Shell 单一源**：新增 `scripts/lib/tdx-env.sh`；`sync-to-obsidian.sh` / `git_init_vaults.sh` / `hooks/pre-commit` 改为 source 它，删除字面量。
-- **步骤 3（本回合已完成）· 守卫**：新增 `tests/test_deploy_paths_unified.py`，断言上述文件无仓库根字面量且引用单一源。
-- **步骤 4（下一机械批次，R-部署）· systemd 单元**：
-  1. 仓库 `systemd/` 全部 user+system 单元：字面量 `/home/jiuben/tdx-data-feed` → `${TDX_HOME}`（`Documentation=` 行除外）；每个 service 增 `Environment=TDX_HOME=/home/jiuben/tdx-data-feed`。
-  2. 同步改写守卫 `tests/test_systemd_system_units_mirror.py::test_mirrored_services_use_the_repo_venv`：接受 `${TDX_HOME}/venv/bin/python` 形态（原硬性断言字面量会红）。
-  3. **root 部署会话**：`cp systemd/system/* /etc/systemd/system/ + daemon-reload + restart`（与 P0-1/P0-2 同一条 root 路径），否则 `test_mirror_matches_deployed_bytes` 会红。
-  4. 守卫 `tests/test_deploy_paths_unified.py` 扩展：断言 systemd 单元功能行（ExecStart/WorkingDirectory/Environment/StandardOutput/ExecStartPre/Post）无仓库根字面量、且含 `TDX_HOME`。
+- **步骤 1（已完成）· Python 入口**：`cli.py` / `full_sync.py` / `fin_parquet.py` 改用 `tdxfeed.paths.ROOT` / `DATA_ROOT` / `_ROOT` 推导，删除仓库根字面量。
+- **步骤 2（已完成）· Shell 单一源**：新增 `scripts/lib/tdx-env.sh`；`sync-to-obsidian.sh` / `git_init_vaults.sh` / `hooks/pre-commit` 改为 source 它，删除字面量。
+- **步骤 3（已完成）· 守卫**：新增 `tests/test_deploy_paths_unified.py`，断言上述文件无仓库根字面量且引用单一源。
+- **步骤 4（已完成 2026-11-02）· systemd 单元**：形态与原计划**不同**，见 §5.1。
+
+### 5.1 步骤 4：原方案为什么不能用，实测结论与替代形态
+
+原计划是「单元里字面量换成 `${TDX_HOME}` + 每个 service 增 `Environment=TDX_HOME=...`」。
+**这条路在本机 systemd 259 上不成立**——2026-11-02 用探针单元逐条实测：
+
+| 指令 | `${TDX_HOME}` 是否展开 | 实测结果 |
+|---|---|---|
+| `ExecStart=` / `ExecStartPre=` / `ExecStartPost=` | ✅ 生效（未加引号的词） | `test -f ${TDX_HOME}/config.yaml` 退出码 0 |
+| `WorkingDirectory=` | ❌ | **单元直接加载失败**：`Unit ... has a bad unit file setting` |
+| `StandardOutput=append:` / `StandardError=append:` | ❌ | **静默降级**：`StandardOutput= path is not absolute` → 回落 journal，日志文件不再产生 |
+| `Environment="PATH=${TDX_HOME}/venv/bin:..."` | ❌ | 原样保留 `${TDX_HOME}/...`，不展开 |
+| `Documentation=` | ❌ | systemd 不做任何变量展开 |
+
+即：四类指令里**只有 ExecStart 一类**能用变量，而工作目录、日志落盘、环境变量这三类
+必须拿到**真实绝对路径**。照原方案改，`WorkingDirectory` 会让单元装不上、`StandardOutput`
+会静默把日志吞进 journal——**改完线上会红，且红在"看起来装上了"的地方**。
+
+**替代形态（已落地）：模板 + 渲染。**
+
+```
+仓库单元（模板）                渲染器（单一路径源）              部署物（真实绝对路径）
+systemd/*.service         ──▶   scripts/render_systemd_units.py  ──▶   ~/.config/systemd/user/*
+systemd/system/*.service        TDX_HOME ← scripts/lib/tdx-env.sh       /etc/systemd/system/*
+```
+
+- 模板里指向仓库的路径一律写 `@TDX_HOME@`（systemd 里 `%` 是 specifier、`@` 只用于模板实例名，
+  不冲突）；渲染是纯字符串替换，产物与改造前**逐字节相同**（已用改造前快照全量比对验证：
+  49 个单元中 48 个字节一致，唯一差异是 `plan-e-monitor.service` 的 `%h/tdx-data-feed`
+  改成显式绝对路径——语义等价，且不再依赖 `%h`）。
+- 渲染产物**不入库**（`build/` 已在 gitignore），部署物直接从渲染结果复制；
+  源↔部署的零漂移由守卫直接比"渲染结果 vs 已部署文件"。
+- `make timer-install` 先渲染再安装；新增 `make systemd-render` 只渲染不安装。
+
+**因此本步骤不需要 root 会话**：渲染对已部署内容字节无变化，`/etc/systemd/system/` 下
+21 个镜像单元与渲染结果逐字节一致（守卫 `test_mirror_matches_deployed_bytes` 绿）。
+原先"必须 root 重新部署"的前提是"单元内容会变"，而渲染恰好把内容变化消掉了。
 
 ## 6. 每一项改动的文件范围与验收标准
 
-| 改动 | 文件范围 | 验收标准 |
-|---|---|---|
-| Python 入口推导 | `tdxfeed/cli.py` `full_sync.py` `fin_parquet.py` | `grep -r "/home/jiuben/tdx-data-feed" tdxfeed/` 仅剩 StockVault 外部默认（非仓库根）；`make test` 相关用例绿 |
-| Shell 单一源 | 新增 `scripts/lib/tdx-env.sh`；改 `sync-to-obsidian.sh` `git_init_vaults.sh` `hooks/pre-commit` | 上述 .sh 无仓库根字面量；source 后 `TDX_HOME` 指向仓库根；脚本手动 dry-run 跑通 |
-| 守卫 | `tests/test_deploy_paths_unified.py` | 反例（字面量回潮）必红 |
-| systemd（步骤4） | `systemd/*.service` `systemd/system/*.service` ~50 文件 + `tests/test_systemd_system_units_mirror.py` + `tests/test_deploy_paths_unified.py` | 仓库单元无字面量（Documentation 除外）；`test_mirrored_services_use_the_repo_venv` 接受 `${TDX_HOME}`；root 部署后字节镜像守卫绿 |
+| 改动 | 文件范围 | 验收标准 | 状态 |
+|---|---|---|---|
+| Python 入口推导 | `tdxfeed/cli.py` `full_sync.py` `fin_parquet.py` | `grep -r "/home/jiuben/tdx-data-feed" tdxfeed/` 仅剩 StockVault 外部默认（非仓库根）；`make test` 相关用例绿 | ✅ |
+| Shell 单一源 | 新增 `scripts/lib/tdx-env.sh`；改 `sync-to-obsidian.sh` `git_init_vaults.sh` `hooks/pre-commit` | 上述 .sh 无仓库根字面量；source 后 `TDX_HOME` 指向仓库根 | ✅ |
+| 守卫（步骤 1–3） | `tests/test_deploy_paths_unified.py` | 反例（字面量回潮）必红 | ✅ |
+| 渲染器（步骤 4） | 新增 `scripts/render_systemd_units.py` | `--check` 绿；渲染输出与改造前快照字节一致 | ✅ |
+| 单元模板化（步骤 4） | `systemd/*.service\|timer\|path` 18 个 + `systemd/system/*` 15 个（共 33 个含仓库路径） | 模板无仓库根字面量、无 `%h/tdx-data-feed`；`@TDX_HOME@` 覆盖全部仓库路径 | ✅ |
+| 安装链改造 | `Makefile`（`timer-install` 依赖新目标 `systemd-render`） | `make timer-install` 后 `~/.config/systemd/user` 与渲染结果字节一致 | ✅ |
+| 守卫同步（步骤 4） | `tests/test_deploy_paths_unified.py`（新增 systemd 三条）、`tests/test_systemd_units.py`、`tests/test_systemd_system_units_mirror.py`、`tests/test_sync_post_jobs.py`、`tests/test_daban_ticket_timer_shape.py`、`scripts/verify_obsidian_systemd.sh` | 全部按"渲染口径"读单元；改动模板不改守卫必红 | ✅ |
+| 系统级镜像 | `/etc/systemd/system/`（**未改动**） | 渲染结果 == 已部署文件，镜像守卫绿；因内容字节不变，本次**无需 root 会话** | ✅ |
 
 ## 7. 风险与缓解
 
-- **systemd 守卫耦合**：`test_mirrored_services_use_the_repo_venv` 硬断言字面量 → 步骤 4 必须同步改守卫，否则 CI 红。
-- **root 依赖**：systemd 单元改完不过 `test_mirror_matches_deployed_bytes` 直到 root 部署；与 P0-1/P0-2 共用一次 root 会话最经济。
+- **systemd 守卫耦合**：`test_mirrored_services_use_the_repo_venv` 原硬断言字面量 → 已改为
+  「渲染后路径 == 本机仓库根的 venv」，CI（checkout 在别处）同样成立。
+- **模板不是合法单元文件**：仓库里的 `systemd/*.service` 带 `@TDX_HOME@`，不能直接
+  `systemctl link` 或丢进 `/etc/systemd/system/`——必须走 `make timer-install` / 渲染器。
+  守卫 `test_installed_user_units_match_rendered_templates` 把"改了模板忘了安装"变成红灯。
+- **obsidian 漂移检查误报**：`scripts/verify_obsidian_systemd.sh` 的 V0 原先直接 diff
+  仓库文件与部署文件，模板化后会永远报漂移 → 已改为先渲染仓库侧（本次修掉的真实回归，
+  canary 的 `obsidian_sync` 维度曾由绿转红）。
 - **外部 vault 不可推导**：StockVault 保留主机默认 + 可覆盖，不强行统一。
+- **既有漂移被新守卫暴露**：`make timer-install` 补上了 P0-1 之后漏装的 6 个用户级单元
+  （`predict-daily` 此前缺同步哨兵与 `TimeoutStartSec=1800`）——这是**改造前就存在**的
+  部署漂移，本次一并修复。
 
-## 8. 下一步（P1-9 启动建议）
+## 8. 当前状态与下一步（P1-9）
 
-P1-9「名字/池单源」：归一 `norm_code`（当前 3 份）、`is_st`（3 种语义）、`load_universe`（7 份）到单一实现。
+- P1-8 步骤 1–4 **已全部落地**：Python 入口 / Shell 单一源 / 守卫 / systemd 模板+渲染。
+- 剩余遗留：`systemd/system/` 下的单元仍是模板，若将来需要**改内容**（而非路径），
+  改动后必须走渲染 + （系统级）root 部署；改路径则只改 `scripts/lib/tdx-env.sh` 一处。
+- **P1-9（名字/池单源）**的范围、依赖与成功判据见
+  `docs/P1-9_NAME_UNIVERSE_SINGLE_SOURCE.md`（含"计划描述与现状的两处偏差"）。
 
-- **启动第一步（先查后说）**：用 code-explorer 或 grep 全仓定位 `norm_code` / `is_st` / `load_universe` 的全部定义点与调用点（关注 `scripts/_common.py`、`tdxfeed/paths.py`、`tdxfeed/daban/limit_price.py`）。
-- **定 canon**：选一份作为唯一实现（建议 `scripts/_common.norm_code` 委托 `tdxfeed/paths.exchange_prefix`/`normalize_code`，与现有单源守卫一致），其余标记删除。
-- **建守卫**：扩展 `tests/test_names_single_source.py`（断言每种实现全局唯一）+ 升级 `tests/test_universe_path_single_source.py`。
-- **迁移调用点**：逐文件改调用到 canon，删重复定义；每改一处跑 `make gate`。
-- **与 P1-8 关系**：计划依赖图标注 P1-8/9/10 互相独立可并行；但共享工作树下建议分提交、错峰推进，避免 `git` 冲突。P1-9 与 P1-12（原涨停判定单源）同属 KI-SINGLE，可合并一轮审计。
+---
+生成时间：2026-11-02 11:40
+生成者：P1-8 实施会话（步骤 4）
+模型版本：不适用（工程改造）
+数据日期：不适用

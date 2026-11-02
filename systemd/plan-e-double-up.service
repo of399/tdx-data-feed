@@ -10,13 +10,13 @@ OnFailure=onfailure-alert@plan-e-double-up.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/jiuben/tdx-data-feed
-Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+WorkingDirectory=@TDX_HOME@
+Environment="PATH=@TDX_HOME@/venv/bin:/usr/local/bin:/usr/bin:/bin"
 # 数据新鲜度守卫：当日收盘的行情没到位就不重算，否则拿停滞数据重建候选池
-ExecStartPre=/home/jiuben/tdx-data-feed/scripts/precheck_freshness.sh
-ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/find_double_up_c.py
-StandardOutput=append:/home/jiuben/tdx-data-feed/logs/plan_e_double_up.log
-StandardError=append:/home/jiuben/tdx-data-feed/logs/plan_e_double_up.err
+ExecStartPre=@TDX_HOME@/scripts/precheck_freshness.sh
+ExecStart=@TDX_HOME@/venv/bin/python scripts/find_double_up_c.py
+StandardOutput=append:@TDX_HOME@/logs/plan_e_double_up.log
+StandardError=append:@TDX_HOME@/logs/plan_e_double_up.err
 # 2026-10-24 实测 16s 扫完 5236 只 parquet；脚本自述的"~2-3 分钟"是旧机时。
 # 留足到 1800s 是因为 cold cache + 与 18:00 sync 重叠时会慢一个量级，而 user manager 默认 90s 会被砍。
 TimeoutStartSec=1800

@@ -7,18 +7,18 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=jiuben
-WorkingDirectory=/home/jiuben/tdx-data-feed
-ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python -m tdxfeed.full_sync
+WorkingDirectory=@TDX_HOME@
+ExecStart=@TDX_HOME@/venv/bin/python -m tdxfeed.full_sync
 # 同步完成哨兵（KI-COMPETE-001）：full_sync 成功（exit 0）才执行 ExecStartPost；
 # 失败则整条 ExecStartPost 链不执行 => 哨兵不写。predict-daily 据此门禁出榜。
-ExecStartPost=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/scripts/mark_sync_done.py
+ExecStartPost=@TDX_HOME@/venv/bin/python @TDX_HOME@/scripts/mark_sync_done.py
 # 同步成功后刷新派生表、复权因子与后复权因子（增量）。前缀 "-" 表示后置任务失败不把整轮同步判红：
 # 数据是否真的新鲜由 canary 的 data_files 检查兜底，避免一次网络抖动让整个同步单元变红。
-ExecStartPost=-/home/jiuben/tdx-data-feed/venv/bin/python -m tdxfeed.precompute.indicators --incremental
-ExecStartPost=-/home/jiuben/tdx-data-feed/venv/bin/python -m tdxfeed.adj_factor
-ExecStartPost=-/home/jiuben/tdx-data-feed/venv/bin/python -m tdxfeed.hfq_factor
-StandardOutput=append:/home/jiuben/tdx-data-feed/logs/tdx-systemd.log
-StandardError=append:/home/jiuben/tdx-data-feed/logs/tdx-systemd.log
+ExecStartPost=-@TDX_HOME@/venv/bin/python -m tdxfeed.precompute.indicators --incremental
+ExecStartPost=-@TDX_HOME@/venv/bin/python -m tdxfeed.adj_factor
+ExecStartPost=-@TDX_HOME@/venv/bin/python -m tdxfeed.hfq_factor
+StandardOutput=append:@TDX_HOME@/logs/tdx-systemd.log
+StandardError=append:@TDX_HOME@/logs/tdx-systemd.log
 # 6 小时 = full_sync + adj 全市场约 60 分钟 + hfq 全市场约 60 分钟 + 退避/重试余量。
 # 两个后置任务各自 5221 只 × 约 0.6 秒且都打 baostock，3 小时的原值在源变慢时会把
 # oneshot 拖到 TimeoutStartSec 被杀——后半段会被截断且没有任何完成标记。

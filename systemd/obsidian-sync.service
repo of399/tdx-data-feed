@@ -12,11 +12,11 @@ OnFailure=onfailure-alert@obsidian-sync.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/jiuben/tdx-data-feed
-Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=/usr/bin/bash /home/jiuben/tdx-data-feed/scripts/sync-to-obsidian.sh
-StandardOutput=append:/home/jiuben/tdx-data-feed/logs/obsidian-sync.log
-StandardError=append:/home/jiuben/tdx-data-feed/logs/obsidian-sync.err
+WorkingDirectory=@TDX_HOME@
+Environment="PATH=@TDX_HOME@/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/bash @TDX_HOME@/scripts/sync-to-obsidian.sh
+StandardOutput=append:@TDX_HOME@/logs/obsidian-sync.log
+StandardError=append:@TDX_HOME@/logs/obsidian-sync.err
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7

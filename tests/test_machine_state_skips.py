@@ -24,6 +24,7 @@ MACHINE_STATE_SKIP_MODULES = {
     "tests/test_backfill_history_runner.py": "data/ 回填产物（amount 修补接线）",
     "tests/test_daily_history_depth_no_cap_truncation.py": "data/ 审计产物与回填文件",
     "tests/test_daily_listing_and_resolve.py": "data/parquet/daily 行情目录",
+    "tests/test_deploy_paths_unified.py": "本机用户级 systemd 部署目录（~/.config/systemd/user）",
     "tests/test_double_up_sample_refresh.py": "data/double_up 样本备份",
     "tests/test_limit_single_source.py": "data/parquet/daily 行情目录",
     "tests/test_math_unit_deployed_matches_repo.py": "/etc 部署的 math-sympy-http 单元 + systemctl",

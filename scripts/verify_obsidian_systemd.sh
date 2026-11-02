@@ -25,6 +25,14 @@ UNIT_PATH=obsidian-sync.path
 UNIT_SVC=obsidian-sync.service
 # 不应出现在监听 Paths 中的数据目录 (修复后已解耦)
 DATA_DIRS=("data/plan_e" "training/eval")
+# 仓库里存的是单元模板 (仓库根写作 @TDX_HOME@), systemd 实际加载的是渲染结果;
+# 比对仓库与部署必须先渲染仓库那一侧, 否则模板与部署物永远不一致 (假漂移)。
+PY="$ROOT/venv/bin/python"
+RENDER="$ROOT/scripts/render_systemd_units.py"
+
+render_unit() {  # 渲染仓库侧单元模板到标准输出
+  "$PY" "$RENDER" --unit "$REPO_SYSD/$1" 2>/dev/null
+}
 
 # ---- 模式 ----
 READONLY=0
@@ -67,8 +75,8 @@ echo "--- V0 仓库/部署漂移 (systemd 实际加载目录) ---"
 drift=0
 for f in "$UNIT_PATH" "$UNIT_SVC"; do
   if [ -f "$REPO_SYSD/$f" ] && [ -f "$USER_SYSD/$f" ]; then
-    if ! diff -q "$REPO_SYSD/$f" "$USER_SYSD/$f" >/dev/null 2>&1; then
-      bad "V0 漂移: 仓库 $REPO_SYSD/$f 与部署 $USER_SYSD/$f 不一致 → 需执行 'make timer-install'"
+    if ! diff -q <(render_unit "$f") "$USER_SYSD/$f" >/dev/null 2>&1; then
+      bad "V0 漂移: 仓库 $REPO_SYSD/$f (渲染后) 与部署 $USER_SYSD/$f 不一致 → 需执行 'make timer-install'"
       drift=1
     fi
   elif [ ! -f "$USER_SYSD/$f" ]; then
@@ -76,7 +84,7 @@ for f in "$UNIT_PATH" "$UNIT_SVC"; do
     drift=1
   fi
 done
-[ "$drift" -eq 0 ] && ok "V0 仓库与部署单元文件逐字节一致 (无漂移)"
+[ "$drift" -eq 0 ] && ok "V0 仓库(渲染后)与部署单元文件逐字节一致 (无漂移)"
 
 # ================= V1 StartLimit 生效 =================
 echo "--- V1 StartLimit 配置 (防 start-limit-hit) ---"

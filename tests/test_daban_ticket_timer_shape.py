@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts.render_systemd_units import render_text
+
 # 只读 systemd 单元与 Makefile 的静态形态。
 NEEDS_DATA = False
 
@@ -28,6 +30,15 @@ ROOT = Path(__file__).resolve().parents[1]
 AUTHOR_ROOT = Path("/home/jiuben/tdx-data-feed")
 SERVICE = ROOT / "systemd" / "daban-ticket.service"
 TIMER = ROOT / "systemd" / "daban-ticket.timer"
+
+
+def _rendered(text: str) -> str:
+    """单元是模板（仓库根写作 @TDX_HOME@）；按「作者机器路径」渲染。
+
+    渲染成作者机器的绝对路径而不是当前 checkout，是为了让 `Documentation=` 出处保持既有约定
+    ——`_resolve_documented_path` 按 AUTHOR_ROOT 前缀把 token 映射回当前 ROOT，CI 里也能核验。
+    """
+    return render_text(text, str(AUTHOR_ROOT))
 
 # 小时粗筛 + 分钟步进：09/10/11 与 13/14 五个钟点段，每 5 分钟一次（60 次触发，
 # 落在连续竞价窗内的约 48 次，其余由脚本内的会话门丢弃）。
@@ -68,7 +79,7 @@ def test_timer_uses_the_hour_stepped_calendar():
 
 def test_timer_has_no_persistent_replay():
     """补跑会拿旧行情出今天的票，这里有意不启用。"""
-    text = TIMER.read_text(encoding="utf-8")
+    text = _rendered(TIMER.read_text(encoding="utf-8"))
     live = "\n".join(
         ln for ln in text.splitlines() if not ln.strip().startswith(("#", ";"))
     )
@@ -84,12 +95,12 @@ def test_timer_has_no_persistent_replay():
     ("TimeoutStartSec", "180"),
 ])
 def test_service_run_shape(key, expected):
-    service = _ini(SERVICE.read_text(encoding="utf-8"))
+    service = _ini(_rendered(SERVICE.read_text(encoding="utf-8")))
     assert service["Service"][key] == expected
 
 
 def test_service_executes_the_entry_script():
-    service = _ini(SERVICE.read_text(encoding="utf-8"))
+    service = _ini(_rendered(SERVICE.read_text(encoding="utf-8")))
     exec_start = service["Service"]["ExecStart"]
     assert exec_start.endswith("scripts/daban_entry.py"), exec_start
     assert "venv/bin/python" in exec_start, "必须走仓库自己的 venv（系统 python3 没装本仓库依赖）"
@@ -98,7 +109,7 @@ def test_service_executes_the_entry_script():
 
 def test_service_alerts_and_logs_like_the_neighbours():
     """照 plan-e-double-up 的写法：失败进 OnFailure，输出落到 logs/。"""
-    text = SERVICE.read_text(encoding="utf-8")
+    text = _rendered(SERVICE.read_text(encoding="utf-8"))
     service = _ini(text)
     assert service["Unit"]["OnFailure"] == "onfailure-alert@daban-ticket.service"
     assert (ROOT / "systemd" / "onfailure-alert@.service").exists()
@@ -138,7 +149,7 @@ def test_documentation_points_at_the_committed_spec():
     `ls-files` 一起查，不能只查 `exists()`。CI 里连作者路径都不存在，`_resolve_documented_path`
     先把 token 映射回当前 `ROOT` 再查。
     """
-    service = _ini(SERVICE.read_text(encoding="utf-8"))
+    service = _ini(_rendered(SERVICE.read_text(encoding="utf-8")))
     tokens = service["Unit"]["Documentation"].split()
     assert len(tokens) == 1, f"Documentation 按空白切段，多写就整段被丢：{tokens}"
     token = tokens[0]

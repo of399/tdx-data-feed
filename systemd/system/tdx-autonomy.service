@@ -6,8 +6,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/jiuben/tdx-data-feed
-ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/v5/scripts/tdx_autonomy.py
+WorkingDirectory=@TDX_HOME@
+ExecStart=@TDX_HOME@/venv/bin/python @TDX_HOME@/v5/scripts/tdx_autonomy.py
 Restart=always
 RestartSec=10
 StandardOutput=journal

@@ -15,16 +15,24 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from scripts.render_systemd_units import render_text
+
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMES = ("http://", "https://", "file://", "man:", "html:")
 
 
 def _doc_tokens() -> list[tuple[Path, str]]:
+    """扫出全部 Documentation= 出处。
+
+    仓库里存的是模板（仓库根写作 @TDX_HOME@），systemd 实际加载的是渲染结果；
+    校验「file:// 指向的文档确实存在」必须按渲染后的真实路径算，所以这里先渲染再拆 token。
+    """
     out = []
     for fp in sorted((ROOT / "systemd").glob("*")):
         if fp.suffix not in (".service", ".timer", ".path"):
             continue
-        for line in fp.read_text(encoding="utf-8").splitlines():
+        text = render_text(fp.read_text(encoding="utf-8"), str(ROOT))
+        for line in text.splitlines():
             stripped = line.strip()
             if stripped.startswith("Documentation="):
                 for token in stripped[len("Documentation="):].split():

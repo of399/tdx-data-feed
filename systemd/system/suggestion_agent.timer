@@ -1,6 +1,6 @@
 [Unit]
 Description=Weekly Vault Suggestion Report (M5 Phase 2)
-Documentation=file:///home/jiuben/tdx-data-feed/v5-implementation-plan.md
+Documentation=file://@TDX_HOME@/v5-implementation-plan.md
 
 [Timer]
 # 每周日 02:00 UTC 跑一次（相当于本地周日 10:00 或周一 10:00，看夏令时）
