@@ -1,6 +1,6 @@
 # P1-9 名字/池单源方案（2026-11-02）
 
-> 任务来源：整改计划 `docs/REMEDIATION_PLAN_2026-11-01.md` 的 **P1-9「名字/池单源」**
+> 任务来源：整改计划 `docs/archive/REMEDIATION_PLAN_2026-11-01.md` 的 **P1-9「名字/池单源」**
 > （KI-SINGLE-001/002/003，R-仓库，计划窗口 11-09 → 11-15）。
 > 上游依赖 **P1-8 步骤 4 已于本会话完成**（见 `docs/P1-8_DEPLOY_PATH_UNIFICATION.md` §5.1）。
 

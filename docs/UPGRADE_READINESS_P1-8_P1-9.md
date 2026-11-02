@@ -1,4 +1,4 @@
-# 升级就绪评估报告：P1-8 步骤 4 + P1-9（2026-11-02 15:15）
+# 升级就绪评估报告：P1-8 步骤 4 + P1-9（2026-11-02 14:57 入库 · 15:14 核正）
 
 > 评估对象：基线 `942c9b2` → 当前 `95d57d7`，共 **7 个提交 / 84 个文件（+2,241 / −524）**。
 > 目的：判断改造是否全部完成、是否具备上线条件。结论见 §⚠️ 与 §🔧。
@@ -9,7 +9,7 @@
 |---|---|---|---|
 | 1 | **版本标识** | 无独立版本号（仓库无 setup.py / pyproject / VERSION）→ **以 git commit 为版本**：`942c9b2`（改造前）→ `95d57d7`（当前） | — |
 | 2 | **运行环境** | **开发机 = 生产运行机（同一台）**：用户级 systemd 定时器在跑、`linger=yes`、`/etc/systemd/system` 有系统级单元 | ⚠️ 生产已生效 |
-| 3 | **数据库迁移** | **无**。主仓存储为 parquet + JSON；唯一 sqlite3 在 `v5/mcp_math/math_cache.py`（数学缓存，本次未触及） | ✅ 无迁移需求 |
+| 3 | **数据库迁移** | **无**。主仓存储为 parquet + JSON；sqlite3 共 **3 处**（`v5/mcp_math/math_cache.py`、`v5/mcp_math/derivation_cache.py`、`v5/workbench/server.py`），本次 v5 零改动、均未触及 | ✅ 无迁移需求 |
 | 4 | **配置变更** | 3 类：`Makefile`（新增 `systemd-render`、安装链改渲染后安装）、`config/known_issues.yaml`（3 条 FIXED）、`systemd/` 33 个单元**改存模板**（部署形态变化） | ⚠️ 部署链有变化 |
 | 5 | **对外接口变更** | **0**。MCP 工具面未变（只改内部符号 `_load_universe`/`_universe` → `_pool`）；`names.load_universe(path=None)` 为**向后兼容**的可选参数扩展；`_common.norm_code` 改为**同一函数对象的别名** | ✅ 无兼容性破坏 |
 | 6 | **回归测试** | `pytest tests/` = **1,767 passed / 10 failed / 4 skipped**；10 项失败经**基线 worktree 逐项复验**（改动前 `942c9b2` 同样 10 项全失败）⇒ **新增失败 0**，并净修 2 项基线红 | ✅ 无回归 |
@@ -43,7 +43,7 @@
 
 | 判据 | 命令 / 位置 | 实测结果 | 状态 |
 |---|---|---|---|
-| 单元是模板、无仓库根字面量 | `tests/test_deploy_paths_unified.py` | 4 条全绿（模板化 / 与主机路径无关 / 已安装单元 == 渲染结果） | ✅ |
+| 单元是模板、无仓库根字面量 | `tests/test_deploy_paths_unified.py` | 7 条全绿（模板化 / 与主机路径无关 / 已安装单元 == 渲染结果） | ✅ |
 | 单元渲染正确 | `venv/bin/python scripts/render_systemd_units.py --check` | `✓ 49 个单元模板通过校验` | ✅ |
 | 系统级镜像零漂移 | `tests/test_systemd_system_units_mirror.py` | **6 passed**（渲染 vs `/etc` 字节一致） | ✅ |
 | 股票池实现数 = 1 | `tests/test_universe_path_single_source.py` | 10 条全绿（路径层 + 行为层 R4 + 入口层 R5 + 反例必红 + 端到端自检） | ✅ |
@@ -83,9 +83,13 @@
    上次实际运行为 **10-30**（旧代码）⇒ **今天 18:05 是启用后的首次运行**，也就是新代码的首次真实生产执行。
    本次改动触及的定时路径（`predict.py` / `plan_e_sim_live.py`）正是这条。
    ⇒ **判定：代码侧具备上线条件，但"已在生产跑过"这一条不成立**，需以 18:05 首跑作为放行观察点。
-2. **🟠 首跑数据新鲜度受限**：`tdxfeed_sync` 已滞后 2 天 22 小时（canary ⚠️，既有运维滞后，非本次引入）
-   ⇒ 18:05 首跑用的可能是旧数据，**不能用首跑结果评估本次改动的正确性**（只验证"不崩"）。
-3. **🟠 门禁信号被稀释**：10 项既有红里有 **5 处 SEM002** 未清（`check_sync_sentinel.py`×2、
+2. **🟠 首跑数据新鲜度受限**：`tdxfeed_sync` 已滞后 2 天 22 小时（canary ⚠️，既有运维滞后，非本次引入）。
+   但**不存在「带旧数据跑」的分支**：`predict-daily` 的 `ExecStartPre=precheck_freshness.sh` 是
+   `max_age_days=2` 硬闸门（周一阈值 10-31，周五 10-30 的 bar 已算陈旧）——今天 16:30 同步若成功，
+   18:05 用新鲜数据正常跑；若不成功，闸门 exit 2 **整轮跳过**。放行观察须同时覆盖「被跳过」分支：
+   跳过不等于本次改动有问题，但首跑取证要顺延到下一个同步成功的交易日。
+3. **🟠 门禁信号被稀释**：10 项既有红里有 **3 项**（`test_ci_semantic_guard` / `test_sem002_convergence` /
+   `test_error_counters`）由同 **5 处 SEM002** 触发（`check_sync_sentinel.py`×2、
    `mark_sync_done.py`、`mcp/schema_validation.py`、`mcp/servers/parquet_reader.py`）
    ⇒ 新增吞错违规会混在这 5 处里难以分辨；且 `mark_sync_done.py` 的入口 smoke 至今红。
 4. **🟡 性能结论是推断**：仅微基准，无端到端基准（见 §📈）。
@@ -111,7 +115,23 @@
    的 `Elapsed` 与改造前同口径对比（历史基线需从 journal 取）。
 
 ---
-生成时间：2026-11-02 15:35:00
+生成时间：2026-11-02 14:57（入库 commit `4b4c882`；原署 15:15/15:35 晚于入库时间，已核正）
+
+## 核正补记（2026-11-02 15:14，独立核查会话）
+
+逐项复验确认：7 提交 / 84 文件 / +2241−524、1767 passed / 10 failed / 4 skipped、10 项失败名单、
+渲染 49 / 镜像 21 / names 16 / universe 10、SEM002 恰 5 处、台账 19/5/16/0、smoke 14/1、
+净修 2 项、MCP 工具面零变化、predict-daily 时间线、canary err=0 warn=2 均与实测一致；
+微基准 0.74/0.93 ms 在无负载下复现（0.74/0.95）。更正 4 处：
+
+1. **时间戳**：原署 15:15/15:35 晚于入库时间 14:57:29，改按入库时间。
+2. **风险 #2**：原「首跑可能用旧数据」不成立——新鲜度闸门会整轮拦下（见该条改写）。
+3. **「唯一 sqlite3」**：实为 3 处（见 §核心指标 #3）；「未触及、无迁移」结论不变。
+4. **deploy_paths 守卫计数**：实测 7 条，原写 4 条。
+
+另：10 项红之第 8 项（`test_no_dated_docs_in_docs_root`）已于本补记同时消解——
+`REMEDIATION_PLAN_2026-11-01.md` / `REVERSE_WORKFLOW_ANALYSIS_2026-11-01.md` 两份残留快照
+移入 `docs/archive/` 并改写 3 处路径引用，守卫 5 条全绿。
 生成者：升级就绪评估会话
 模型版本：不适用（工程改造）
 数据日期：不适用
