@@ -1,5 +1,6 @@
 [Unit]
 Description=tdx Verification (run math_sympy tests + smoke test)
+OnFailure=onfailure-alert-system@tdx-verification.service
 Documentation=v5-implementation-plan.md §4.2 M4
 
 [Service]

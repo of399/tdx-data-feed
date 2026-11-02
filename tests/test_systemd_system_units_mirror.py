@@ -56,6 +56,9 @@ MIRRORED = {
     "tdx-sync.timer",
     "tdx-verification.service",
     "tdx-verification.timer",
+    # 系统级失败告警模板：P0-2 新增，必须进镜像清单，否则与仓库 systemd/system/ 不一致会让
+    # test_mirror_lists_the_units_we_track 红。
+    "onfailure-alert-system@.service",
 }
 
 

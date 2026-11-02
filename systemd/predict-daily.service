@@ -12,7 +12,12 @@ WorkingDirectory=/home/jiuben/tdx-data-feed
 Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
 # 数据新鲜度守卫：50 抽样中 >20% 末日期早于 today-2d 则 exit 2，主 ExecStart 不执行
 ExecStartPre=/home/jiuben/tdx-data-feed/scripts/precheck_freshness.sh
+# 同步完成哨兵（KI-COMPETE-001）：本交易日全市场同步未完成则不出榜（与上面整体陈旧守卫互补，
+# 挡住"部分标的正在被写"的并发竞态）。哨兵缺失/过期 => exit 2。双通道（unit 近期 success 兜底首次上线）。
+ExecStartPre=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/scripts/check_sync_sentinel.py --max-age-hours 12
 # small 模式默认 Top 5；阈值 0.7，并行 8 进程（避免内存爆）
+# 全市场 5221 只 × 8 进程，量级远超 user manager 默认 90s；避免卡死时占住机器数小时。
+TimeoutStartSec=1800
 ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/predict.py --position-mode small --threshold 0.7 --workers 8
 StandardOutput=append:/home/jiuben/tdx-data-feed/logs/predict.log
 StandardError=append:/home/jiuben/tdx-data-feed/logs/predict.err

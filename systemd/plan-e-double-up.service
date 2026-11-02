@@ -1,7 +1,9 @@
 [Unit]
-Description=方案 E 翻倍样本重建（18:30 在 tdxfeed-sync 之后，供次日 08:45 盘前清单用）
+Description=方案 E 翻倍样本重建（18:30 在系统级 tdx-sync 之后，供次日 08:45 盘前清单用）
 # 只声明顺序、不写 Wants=：把 full_sync 拉进本次事务等于每次刷新都重跑一遍全市场下载。
-After=tdxfeed-sync.service
+# 跨 manager 的 After 仅作依赖图标注（不强制顺序，顺序由 P0-1 哨兵在 double-up 守卫）；
+# 指向系统级活跃单元 tdx-sync.service（2026-10-28 起退役的 tdxfeed-sync 已不再存在，引用即死依赖）。
+After=tdx-sync.service
 # OnFailure 只在 [Unit] 生效：2026-10-24 把它写在 [Service] 里，`systemd-analyze verify` 报
 # `Unknown key 'OnFailure' in section [Service], ignoring.`——那只 timer 的失败告警一次也没发过。
 OnFailure=onfailure-alert@plan-e-double-up.service

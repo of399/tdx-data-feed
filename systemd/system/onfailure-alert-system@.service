@@ -1,0 +1,16 @@
+[Unit]
+Description=tdx-data-feed 系统级单元失败告警（pushplus 桥）
+# 用户级 onfailure-alert@.service 只能解析同 manager 的单元；系统级单元（tdx-sync / tdx-monitor /
+# tdx-verification）失败必须走系统级模板，否则 onfailure_alert.py 用 --user 查不到它们、载荷全是 ?。
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jiuben/tdx-data-feed
+Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python /home/jiuben/tdx-data-feed/scripts/onfailure_alert.py --scope system %i
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=onfailure-alert-system
+
+[Install]
+WantedBy=multi-user.target

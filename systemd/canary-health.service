@@ -7,6 +7,8 @@ OnFailure=onfailure-alert@canary-health.service
 Type=oneshot
 WorkingDirectory=/home/jiuben/tdx-data-feed
 Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
+# 每 5 分钟一次的健康巡检，正常 <10s；超时上限给到 120s 防止与数据目录 IO 争抢时误杀。
+TimeoutStartSec=120
 ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/canary_health_check.py --quiet
 StandardOutput=append:/home/jiuben/tdx-data-feed/logs/canary.out
 StandardError=append:/home/jiuben/tdx-data-feed/logs/canary.err

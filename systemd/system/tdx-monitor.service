@@ -1,5 +1,6 @@
 [Unit]
 Description=tdx System Monitor (CPU/GPU/Disk/Services health)
+OnFailure=onfailure-alert-system@tdx-monitor.service
 Documentation=v5-implementation-plan.md §4.2 M4
 After=network-online.target
 Wants=network-online.target

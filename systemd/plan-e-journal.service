@@ -10,6 +10,8 @@ WorkingDirectory=/home/jiuben/tdx-data-feed
 Environment="PATH=/home/jiuben/tdx-data-feed/venv/bin:/usr/local/bin:/usr/bin:/bin"
 # 数据新鲜度守卫
 ExecStartPre=/home/jiuben/tdx-data-feed/scripts/precheck_freshness.sh
+# 盘后信号归档，量级接近 predict；与 predict 保持一致的超时上限。
+TimeoutStartSec=1800
 ExecStart=/home/jiuben/tdx-data-feed/venv/bin/python scripts/plan_e_journal.py --mode daily
 StandardOutput=append:/home/jiuben/tdx-data-feed/logs/plan_e_journal.log
 StandardError=append:/home/jiuben/tdx-data-feed/logs/plan_e_journal.err
