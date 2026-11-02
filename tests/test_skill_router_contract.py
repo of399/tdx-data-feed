@@ -1,4 +1,4 @@
-"""P1-1 / P1-2：skill_router 的 yaml 契约基线测试。
+"""P1-1 / P1-2：skill_router 的 yaml 契约基线测试（台账 KI-SKILL-001 的守卫）。
 
 契约基线（P1-2 将进一步收紧为"真契约"并清除死字段）：
 - 每个 skills/*.yaml 必须能解析为映射

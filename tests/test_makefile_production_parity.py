@@ -1,4 +1,4 @@
-"""P1-7：Makefile 口径对齐生产。
+"""P1-7：Makefile 口径对齐生产（台账 KI-MAKE-001 的守卫）。
 
 验收：
 - `make predict` 与 `predict-daily.service` 参数逐项一致（small/Top5/并行8，不再用 dev 的 Top30）

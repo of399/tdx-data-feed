@@ -79,6 +79,14 @@
 
 ### 项 3 · 台账 detect 复查（低风险，纯台账，不碰代码）
 
+> **✅ 已完成（2026-11-02）**：40 条逐条反向验证。3 条错代理修复（COMPETE-001
+> Requires= 代理→双闸门、OPS-001 字面量→USER_PATHS 变量、OPS-002 grep --user→absent --scope）；
+> 8 条晋升 FIXED（含 5 条 RESOLVED 转正 + 3 条错代理修复后转正），守卫均含条目 ID；
+> MCP-002 扩到 5 个未接线 server、SKILL-002 收窄到残留死字段 external_api_timeout_sec、
+> IMPORT-001 扩到 train_daban_model 族、DOC-001 排除 docs/archive 历史快照、
+> SINGLE-004 注明 docstring 命中（代码实为 8 处）。复扫收敛 STILL_PRESENT 16 · RESOLVED 0 ·
+> FIXED_OK 24 · GUARD_MISSING 0；M-5 绑定检查通过。
+
 **改动内容**：40 条 detect 规格逐条反向验证——「这条 pattern 能不能抓住它 title 描述的问题形态」。
 已知过窄的三条（本批实测）：
 

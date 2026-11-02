@@ -57,7 +57,7 @@ issues:
     title: "predict 与系统级 sync 跨 manager 无序，可能读到半新半旧数据"
     theme: concurrency
     severity: P0
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -65,21 +65,22 @@ issues:
     locations: ["systemd/predict-daily.service", "systemd/system/tdx-sync.service"]
     detect:
       - kind: absent
-        pattern: "Requires=tdxfeed-sync"
+        pattern: "precheck_freshness|check_sync_sentinel"
         path: "systemd/predict-daily.service"
-        note: "缺失=仍无顺序保证；命中=已加保护"
+        note: "缺失=无就绪闸门；命中=双闸门在位。P1-12 项3 换代理：设计刻意不用 Requires=，旧代理恒判存在"
     impact: "全市场预测可能基于部分旧数据出榜，结论失真且难察觉"
-    guard: "NONE"
+    guard: "tests/test_sync_sentinel.py"
     owner: "jiuben"
     due: "2026-11-10"
     exemption: "NONE"
     fix_hint: "系统级 tdx-sync 的 ExecStartPost 末尾 touch data/.state/sync-done；predict 的 ExecStartPre 校验哨兵存在且 mtime 在 N 小时内"
+    fix_note: "2026-11-02 P1-12 项3 复查转正：b3090f0 哨兵 + precheck_freshness 双闸门已在 ExecStartPre；守卫含本条 ID"
 
   - id: KI-COMPETE-002
     title: "plan-e-double-up 依赖已退役的 tdxfeed-sync.service，成为死依赖"
     theme: concurrency
     severity: P1
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -90,11 +91,12 @@ issues:
         pattern: "After=tdxfeed-sync"
         path: "systemd/plan-e-double-up.service"
     impact: "18:30 翻倍样本重建不再等待任何同步，可能读到半更新数据"
-    guard: "NONE"
+    guard: "tests/test_no_retired_unit_refs.py"
     owner: "jiuben"
     due: "2026-11-10"
     exemption: "NONE"
     fix_hint: "改哨兵校验（同 KI-COMPETE-001）或直接依赖系统级 tdx-sync"
+    fix_note: "2026-11-02 P1-12 项3 复查转正：After=tdxfeed-sync 已移除（scan RESOLVED），守卫含本条 ID"
 
   - id: KI-ATOMIC-001
     title: "plan_e_today.csv 非原子写，读者可能读到半截文件"
@@ -269,9 +271,21 @@ issues:
     locations: ["mcp/servers/"]
     detect:
       - kind: absent
-        pattern: "jsonschema|validate_params|_validate"
+        pattern: "validate_tool_args"
         path: "mcp/servers/backtest.py"
-        note: "缺失=无校验；命中=已实现"
+        note: "P1-12 项3 扩到全部未接线 server（P1-5 已接 parquet_reader，1/6）；五处全缺失=问题仍在"
+      - kind: absent
+        pattern: "validate_tool_args"
+        path: "mcp/servers/calc.py"
+      - kind: absent
+        pattern: "validate_tool_args"
+        path: "mcp/servers/finance_deep.py"
+      - kind: absent
+        pattern: "validate_tool_args"
+        path: "mcp/servers/news.py"
+      - kind: absent
+        pattern: "validate_tool_args"
+        path: "mcp/servers/vault.py"
     impact: "schema 的 enum/required 从不执行；拼错参数名变成 -32603 内部错误而非 -32602"
     guard: "NONE"
     owner: "jiuben"
@@ -283,7 +297,7 @@ issues:
     title: "parquet_reader 的 code 参数无格式校验，存在路径穿越"
     theme: contract
     severity: P0
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -295,17 +309,18 @@ issues:
         path: "mcp/servers/parquet_reader.py"
         note: "缺失=无校验；命中=已校验"
     impact: "code='../../x' 或绝对路径可越出数据目录读任意 .parquet"
-    guard: "NONE"
+    guard: "tests/test_mcp_code_validation.py"
     owner: "jiuben"
     due: "2026-11-10"
     exemption: "NONE"
     fix_hint: "三个工具统一走 _norm_code 正则（其余 server 已有）"
+    fix_note: "2026-11-02 P1-12 项3 复查转正：e7073d9（P0-3）_norm_code 已接线，守卫含本条 ID"
 
   - id: KI-OPS-001
     title: "make timer-install 白名单漏 obsidian-sync，其修复提示形同无效"
     theme: ops
     severity: P0
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -313,44 +328,46 @@ issues:
     locations: ["Makefile"]
     detect:
       - kind: absent
-        pattern: "obsidian-sync"
+        pattern: "USER_PATHS"
         path: "Makefile"
         section: "timer-install"
-        note: "在 timer-install 目标块内缺失=未纳入安装；命中=已纳入"
+        note: "P1-12 项3 换代理：安装已变量化（$(USER_PATHS) 循环，obsidian-sync 在名单里），旧字面量代理探不到变量展开"
     impact: "obsidian-sync.path 已 enabled+active，漂移时 canary 持续报 error 并每 5 分钟推微信，而 make timer-install 修不好"
-    guard: "NONE"
+    guard: "tests/test_timer_install_scope.py"
     owner: "jiuben"
     due: "2026-11-08"
     exemption: "NONE"
     fix_hint: "新增 USER_PATHS 名单纳入 timer-install；RETIRED_PATHS 纳入 timer-disable"
+    fix_note: "2026-11-02 P1-12 项3 复查转正：A2 三名单 + timer-install 的 USER_PATHS 循环已覆盖 obsidian-sync；守卫含本条 ID"
 
   - id: KI-OPS-002
     title: "onfailure 告警只查 user scope，系统级单元失败不可见"
     theme: ops
     severity: P0
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
     sources: ["docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:119"]
     locations: ["scripts/onfailure_alert.py"]
     detect:
-      - kind: grep
-        pattern: "--user"
-        paths: ["scripts/onfailure_alert.py"]
-        min_count: 1
+      - kind: absent
+        pattern: "--scope"
+        path: "scripts/onfailure_alert.py"
+        note: "P1-12 项3 换代理：旧 grep --user 在修复后仍命中（--user 是默认分支的条件前缀），命中≠只查 user"
     impact: "系统级 tdx-sync/tdx-monitor/tdx-verification 失败时 result/status 取不到，载荷全是 ?，告警黑洞"
-    guard: "NONE"
+    guard: "tests/test_onfailure_scope.py"
     owner: "jiuben"
     due: "2026-11-12"
     exemption: "NONE"
     fix_hint: "加 --scope {user,system}；新增系统级 onfailure-alert-system@.service（勿与现有桥抢 5002 端口）"
+    fix_note: "2026-11-02 P1-12 项3 复查转正：42803c8 --scope {user,system} + 系统级模板已落地；守卫含本条 ID"
 
   - id: KI-OPS-003
     title: "predict-daily 等单元缺 TimeoutStartSec，user manager 默认 90s 卡在边缘"
     theme: ops
     severity: P1
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -362,17 +379,18 @@ issues:
         path: "systemd/predict-daily.service"
         note: "缺失=未设；命中=已设"
     impact: "全市场 5221 只 × 8 进程，可能被默认 90s 砍断（plan-e-today 已显式写 600，唯独 predict 漏了）"
-    guard: "NONE"
+    guard: "tests/test_systemd_timeout_explicit.py"
     owner: "jiuben"
     due: "2026-11-08"
     exemption: "NONE"
     fix_hint: "predict-daily 加 TimeoutStartSec=1800；plan-e-journal/weekly/monitor、canary-health 同样显式给值"
+    fix_note: "2026-11-02 P1-12 项3 复查转正：5ccec02 显式超时已落地（scan RESOLVED）；守卫含本条 ID"
 
   - id: KI-SKILL-001
     title: "skill_router 零测试，路由与契约无任何回归保护"
     theme: skill
     severity: P1
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -382,11 +400,12 @@ issues:
       - kind: glob_absent
         pattern: "tests/test_skill_router_*.py"
     impact: "1481 行路由与运行时逻辑无保护，改动后无法判断是否破坏既有行为"
-    guard: "NONE"
+    guard: "tests/test_skill_router_contract.py"
     owner: "jiuben"
     due: "2026-11-20"
     exemption: "NONE"
     fix_hint: "补 test_skill_router_route.py（路由参数化）+ test_skill_router_contracts.py（yaml 字段消费映射）+ test_mcp_client.py"
+    fix_note: "2026-11-02 P1-12 项3 复查转正：7cb3fc2 起四件 test_skill_router_* 已落地（scan RESOLVED）；守卫含本条 ID"
 
   - id: KI-SKILL-002
     title: "技能 yaml 的 schema/timeout/priority/tools 全是死字段"
@@ -400,9 +419,12 @@ issues:
     locations: ["skills/*.yaml", "skill_router/runtime.py"]
     detect:
       - kind: absent
-        pattern: "timeout_sec"
+        pattern: "external_api_timeout_sec"
         path: "skill_router/runtime.py"
-        note: "缺失=从未消费；命中=已接线"
+        note: "P1-12 项3 收窄：P1-2（71195c5）已删大部分死字段，残留 news-summary.yaml:26 external_api_timeout_sec 无消费方（runtime 与 news server 均不读）"
+      - kind: absent
+        pattern: "external_api_timeout_sec"
+        path: "mcp/servers/news.py"
     impact: "声明看起来完备但不生效；timeout_sec 从未生效，优先级与实际路由顺序相反"
     guard: "NONE"
     owner: "jiuben"
@@ -466,6 +488,7 @@ issues:
         pattern: "def\\s+_?is_st"
         paths: ["tdxfeed/**/*.py", "scripts/**/*.py"]
         min_count: 1
+        note: "P1-12 项3 注：本 detect 只覆盖函数定义层；16 处内联形态由 test_names_single_source 的逐条登记制守（新增未登记必红），见 fix_note"
     impact: "ST 判定语义不一致会直接改变涨停阈值与候选池口径"
     guard: "tests/test_names_single_source.py"
     owner: "jiuben"
@@ -497,6 +520,7 @@ issues:
         pattern: "def\\s+load_universe"
         paths: ["tdxfeed/**/*.py", "scripts/**/*.py", "quant/**/*.py"]
         min_count: 1
+        note: "P1-12 项3 注：本 detect 只覆盖定义层；20 处直读名单散点由 test_universe_path_single_source 行为层守（权威层外不得读名单文件），见 fix_note"
     impact: "股票池口径可能随调用方不同而不同"
     guard: "tests/test_universe_path_single_source.py"
     owner: "jiuben"
@@ -526,6 +550,7 @@ issues:
         pattern: "limit\\s*-\\s*0\\.001"
         paths: ["tdxfeed/**/*.py", "scripts/**/*.py", "quant/**/*.py"]
         min_count: 1
+        note: "P1-12 项3 注：9 行命中含 features_5d.py:71 docstring 1 处，实际代码 8 处。Phase 0② 已确认 0.001=RET_TOLERANCE 浮点容忍，收编到 is_limit_up_ret 是零口径变化去重（非收窄）"
     impact: "任一侧调整容差即产生口径漂移，连板数与次日涨停判定随之变化"
     guard: "tests/test_limit_single_source.py"
     owner: "jiuben"
@@ -663,6 +688,7 @@ issues:
       - kind: lines_gt
         path: "scripts/plan_e_backtest.py"
         max_lines: 1500
+        note: "P1-12 项3 实测 2011 行（标题 2003 为登记时快照）；内核委托后仍超阈值"
     impact: "6 个脚本 import 它，任一改动都可能波及多条链路；拆分成本高导致长期不拆"
     guard: "NONE"
     owner: "jiuben"
@@ -682,9 +708,10 @@ issues:
     locations: ["scripts/compare_plan_e_signals.py", "scripts/plan_e_validation.py"]
     detect:
       - kind: grep
-        pattern: "^from plan_e_backtest import|^import plan_e_backtest"
+        pattern: "^(from|import) (plan_e_backtest|train_daban_model)\\b"
         paths: ["scripts/**/*.py"]
         min_count: 1
+        note: "P1-12 项3 扩测：旧 pattern 只覆盖 plan_e_backtest 族，漏 train_daban_model 族（compare_daban_vs_stage1 / diagnose_sample_design / eval_daban_pattern）；现 9 文件 9 行"
     impact: "import 即执行被导入脚本的模块级代码；分层边界被打破"
     guard: "NONE"
     owner: "jiuben"
@@ -706,8 +733,9 @@ issues:
       - kind: grep
         pattern: "agents/(runtime|orchestrator)\\.py"
         paths: [".codebuddy/**/*.md", "docs/**/*.md"]
-        exclude: [".codebuddy/memory"]
+        exclude: [".codebuddy/memory", "docs/archive"]
         min_count: 1
+        note: "P1-12 项3：docs/archive 历史快照按约定保留旧文，排除；活文档残留于 .codebuddy/skills/tdx-quant-workflow/SKILL.md:194"
     impact: "按文档排查会走错目录；新人 onboarding 受阻"
     guard: "NONE"
     owner: "jiuben"
@@ -764,7 +792,7 @@ issues:
     title: "make predict 与生产 predict 口径不一致（模型/Top/守卫全不同）"
     theme: make
     severity: P1
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-01"
     last_seen: "2026-11-01"
     seen_count: 1
@@ -776,11 +804,12 @@ issues:
         paths: ["Makefile"]
         min_count: 1
     impact: "手工跑出的榜单与生产榜单不是同一个东西，且没有新鲜度守卫"
-    guard: "NONE"
+    guard: "tests/test_makefile_production_parity.py"
     owner: "jiuben"
     due: "2026-11-15"
     exemption: "NONE"
     fix_hint: "make predict 对齐 predict-daily.service：--position-mode small --workers 8 + precheck_freshness.sh"
+    fix_note: "2026-11-02 P1-12 项3 复查转正：cfec02b（P1-7）make predict 已对齐生产口径（scan RESOLVED）；守卫含本条 ID"
 
   - id: KI-MAKE-002
     title: "make journal-buy/journal-sell 是已废止的建仓入口"
