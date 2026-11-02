@@ -1,122 +1,27 @@
-# news-summary skill — 新闻 / 政策 / 公告 检索与摘要
-# =============================================================
-# 实时性要求高：tdx-news 东财新闻 + 巨潮公告，5 分钟进程内缓存。
-
 name: news-summary
-version: "0.1.0"
-description: |
-  检索某标的近期新闻、公告，生成摘要。
-  数据源：东财个股新闻 + 巨潮公告（tdx-news）+ StockVault 已索引文档。
-  实时性要求高：tdx-news 进程内缓存 5 分钟。
-
 llm:
-  model_id: qwen3-7b                  # 仅作能力档位标注：SkillRuntime 不做按 skill 的模型路由
+  model_id: qwen3-7b
   base_model: Qwen/Qwen3-7B
-  # 注：生产预测走 LightGBM predict.py；本 skill 为 LLM 新闻摘要（可选增强），非主路径
   inference:
-    backend: transformers             # 2026-09-26 修正：原值 vllm 已失效（vllm-venv 删除），
-                                      # runtime 实际走 transformers+peft，只读取 max_new_tokens
+    backend: transformers
     dtype: bfloat16
     max_new_tokens: 384
-    temperature: 0.2                   # 注：runtime 固定 do_sample=False，temperature 不生效
-
-tools:
-  - mcp:tdx-news.search_stock_news       # 东财个股新闻
-  - mcp:tdx-news.search_announcements    # 巨潮公告
-  - mcp:tdx-news.market_news             # 市场要闻（财新）
-  - mcp:tdx-vault.search                 # StockVault 兜底检索
-  - mcp:tdx-parquet-reader.list_codes
-
-input_schema:
-  type: object
-  properties:
-    code:
-      type: string
-    lookback_days:
-      type: integer
-      default: 7
-      description: 检索最近 N 天
-    include_announcements:
-      type: boolean
-      default: true
-      description: 是否同时检索巨潮公告
-    limit:
-      type: integer
-      default: 10
-      description: 新闻/公告最多返回条数
-    topics:
-      type: array
-      items:
-        type: string
-        enum: [earnings, dividend, regulation, policy, management, mna, product, lawsuit]
-      description: 主题过滤（可选）
-  required: [code]
-
-output_schema:
-  type: object
-  properties:
-    code:
-      type: string
-    items:
-      type: array
-      description: [{title, source, date, summary, impact: positive/negative/neutral}, ...]
-    overall_sentiment:
-      type: string
-      enum: [positive, negative, neutral, mixed]
-
-prompt_template: |
-  ### 任务
-  你是新闻/公告摘要助手。你【只能】依据下方「### 输入」中的 news_items（新闻/公告检索结果）
-  生成摘要，禁止引入任何外部知识或编造内容。
-
-  ### 输入字段说明（news_items 为 JSON 数组，每条记录仅含以下字段）
-  - text : 检索到的文档/公告原文片段
-  - meta : 该文档的元信息（来源、日期等，可能为空）
-  输入【仅含上述字段】。若 news_items 为「（无相关文档…）」提示，表示【未检索到任何新闻】，
-  没有任何可摘要的内容。
-
-  ### 硬性约束（必须严格遵守）
-  1. 仅依据输入中的新闻文本生成摘要，不得引入输入中不存在的标题、日期、来源或事件。
-  2. 严禁编造或补充以下未提供的信息：最新价、涨跌幅、均线(MA)、MACD、KDJ、RSI、
-     市盈率(PE)、总市值、流通市值、成交量、换手率等任何行情或技术指标；
-     也不得将新闻缺失当作「行情分析」来输出。
-  3. 若输入表明未检索到新闻/公告（无文档），必须明确输出
-     「信息不足：未检索到相关新闻，无法生成新闻摘要」，items 为空数组，
-     overall_sentiment 为「信息不足」。
-  4. 所有标题、日期、来源必须与输入逐字一致；不得臆造发布时间或影响判断。
-
-  ### 输出格式（严格 JSON，不得输出 JSON 以外的解释文字）
-  {{
-    "items": [
-      {{"title": "<来自输入文本，缺失则写信息不足>", "date": "<来自 meta，缺失则信息不足>", "summary": "<50字内，仅基于输入>", "impact": "positive|negative|neutral|信息不足"}}
-    ],
-    "overall_sentiment": "positive|negative|neutral|mixed|信息不足"
-  }}
-
-  ### 幻觉检测自检（生成前逐条核对）
-  - items 中每条的 title/date/source 是否都来自输入？否则删除或标注「信息不足」。
-  - 是否出现上述第 2 条禁止的行情字段？若是，立即删除。
-  - 若 news_items 为「（无相关文档…）」提示，必须返回 items 为空、overall_sentiment 为
-    「信息不足」，并在摘要中说明未检索到新闻。
-
-  ### 输入
-  {news_items}
-
-  ### 回答
-
-
-priority: 40
-timeout_sec: 20
-fallback_skill: null                  # 新闻查询失败可静默跳过，不阻塞主流程
-
-# 实时性策略
+    temperature: 0.2
+prompt_template: "### 任务\n你是新闻/公告摘要助手。你【只能】依据下方「### 输入」中的 news_items（新闻/公告检索结果）\n\
+  生成摘要，禁止引入任何外部知识或编造内容。\n\n### 输入字段说明（news_items 为 JSON 数组，每条记录仅含以下字段）\n- text : 检索到的文档/公告原文片段\n\
+  - meta : 该文档的元信息（来源、日期等，可能为空）\n输入【仅含上述字段】。若 news_items 为「（无相关文档…）」提示，表示【未检索到任何新闻】，\n\
+  没有任何可摘要的内容。\n\n### 硬性约束（必须严格遵守）\n1. 仅依据输入中的新闻文本生成摘要，不得引入输入中不存在的标题、日期、来源或事件。\n2.\
+  \ 严禁编造或补充以下未提供的信息：最新价、涨跌幅、均线(MA)、MACD、KDJ、RSI、\n   市盈率(PE)、总市值、流通市值、成交量、换手率等任何行情或技术指标；\n\
+  \   也不得将新闻缺失当作「行情分析」来输出。\n3. 若输入表明未检索到新闻/公告（无文档），必须明确输出\n   「信息不足：未检索到相关新闻，无法生成新闻摘要」，items\
+  \ 为空数组，\n   overall_sentiment 为「信息不足」。\n4. 所有标题、日期、来源必须与输入逐字一致；不得臆造发布时间或影响判断。\n\n\
+  ### 输出格式（严格 JSON，不得输出 JSON 以外的解释文字）\n{{\n  \"items\": [\n    {{\"title\": \"<来自输入文本，缺失则写信息不足>\"\
+  , \"date\": \"<来自 meta，缺失则信息不足>\", \"summary\": \"<50字内，仅基于输入>\", \"impact\": \"\
+  positive|negative|neutral|信息不足\"}}\n  ],\n  \"overall_sentiment\": \"positive|negative|neutral|mixed|信息不足\"\
+  \n}}\n\n### 幻觉检测自检（生成前逐条核对）\n- items 中每条的 title/date/source 是否都来自输入？否则删除或标注「信息不足」。\n\
+  - 是否出现上述第 2 条禁止的行情字段？若是，立即删除。\n- 若 news_items 为「（无相关文档…）」提示，必须返回 items 为空、overall_sentiment\
+  \ 为\n  「信息不足」，并在摘要中说明未检索到新闻。\n\n### 输入\n{news_items}\n\n### 回答\n"
+fallback_skill: null
 freshness:
-  cache_ttl_sec: 300                  # 5 分钟内重复查询走缓存
+  cache_ttl_sec: 300
   external_api_timeout_sec: 5
   retry_on_failure: 2
-
-metrics:
-  - latency_ms
-  - cache_hit_rate
-  - external_api_success_rate
-  - summary_freshness_minutes

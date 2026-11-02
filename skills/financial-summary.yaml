@@ -1,113 +1,25 @@
-# financial-summary skill — 财务摘要 / 三大报表查询
-# =================================================================
-# 轻量子任务，用 7B 或纯 SQL/pandas 都可（按需切换）。
-
 name: financial-summary
-version: "0.1.0"
-description: |
-  查财务数据并生成自然语言摘要。可查营收、净利润、ROE、毛利率、EPS、PE、PB。
-  数据源：核心 300 只走本地 data/parquet/finance.parquet（1.67M 行）；
-  其余标的按需经 tdx-finance-deep 拉取 akshare 财务摘要（磁盘缓存 7 天）。
-  PE/PB 由最新收盘价与 TTM EPS / 每股净资产计算。
-
 llm:
-  model_id: qwen3-7b                  # 仅作能力档位标注：SkillRuntime 不做按 skill 的模型路由
-                                      #（见 skill_router/runtime.py:execute_skill），实际使用全局加载的 base+LoRA
+  model_id: qwen3-7b
   base_model: Qwen/Qwen3-7B
-  # 注：生产预测走 LightGBM predict.py；本 skill 为 LLM 财务摘要（可选增强），非主路径
   inference:
-    backend: transformers             # 2026-09-26 修正：原值 vllm 已失效（vllm-venv 删除，
-                                      # 见 v5/scripts/s9-start-vllm.sh DEPRECATED 2026-09-25）；
-                                      # runtime 实际只读取 max_new_tokens，推理走 transformers+peft
+    backend: transformers
     dtype: bfloat16
     max_new_tokens: 512
-    temperature: 0.0                  # 注：runtime 固定 do_sample=False，temperature 不生效
-
-tools:
-  - mcp:tdx-parquet-reader.read_finance
-  - mcp:tdx-finance-deep.get_metrics   # 本地未覆盖的标的按需拉取（akshare + 7 天缓存）
-  - mcp:tdx-parquet-reader.list_codes
-  - mcp:tdx-vault.search               # 可选：检索行业平均
-
-input_schema:
-  type: object
-  properties:
-    code:
-      type: string
-      description: 标的代码
-    metric:
-      type: string
-      enum: [revenue, net_profit, roe, gross_margin, eps, pe, pb]
-      description: 要查询的指标
-    periods:
-      type: integer
-      default: 8
-      description: 取最近 N 个季度
-  required: [code, metric]
-
-output_schema:
-  type: object
-  properties:
-    code:
-      type: string
-    metric:
-      type: string
-    values:
-      type: array
-      description: [{period_end, value, yoy_pct}, ...]
-    summary:
-      type: string
-      description: 一句话总结（如"近 4 季度营收同比 +15.2%，盈利能力持续改善"）
-
-prompt_template: |
-  ### 任务
-  你是财务数据摘要助手。你【只能】依据下方「### 输入」中提供的财务数据生成摘要，禁止引入任何外部知识或训练记忆中的行情信息。
-
-  ### 输入字段说明（finance_data 为 JSON 数组，每条记录仅含以下字段）
-  - period_end  : 报告期，格式 YYYYMMDD（如 20240331 表示 2024 年一季报）
-  - option      : 报告口径（如 常用指标），可能为空
-  - value       : 该指标的数值（单位以原始数据为准）
-  - yoy_pct     : 同比百分比，可能为 null（无可比同期）
-  - price_date  : 估值日期（仅 PE/PB 记录存在）
-  当前查询指标为：{metric}（字符串）。输入【仅含上述字段】，不包含行情数据。
-
-  ### 硬性约束（必须严格遵守）
-  1. 仅依据输入中的数值进行整理与描述，不得引入输入 JSON 中不存在的任何数字。
-  2. 严禁编造或补充以下未提供的信息：最新价、涨跌幅、市盈率(PE)、市净率(PB)、
-     总市值、流通市值、所属行业、所属概念、机构持仓、均线(MA)、MACD、KDJ、RSI
-     等任何行情或技术指标。
-  3. 若输入缺少完成描述所需的数据（无指定 metric 记录、数值为空、缺少可比历史期），
-     必须明确输出「信息不足」，不得估算或填空。
-  4. 所有日期、数值、实体名称必须与输入逐字一致；不得改写 period_end 或 metric 原文，
-     不得改变数值量级。
-
-  ### 输出格式（严格 JSON，不得输出 JSON 以外的解释文字）
-  {{
-    "code": "<与输入 symbol 一致>",
-    "metric": "<与输入 metric 一致>",
-    "values": [
-      {{"period_end": "YYYYMMDD", "option": "<原文或空>", "value": <数值>, "yoy_pct": <数值或 null>}}
-    ],
-    "summary": "<一句话，仅基于输入数据；数据不足时写：信息不足，无法生成摘要>"
-  }}
-
-  ### 幻觉检测自检（生成前逐条核对）
-  - summary 中每个数字是否都能在输入 values 中找到来源？否则删除或改为「信息不足」。
-  - summary 是否出现上述第 2 条禁止字段？若是，立即删除。
-  - 若 finance_data 为「（…无…数据）」提示，则 values 为空数组，summary 必须为：
-    「信息不足：未检索到 {code} 的 {metric} 财务数据，无法生成摘要」。
-
-  ### 输入
-  {finance_data}
-
-  ### 回答
-
-
-priority: 50
-timeout_sec: 15
-fallback_skill: null                  # 财务查询失败就直接报错，不降级
-
-metrics:
-  - latency_ms
-  - cache_hit_rate
-  - summary_quality_score              # 后续可人工评分
+    temperature: 0.0
+prompt_template: "### 任务\n你是财务数据摘要助手。你【只能】依据下方「### 输入」中提供的财务数据生成摘要，禁止引入任何外部知识或训练记忆中的行情信息。\n\
+  \n### 输入字段说明（finance_data 为 JSON 数组，每条记录仅含以下字段）\n- period_end  : 报告期，格式 YYYYMMDD（如\
+  \ 20240331 表示 2024 年一季报）\n- option      : 报告口径（如 常用指标），可能为空\n- value       : 该指标的数值（单位以原始数据为准）\n\
+  - yoy_pct     : 同比百分比，可能为 null（无可比同期）\n- price_date  : 估值日期（仅 PE/PB 记录存在）\n当前查询指标为：{metric}（字符串）。输入【仅含上述字段】，不包含行情数据。\n\
+  \n### 硬性约束（必须严格遵守）\n1. 仅依据输入中的数值进行整理与描述，不得引入输入 JSON 中不存在的任何数字。\n2. 严禁编造或补充以下未提供的信息：最新价、涨跌幅、市盈率(PE)、市净率(PB)、\n\
+  \   总市值、流通市值、所属行业、所属概念、机构持仓、均线(MA)、MACD、KDJ、RSI\n   等任何行情或技术指标。\n3. 若输入缺少完成描述所需的数据（无指定\
+  \ metric 记录、数值为空、缺少可比历史期），\n   必须明确输出「信息不足」，不得估算或填空。\n4. 所有日期、数值、实体名称必须与输入逐字一致；不得改写\
+  \ period_end 或 metric 原文，\n   不得改变数值量级。\n\n### 输出格式（严格 JSON，不得输出 JSON 以外的解释文字）\n\
+  {{\n  \"code\": \"<与输入 symbol 一致>\",\n  \"metric\": \"<与输入 metric 一致>\",\n  \"values\"\
+  : [\n    {{\"period_end\": \"YYYYMMDD\", \"option\": \"<原文或空>\", \"value\": <数值>,\
+  \ \"yoy_pct\": <数值或 null>}}\n  ],\n  \"summary\": \"<一句话，仅基于输入数据；数据不足时写：信息不足，无法生成摘要>\"\
+  \n}}\n\n### 幻觉检测自检（生成前逐条核对）\n- summary 中每个数字是否都能在输入 values 中找到来源？否则删除或改为「信息不足」。\n\
+  - summary 是否出现上述第 2 条禁止字段？若是，立即删除。\n- 若 finance_data 为「（…无…数据）」提示，则 values 为空数组，summary\
+  \ 必须为：\n  「信息不足：未检索到 {code} 的 {metric} 财务数据，无法生成摘要」。\n\n### 输入\n{finance_data}\n\
+  \n### 回答\n"
+fallback_skill: null
