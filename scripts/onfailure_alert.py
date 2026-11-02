@@ -57,8 +57,9 @@ def parse_show(text: str) -> dict:
     return info
 
 
-def journal_tail_cmd(unit: str, lines: int = 8) -> list[str]:
-    return ["journalctl", "--user", "-u", unit, "-n", str(lines), "--no-pager",
+def journal_tail_cmd(unit: str, lines: int = 8, scope: str = "user") -> list[str]:
+    prefix = [] if scope == "system" else ["--user"]
+    return ["journalctl", *prefix, "-u", unit, "-n", str(lines), "--no-pager",
             "-o", "short-iso"]
 
 
@@ -71,10 +72,11 @@ def _run(argv: list[str]) -> str:
         return ""
 
 
-def collect_state(unit: str, lines: int = 8) -> tuple[dict, list[str]]:
-    show = ["systemctl", "--user", "show", unit] + [f"-p{p}" for p in SHOW_PROPS]
+def collect_state(unit: str, lines: int = 8, scope: str = "user") -> tuple[dict, list[str]]:
+    scope_flag = [] if scope == "system" else ["--user"]
+    show = ["systemctl", *scope_flag, "show", unit] + [f"-p{p}" for p in SHOW_PROPS]
     info = parse_show(_run(show))
-    tail = [ln.strip() for ln in _run(journal_tail_cmd(unit, lines)).splitlines() if ln.strip()]
+    tail = [ln.strip() for ln in _run(journal_tail_cmd(unit, lines, scope)).splitlines() if ln.strip()]
     return info, tail
 
 
@@ -134,6 +136,8 @@ def marker_path(state_dir: Path, unit: str) -> Path:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="投递 systemd 单元失败告警到 pushplus 桥")
     ap.add_argument("unit", help="失败的 systemd 单元名（OnFailure 模板里的 %%i）")
+    ap.add_argument("--scope", choices=["user", "system"], default="user",
+                    help="单元所在 manager：user 加 --user，system 直接查系统级")
     ap.add_argument("--url", default=DEFAULT_URL)
     ap.add_argument("--lines", type=int, default=8, help="附带的日志行数")
     ap.add_argument("--when", default=None, help="告警起始时间，默认取当前本地时间")
@@ -143,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="只打印载荷，一个字节都不发")
     args = ap.parse_args(argv)
 
-    info, tail = collect_state(args.unit, lines=args.lines)
+    info, tail = collect_state(args.unit, lines=args.lines, scope=args.scope)
     when = args.when or datetime.now().astimezone().isoformat(timespec="seconds")
     payload = build_payload(args.unit, info, tail, when=when)
 
