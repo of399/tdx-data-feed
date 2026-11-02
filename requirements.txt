@@ -80,3 +80,8 @@ polars>=2.0.0,<3
 akquant>=0.3.65        # Rust+Python 量化框架,内置 Polars 因子表达式引擎 + akquant.talib(103 指标)
 optuna>=5.0.0          # 特征选择超参优化
 # 2026-10-17 P0-1: plotly 显式声明已删——若 akquant 声明依赖, pip 会自动解析安装
+
+# ---- MCP schema 校验 (P1-5) ----
+# 2026-11-02 P1-5: MCP 运行时入参/信封结构化校验。缺省退化内置轻量校验，
+# 装此包后启用 jsonschema 完整类型/枚举/取值范围校验。
+jsonschema>=4.20
