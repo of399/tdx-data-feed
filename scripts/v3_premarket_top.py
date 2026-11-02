@@ -33,6 +33,7 @@ ROOT = Path('/home/jiuben/tdx-data-feed')
 
 from _common import adj_factor_dir, daily_dir, get_limit
 
+from tdxfeed.execution.limits import RET_TOLERANCE  # 涨停判定容差唯一来源（P1-12 Phase 3）
 from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -83,8 +84,8 @@ def calc_stock_factors(df: pd.DataFrame, code: str, ref_date: pd.Timestamp) -> d
         'volatility_20d': float(pct.rolling(20).std().iloc[-1]),
         'amount_5d_avg': float(amt.rolling(5).mean().iloc[-1]),
         'amount_20d_avg': float(amt.rolling(20).mean().iloc[-1]),
-        'limit_up_20d': float((pct >= limit - 0.001).rolling(20).sum().iloc[-1]),
-        'limit_up_10d': float((pct >= limit - 0.001).rolling(10).sum().iloc[-1]),
+        'limit_up_20d': float((pct >= limit - RET_TOLERANCE).rolling(20).sum().iloc[-1]),
+        'limit_up_10d': float((pct >= limit - RET_TOLERANCE).rolling(10).sum().iloc[-1]),
         'days_since_ipo': (ref_date - df['date'].iloc[0]).days,
         # 龙虎榜因子（先用 0 占位，后续可接入）
         'lhb_buy_ratio_20d': 0.0,
@@ -125,7 +126,7 @@ def apply_filters(df: pd.DataFrame, name_map: dict, top_n: int = 10) -> pd.DataF
     df = df[df['pct_chg_20d'] <= 0.30]
 
     # 4. 排除当日涨停（追高）
-    df = df[df['pct_chg_1d'] < df['limit'] - 0.001]
+    df = df[df['pct_chg_1d'] < df['limit'] - RET_TOLERANCE]
 
     # 5. 排除上市 < 5 日（新新股波动过大）
     df = df[df['days_since_ipo'] >= 5]

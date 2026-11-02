@@ -189,6 +189,7 @@ from tdxfeed.daban.sector_features import (
 from tdxfeed.errors import (
     flush as _flush_swallowed_counts,
 )
+from tdxfeed.execution.limits import RET_TOLERANCE  # 涨停判定容差唯一来源（P1-12 Phase 3）
 from tdxfeed.factors_candidates import compute_candidate_features
 from tdxfeed.names import (  # 股票池唯一入口（P1-9）
     is_st_name,
@@ -558,7 +559,7 @@ def run_predict(args):
         # 实盘不可执行。训练时此类样本已被剔除，推理侧必须同步过滤，
         # 否则模型仍会把"T 日一字板"股排到 Top N（2026-10-20 实测 Top5 中 2 只如此）。
         # gap_t1 = open[T] / close[T-1] - 1（factors_candidates.py），容差与 is_limit_up_ret 一致。
-        _open_limit_mask = feat_df['gap_t1'] >= (feat_df['limit'] - 0.001)
+        _open_limit_mask = feat_df['gap_t1'] >= (feat_df['limit'] - RET_TOLERANCE)
         _n_ol = int(_open_limit_mask.sum())
         if _n_ol:
             print(f"  过滤 T 日开盘即涨停(不可买入): {len(feat_df)} -> {len(feat_df) - _n_ol} (剔除 {_n_ol} 只)")
@@ -836,7 +837,7 @@ def run_prediction(args, model, feature_cols):
     # gap_t1 = open[T] / close[T-1] - 1（factors_candidates.py），容差与 is_limit_up_ret 一致。
     if not args.no_skip_open_limit and 'gap_t1' in feat_df.columns:
         before = len(feat_df)
-        _ol_mask = feat_df['gap_t1'] >= (feat_df['limit'] - 0.001)
+        _ol_mask = feat_df['gap_t1'] >= (feat_df['limit'] - RET_TOLERANCE)
         n_ol = int(_ol_mask.sum())
         if n_ol:
             feat_df = feat_df[~_ol_mask]

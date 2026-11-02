@@ -29,6 +29,7 @@ from _common import daily_dir, minute_dir  # noqa: E402
 
 from tdxfeed.atomic import atomic_write_parquet  # noqa: E402  # SEM001 原子写
 from tdxfeed.daban.scanner import daily_path, load_universe  # noqa: E402
+from tdxfeed.names import is_st_or_delisting  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -137,7 +138,7 @@ def build_one(code: str, name: str) -> pd.DataFrame | None:
     if m is None or d is None:
         return None
 
-    is_st = int("ST" in str(name).upper() or "退" in str(name))
+    is_st = int(is_st_or_delisting(name))
     main = _main_board(code)
     ratio_val = 0.05 if (is_st and main) else (0.10 if main else 0.20)
     prev_all = d.prev_close.to_numpy()

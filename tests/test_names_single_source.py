@@ -62,9 +62,6 @@ ST_DEF_EXCEPTIONS = {
 
 # ST 判定的**内联字符串判定**例外：{相对路径: 理由}
 ST_INLINE_EXCEPTIONS = {
-    "scripts/daban_min60_features.py": "名称判定 + 退市整理('退')，属另一契约（权威 is_st_name 不含'退'）",
-    "tdxfeed/daban/scanner.py": "同上：含'退'的判定",
-    "scripts/find_double_up_hfq.py": "与权威等价的内联写法，待后续批次收编",
     "scripts/find_double_30d.py": "口径与权威**不同**：这里只匹配前缀（startswith），权威是「任意位置含 ST」；"
                                   "改口径会影响翻倍样本，故保持原样待后续批次",
     "scripts/factor_engine.py": "判定对象是 vault 文件名词干(md.stem)，不是股票名",

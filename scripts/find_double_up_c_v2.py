@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 
 from _common import adj_factor_dir, daily_dir, get_limit
 
 from tdxfeed.atomic import atomic_write_frame  # SEM001 原子写
+from tdxfeed.execution.limits import RET_TOLERANCE  # 涨停判定容差唯一来源（P1-12 Phase 3）
 from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -117,7 +118,7 @@ def screen_one_qfq(code: str, name_map: dict, st_set: set) -> list:
             peak_date = pd.Timestamp(dates[peak_idx])
             # 用不复权涨幅判涨停（更准，因为涨停是按交易所规则对不复权价算的）
             window_pct = raw_pct[i+1:i+WINDOW+1]
-            limit_up_count = int((window_pct >= limit - 0.001).sum())
+            limit_up_count = int((window_pct >= limit - RET_TOLERANCE).sum())
             window_amount = df['amount'].iloc[i+1:i+WINDOW+1].sum()
             is_new = days_since_first.iloc[i] < 250
 

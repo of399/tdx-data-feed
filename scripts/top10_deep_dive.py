@@ -20,6 +20,7 @@ socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
 
 from _common import daily_dir, get_limit  # noqa: E402
+from tdxfeed.execution.limits import RET_TOLERANCE  # noqa: E402  # 涨停判定容差（P1-12 Phase 3）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -75,7 +76,7 @@ def analyze_one(code: str, hits_df: pd.DataFrame) -> dict:
 
     limit = get_limit(code)
     df['pct_change'] = df['close'].pct_change()
-    df['is_limit_up'] = df['pct_change'] >= (limit - 0.001)
+    df['is_limit_up'] = df['pct_change'] >= (limit - RET_TOLERANCE)
 
     streak_groups = (df['is_limit_up'] != df['is_limit_up'].shift()).cumsum()
     streaks = df[df['is_limit_up']].groupby(streak_groups[df['is_limit_up']]).agg(

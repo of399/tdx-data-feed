@@ -18,7 +18,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
 from _common import daily_dir, daily_files, get_limit
 
-from tdxfeed.execution.limits import limit_ratio
+from tdxfeed.execution.limits import RET_TOLERANCE, limit_ratio
 from tdxfeed.names import is_st_name, load_universe
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -173,7 +173,7 @@ def screen_one(code: str, name_map: dict) -> list | None:
             window_pct = pct[i+1:i+WINDOW+1]
             window_dates = df['date'].iloc[i+1:i+WINDOW+1]
             limits = np.array([get_limit(code, name, on_date=d) for d in window_dates])
-            limit_up_count = int((window_pct >= limits - 0.001).sum())
+            limit_up_count = int((window_pct >= limits - RET_TOLERANCE).sum())
             # limit 列显示起点日的精确涨停比例（5/10/20/30），不含判定缓冲
             limit_pct = round(float(limit_ratio(code, is_st=is_st_flag,
                                                  on_date=pd.Timestamp(dates[i]))) * 100)

@@ -488,7 +488,7 @@ issues:
         pattern: "def\\s+_?is_st"
         paths: ["tdxfeed/**/*.py", "scripts/**/*.py"]
         min_count: 1
-        note: "P1-12 项3 注：本 detect 只覆盖函数定义层；16 处内联形态由 test_names_single_source 的逐条登记制守（新增未登记必红），见 fix_note"
+        note: "P1-12 项3 注：本 detect 只覆盖函数定义层；内联形态由 test_names_single_source 的逐条登记制守（新增未登记必红），见 fix_note 的两套计数口径"
     impact: "ST 判定语义不一致会直接改变涨停阈值与候选池口径"
     guard: "tests/test_names_single_source.py"
     owner: "jiuben"
@@ -499,9 +499,22 @@ issues:
       find_double_up_c_v2.is_st(code, st_set) 判的是「代码在不在 ST 名单里」属另一契约。
       因此**不重构**，改为用 AST 守卫把既有事实固化：(1) 权威层外不得再定义 ST 判定函数，
       登记为「转发」的例外必须真的转发（函数体里调用 is_st_name）；
-      (2) 内联 ST 字符串判定必须**逐条登记理由**——实测 16 处且口径各异（含退市整理'退'、
-      判 vault 文件名词干、仅前缀匹配等），新增未登记必红；
+      (2) 内联 ST 字符串判定必须**逐条登记理由**——新增未登记必红；
       (3) 例外表不得腐化（登记了却已无命中 = 该重新评估）。
+      计数有两套口径，别混：批次 E 记的「16 处」是**宽口径**（字符串含 ST 子串 + 「退」，按行去重），
+      其中 9 处是已知误报（tests/、state、step、stage1、inst_net、industry_code、hist_bj、
+      current_steps、OBSIDIAN_SYSTEMD:）；守卫用的是**精确 AST**（常量恰为 ST/*ST），当时 6 处 / 6 文件。
+      2026-11-02（P1-12 Phase 2a/2b）：收编 3 处，精确口径降到 **3 处 / 3 文件**
+      （find_double_30d 仅前缀匹配、factor_engine 与 find_double_up_c_v2 判 vault 文件名词干，
+      三者口径与权威不同，逐条登记保留）。
+      Phase 2a：find_double_up_hfq 的 is_st 改走 is_st_name（守卫 tests/test_find_double_up_hfq_st_source.py，
+      端到端跑 main 验 is_st 列）。Phase 2b（方案 A）：新增 names.is_st_or_delisting
+      = is_st_name(name) or 名称含「退」，收编 daban_min60_features 的 5% 档判定与
+      daban/scanner.symbols 的候选过滤（守卫 tests/test_st_or_delisting.py，含转发断言与 symbols 行为测试）。
+      **行为 diff 为 0**：宇宙 5221 只与 hfq 样本 17794 行逐条比对，两种口径翻转数均 0；
+      唯一语义差是排版空格（"*S T康佳A" 旧写法漏判），真实名单里没有这种形态。
+      第三处「退」（tdxfeed/daban/paper.py:299 → status="risk_warning"）**不收编**：
+      它是状态分类不是候选过滤，合并会让 ST 名称也被打 risk_warning，属改口径。
     exemption: "NONE"
     fix_hint: "统一到 tdxfeed/names.py 的 is_st_name，并让 limit_price 与 predict 共用"
 
@@ -534,29 +547,48 @@ issues:
       「路径 + 实现数量 = 1」（行为层 R4 + 入口层 R5 + 反例必红 + 扫描器端到端自检）。
 
   - id: KI-SINGLE-004
-    title: "涨停判定 9 处实现（含内联 limit-0.001），常量来源不一致"
+    title: "涨停判定容差散在 17 处（内联 limit-0.001），阈值常量来源不一致"
     theme: single-source
     severity: P0
-    status: OPEN
+    status: FIXED
     first_seen: "2026-10-19"
-    last_seen: "2026-11-01"
-    seen_count: 3
+    last_seen: "2026-11-02"
+    seen_count: 4
     sources:
       - "docs/archive/CODE_AUDIT_ROUND3_2026-10-19.md:74"
       - "docs/archive/ARCHITECTURE_REVIEW_2026-11-01.md:198"
-    locations: ["tdxfeed/features_5d.py", "tdxfeed/execution/limits.py", "quant/multifactor/factors.py"]
+    locations: ["tdxfeed/features_5d.py", "tdxfeed/execution/limits.py", "quant/multifactor/factors.py", "scripts/predict.py", "scripts/factor_engine.py"]
     detect:
       - kind: grep
-        pattern: "limit\\s*-\\s*0\\.001"
-        paths: ["tdxfeed/**/*.py", "scripts/**/*.py", "quant/**/*.py"]
+        pattern: "(limit[A-Za-z_]*|lim|\\[[\"']limit[\"']\\])\\s*-\\s*0\\.001"
+        paths: ["tdxfeed/**/*.py", "scripts/**/*.py", "quant/**/*.py", "mcp/**/*.py"]
         min_count: 1
-        note: "P1-12 项3 注：9 行命中含 features_5d.py:71 docstring 1 处，实际代码 8 处。Phase 0② 已确认 0.001=RET_TOLERANCE 浮点容忍，收编到 is_limit_up_ret 是零口径变化去重（非收窄）"
+        note: "P1-12 Phase 3 放宽口径：原规格只认变量名 limit，漏掉 limits / limit_val / lim / df['limit'] 等同契约写法（9 行 → 18 行：docstring 1 + 代码 17）。价格级 EPS（ztj / limit_price - EPS，min60 的 EPS=0.005）是**另一契约**，不在本规格内、也不得并入 RET_TOLERANCE"
     impact: "任一侧调整容差即产生口径漂移，连板数与次日涨停判定随之变化"
     guard: "tests/test_limit_single_source.py"
     owner: "jiuben"
     due: "2026-11-15"
     exemption: "NONE"
     fix_hint: "全部改走 execution/limits.py 的 is_limit_up_ret；删 features_5d.py 的 LIMIT_MAP 并改为派生"
+    fix_note: >
+      2026-11-02（P1-12 Phase 3）：按 Phase 0② 结论做**零口径变化去重**，不是收窄。
+      17 处代码 + 1 处 docstring 全部收编：标量点走 limits.is_limit_up_ret
+      （features_5d.is_limit_up_ret 改为转发、daban_label_diagnose 直接调），
+      向量化点（Series/ndarray 不能逐元素调函数）改为减 limits.RET_TOLERANCE；
+      features_5d.LIMIT_MAP / LIMIT_ST_MAIN_OLD 改为从 LIMIT_RATIO / LIMIT_RATIO_ST_MAIN_OLD
+      减 DEFAULT_THRESHOLD_BUFFER 派生（LIMIT_ST_MAIN_OLD 按 R17 保留为规则名，无调用方）。
+      **范围比原方案大**：原 detect 只认 `limit - 0.001`（9 行），放宽变量形态后是 18 行，
+      多出的 9 处同属 ret 容差契约（predict 2、factor_engine 2、v3_premarket_top 1、
+      features_5d 1、find_double_up_c 1、daban_label_diagnose 1、quant factors 1），一并收编。
+      **等价证明**：exec 加载 HEAD 版 features_5d 与工作树版同输入比对——262 只 × 多 sig_idx
+      共 1044 个特征向量 / 30276 个取值零差异；涨停掩码 839913 个逐日点，
+      旧字面量 / 新常量 / 权威标量三者零差异；LIMIT_MAP 与 LIMIT_ST_MAIN_OLD 逐值相等。
+      守卫升级（tests/test_limit_single_source.py）：① 放宽口径全仓 0 命中；
+      ② **反作弊**——10 个站点必须真的引用 RET_TOLERANCE / is_limit_up_ret
+      （只把容差删掉也能让 ① 变绿，但那是改口径）；③ RET_TOLERANCE == 0.001 值钉住；
+      ④ 哨兵替换内核验真委托；⑤ LIMIT_MAP 派生 + 源码无阈值字面量；
+      ⑥ 0.0001 步长网格 × 4 档阈值与旧表达式逐点等价。
+      因 diff 为 0，历史产物（翻倍样本 CSV、特征表 limit_up_* 列）**不需要重跑**。
 
   - id: KI-PATH-001
     title: "73 个文件含 sys.path.insert（Round1 时 27 处，规模反而扩大）"

@@ -45,7 +45,7 @@ ROOT = Path('/home/jiuben/tdx-data-feed')
 
 from _common import daily_files, daily_path, get_limit, read_path
 
-from tdxfeed.execution.limits import strip_exchange_prefix  # 代码归一（P1-9 批次 D）
+from tdxfeed.execution.limits import RET_TOLERANCE, strip_exchange_prefix  # 容差（P1-12）+ 代码归一（P1-9 D）
 from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -107,7 +107,7 @@ def calc_window_factors(df: pd.DataFrame, code: str) -> pd.DataFrame:
 
     # ===== 量价因子 =====
     for w in (5, 10, 20):
-        out[f'limit_up_{w}d'] = (pct >= out['limit'] - 0.001).rolling(w, min_periods=1).sum()
+        out[f'limit_up_{w}d'] = (pct >= out['limit'] - RET_TOLERANCE).rolling(w, min_periods=1).sum()
         out[f'pct_chg_{w}d'] = df['close'].pct_change(w)
         out[f'amount_{w}d_avg'] = df['amount'].rolling(w, min_periods=1).mean()
         out[f'volume_{w}d_avg'] = df['volume'].rolling(w, min_periods=1).mean()
@@ -125,7 +125,7 @@ def calc_window_factors(df: pd.DataFrame, code: str) -> pd.DataFrame:
     )
 
     # 连板数（修复版：按 limit 计算）
-    is_up_limit = (pct >= out['limit'] - 0.001).fillna(False).values
+    is_up_limit = (pct >= out['limit'] - RET_TOLERANCE).fillna(False).values
     grp = np.cumsum(~is_up_limit)
     series = pd.Series(is_up_limit.astype(int))
     out['continuous_limit'] = series.groupby(grp).cumsum()

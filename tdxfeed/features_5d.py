@@ -29,6 +29,8 @@
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 import numpy as np
 import pandas as pd
 
@@ -46,11 +48,15 @@ __all__ = [
     "is_yizi",
 ]
 
-# 涨停限制常量（与训练脚本一致）
-LIMIT_MAP: dict[str, float] = {"main": 0.095, "gem": 0.195, "bse": 0.295}
+# 涨停判定阈值：从内核的精确比例减缓冲派生，不再手抄字面量（P1-12 Phase 3）。
+_THRESHOLD_BUFFER = Decimal(str(_limits.DEFAULT_THRESHOLD_BUFFER))
+LIMIT_MAP: dict[str, float] = {
+    market: float(ratio - _THRESHOLD_BUFFER) for market, ratio in _limits.LIMIT_RATIO.items()
+}
 
-# 主板 ST/*ST 在 2026-07-06 与主板普通票并轨（±10%）之前是 ±5%，阈值同样留 0.5% 缓冲。
-LIMIT_ST_MAIN_OLD = 0.045
+# 主板 ST/*ST 在 2026-07-06 与主板普通票并轨（±10%）之前是 ±5%，阈值同样留缓冲。
+# 按 R17 保留为规则名（无调用方，判定一律走 get_limit → limits.limit_threshold）。
+LIMIT_ST_MAIN_OLD = float(_limits.LIMIT_RATIO_ST_MAIN_OLD - _THRESHOLD_BUFFER)
 
 MAIN_ST_RULE_CHANGE_DATE = _limits.MAIN_ST_RULE_CHANGE_DATE
 
@@ -66,16 +72,15 @@ def get_limit(code: str, name: str = "", on_date=None) -> float:
 
 
 def is_limit_up_ret(ret: float, limit: float) -> bool:
-    """涨幅是否达到涨停限制（ret 口径）。
+    """涨幅是否达到涨停限制（ret 口径）。转发 `tdxfeed.execution.limits.is_limit_up_ret`。
 
-    审计 P1 公共化（2026-10-19）：此前 `ret >= limit - 0.001` 这一判定在
-    5 个文件中重复（train_daban_model / diagnose_sample_design /
-    compare_daban_vs_stage1 / verify_daban_hit / factors_polars），
-    任一处微调不同步即造成口径漂移，故收敛至此。
-
-    容差 0.001：规避浮点误差（如 0.0999999 vs 0.10）。
+    审计 P1 公共化（2026-10-19）先把散在 5 个文件（train_daban_model /
+    diagnose_sample_design / compare_daban_vs_stage1 / verify_daban_hit /
+    factors_polars）的同一判定收敛到本模块；P1-12 Phase 3（2026-11-02）再收敛一层
+    到内核：容差由 `limits.RET_TOLERANCE` 单一提供（浮点容忍，规避 0.0999999 vs 0.10
+    这类误差），本函数不再手抄。标量调用点走本函数，向量化调用点直接减该常量。
     """
-    return ret >= (limit - 0.001)
+    return _limits.is_limit_up_ret(ret, limit)
 
 
 def is_open_limit_up(open_: float, prev_close: float, limit: float) -> bool:
@@ -155,9 +160,9 @@ def compute_window_features(
         "ret_3d": float(px_5["close"].iloc[-1] / px_5["close"].iloc[-4] - 1) if len(px_5) >= 4 else 0,
         # 5-6. 5 日内单日最大涨幅 / 涨停次数
         "max_5d_pct": float(pct_px.max()),
-        "limit_up_5d": int((pct_raw >= limit - 0.001).sum()),
+        "limit_up_5d": int((pct_raw >= limit - _limits.RET_TOLERANCE).sum()),
         # 7-8. T-1 当日是否涨停 / 当日涨幅（open→close）
-        "limit_up_t1": int(sig_day["close"] / sig_day["open"] - 1 >= limit - 0.001) if sig_day["open"] > 0 else 0,
+        "limit_up_t1": int(is_limit_up_ret(sig_day["close"] / sig_day["open"] - 1, limit)) if sig_day["open"] > 0 else 0,
         "pct_t1": float(px_day["close"] / px_day["open"] - 1) if px_day["open"] > 0 else 0,
         # 9-10. 5 日均成交额 / T-1 量比（amount-based）
         "avg_amount_5d": float(prev_5["amount"].mean()),
@@ -243,7 +248,7 @@ def compute_window_features_extended(
     # 封板 / 连板只认 raw：涨停是交易所绝对价规则，复权序列上的涨幅没有意义。
     close_full = df["close"]
     if sig_idx >= 1:
-        limit_up_mask = (close_full.pct_change() >= base["limit"] - 0.001)
+        limit_up_mask = (close_full.pct_change() >= base["limit"] - _limits.RET_TOLERANCE)
         is_limit_today = int(limit_up_mask.iloc[sig_idx])
         consec = 0
         i = sig_idx

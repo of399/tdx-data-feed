@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tdxfeed.execution.limits import strip_exchange_prefix  # 代码归一（P1-9 批次 D）
+from tdxfeed.execution.limits import RET_TOLERANCE, strip_exchange_prefix  # 容差（P1-12）+ 代码归一（P1-9 D）
 from tdxfeed.paths import daily_path, read_path
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -155,7 +155,7 @@ def compute_stock_raw(df: pd.DataFrame, code: str) -> pd.DataFrame:
     out["mom_120d_ex5"] = close.shift(5) / close.shift(125) - 1   # 剔除近 5 日反转
 
     lim = get_limit(code)
-    is_up = (pct >= lim - 0.001).fillna(False)
+    is_up = (pct >= lim - RET_TOLERANCE).fillna(False)
     out["zt_density_20d"] = is_up.rolling(20, min_periods=5).mean()
 
     vol_chg_20d = vol / vol.shift(20) - 1

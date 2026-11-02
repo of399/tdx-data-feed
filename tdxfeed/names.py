@@ -17,7 +17,8 @@
   曾经额外去空格（研究脚本的显示口径），收编后随统一口径一并去掉。
 - `universe_codes` 返回**零填充到 6 位**的代码（与 predict / 回测等调用方历史口径一致），
   可按 `prefixes` 过滤前缀；名单缺失或为空时可用 `fallback=True` 回退扫日线目录。
-- ST 判定与名称查询沿用既有口径，未改。
+- ST 判定沿用既有口径，未改；`is_st_or_delisting` 是「ST 或退市整理」的合并入口
+  （P1-12 Phase 2b，2026-11-02），ST 那一半转发 `is_st_name`，daban 两处内联已收编。
 """
 from __future__ import annotations
 
@@ -95,6 +96,15 @@ def _codes_from_daily() -> list[str]:
 def is_st_name(name: str) -> bool:
     """名称是否 ST / *ST（空格是排版噪声，先去掉）。"""
     return "ST" in str(name).replace(" ", "").upper()
+
+
+def is_st_or_delisting(name: str) -> bool:
+    """ST / *ST **或**退市整理（名称含「退」）：daban 候选过滤与 min60 的 5% 档口径。
+
+    退市整理期不是 ST，但同样按风险警示处理，所以这两处历史上写成「ST 或 退」。
+    ST 那一半走 `is_st_name`（去排版空格），不另抄一份字符串判定。
+    """
+    return is_st_name(name) or "退" in str(name)
 
 
 def name_of(code: str) -> str:

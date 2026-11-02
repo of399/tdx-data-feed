@@ -49,7 +49,7 @@ from _common import compute_window_features_extended  # noqa: E402
 from tdxfeed.daban.filter import SectorFilter, load_sector_features  # noqa: E402
 from tdxfeed.daban.limit_price import limit_up_price  # noqa: E402
 from tdxfeed.daban.sector import load_industry_map  # noqa: E402
-from tdxfeed.features_5d import get_limit, is_open_limit_up  # noqa: E402
+from tdxfeed.features_5d import get_limit, is_limit_up_ret, is_open_limit_up  # noqa: E402
 
 SPLIT_DATE = "2025-06-01"
 RANDOM_SEED = 42
@@ -143,7 +143,7 @@ def build_samples(code: str, recent: int, sample_space: str = "limit_up") -> pd.
         next_open = float(openp[i + 1])
         if next_close <= 0 or next_open <= 0:
             continue
-        label_a = 1 if next_close / cur_c - 1.0 >= limit_val - 0.001 else 0
+        label_a = 1 if is_limit_up_ret(next_close / cur_c - 1.0, limit_val) else 0
         label_b = 1 if next_open > cur_c else 0
         eval_net = next_open / cur_c - 1.0 - COST
         feat = compute_window_features_extended(df, code, sig_idx=i)

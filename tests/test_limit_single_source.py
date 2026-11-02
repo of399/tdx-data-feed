@@ -1,6 +1,7 @@
 """三份涨跌幅实现必须同源：改规则只改 tdxfeed/execution/limits.py 一处。"""
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from pathlib import Path
 
@@ -168,3 +169,81 @@ def test_scripts_have_no_local_limit_table():
         if "def get_limit" in text:
             offenders.append(f"{rel}: 本地 get_limit")
     assert offenders == []
+
+
+# --------------------------------------------------------------------------- #
+# P1-12 Phase 3（台账 KI-SINGLE-004）：容差与阈值常量单源，**零口径变化**去重
+# --------------------------------------------------------------------------- #
+
+# 台账 detect 的口径。原规格只认 `limit - 0.001`，漏掉同契约的 limits / limit_val / lim /
+# df['limit'] 等写法（9 处），故按变量形态放宽；价格级 EPS（ztj/limit_price - EPS，
+# 含 min60 的 EPS=0.005）是**另一契约**，不在此列、也不得并入 RET_TOLERANCE。
+RET_TOL_RE = re.compile(r"""(limit[A-Za-z_]*|lim|\[["']limit["']\])\s*-\s*0\.001""")
+TOL_DOMAINS = ("tdxfeed", "scripts", "quant", "mcp")
+TOL_SKIP = {"venv", "venv-math", "_archive", ".git", "node_modules", "__pycache__"}
+
+# 收编后必须引用权威容差的站点（反作弊用，见下）
+RET_TOL_SITES = (
+    "tdxfeed/features_5d.py",
+    "scripts/predict.py",
+    "scripts/daban_label_diagnose.py",
+    "scripts/v3_premarket_top.py",
+    "scripts/find_double_up_c.py",
+    "scripts/find_double_up_hfq.py",
+    "scripts/factor_engine.py",
+    "scripts/top10_deep_dive.py",
+    "scripts/find_double_up_c_v2.py",
+    "quant/multifactor/factors.py",
+)
+
+
+def test_no_inline_ret_tolerance_literal():
+    """全仓不得再出现「阈值 − 字面量 0.001」的涨停判定（含 docstring 里的示例）。"""
+    offenders = []
+    for base in TOL_DOMAINS:
+        for fp in sorted((ROOT / base).rglob("*.py")):
+            if any(part in TOL_SKIP for part in fp.relative_to(ROOT).parts):
+                continue
+            for i, line in enumerate(fp.read_text(encoding="utf-8").splitlines(), 1):
+                if RET_TOL_RE.search(line):
+                    offenders.append(f"{fp.relative_to(ROOT).as_posix()}:{i}")
+    assert offenders == [], "容差走 limits.RET_TOLERANCE / is_limit_up_ret，不要手抄字面量"
+
+
+def test_sites_reference_authoritative_tolerance():
+    """把容差整段删掉也能让上一条变绿——但那是**改口径**（判定变严），不是去重。"""
+    for rel in RET_TOL_SITES:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "RET_TOLERANCE" in text or "is_limit_up_ret" in text, f"{rel} 未引用权威容差"
+
+
+def test_ret_tolerance_value_pinned():
+    """去重不许顺手改值：0.001 是浮点容忍（Phase 0② 结论），改了就是收窄判定。"""
+    assert limits.RET_TOLERANCE == 0.001
+
+
+def test_features_is_limit_up_ret_delegates(monkeypatch):
+    """哨兵替换内核后 features 入口必须跟着变，否则只是「值碰巧相等」的假委托。"""
+    monkeypatch.setattr(limits, "is_limit_up_ret", lambda ret, limit: ret > 999)
+    assert features_5d.is_limit_up_ret(0.10, 0.095) is False
+    assert features_5d.is_limit_up_ret(1000.0, 0.095) is True
+
+
+def test_limit_map_is_derived_not_hardcoded():
+    src = (ROOT / "tdxfeed" / "features_5d.py").read_text(encoding="utf-8")
+    for lit in ("0.095", "0.195", "0.295", "0.045"):
+        assert lit not in src, f"features_5d 不得硬编码阈值 {lit}（应从 limits 派生）"
+    buf = Decimal(str(limits.DEFAULT_THRESHOLD_BUFFER))
+    assert features_5d.LIMIT_MAP == {m: float(r - buf) for m, r in limits.LIMIT_RATIO.items()}
+    assert features_5d.LIMIT_ST_MAIN_OLD == float(limits.LIMIT_RATIO_ST_MAIN_OLD - buf)
+
+
+@pytest.mark.parametrize("limit", [0.095, 0.195, 0.295, 0.045])
+def test_is_limit_up_ret_grid_parity(limit):
+    """逐点等价证明：与旧表达式（字面量容差）在 0.0001 步长网格上完全一致。"""
+    import numpy as np
+
+    rets = np.arange(-0.05, 0.35, 0.0001)
+    got = [features_5d.is_limit_up_ret(float(r), limit) for r in rets]
+    want = [bool(r >= limit - 0.001) for r in rets]
+    assert got == want

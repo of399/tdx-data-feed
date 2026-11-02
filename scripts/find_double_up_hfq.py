@@ -29,8 +29,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tdxfeed.adjusted import MIN_FACTOR_COV, factor_jumps, frame  # noqa: E402
 from tdxfeed.atomic import atomic_write_frame  # noqa: E402  # SEM001 原子写
-from tdxfeed.execution.limits import normalize_code  # noqa: E402
+from tdxfeed.execution.limits import RET_TOLERANCE, normalize_code  # noqa: E402
 from tdxfeed.features_5d import get_limit  # noqa: E402
+from tdxfeed.names import is_st_name  # noqa: E402
 from tdxfeed.paths import daily_files, universe_path  # noqa: E402
 
 log = logging.getLogger("find_double_up_hfq")
@@ -112,7 +113,7 @@ def screen_series(
             "start_close_hfq": round(base, 4),
             "peak_close_hfq": round(peak, 4),
             "pct_change": round((ratio - 1.0) * 100.0, 1),
-            "limit_up_count": int((raw_pct[i + 1:i + window + 1] >= limit - 0.001).sum()),
+            "limit_up_count": int((raw_pct[i + 1:i + window + 1] >= limit - RET_TOLERANCE).sum()),
             "window_amount": float(np.sum(amt[i + 1:i + window + 1])),
             "year": int(d[peak_idx].year),
             "is_st": bool(is_st),
@@ -178,7 +179,7 @@ def main(argv=None) -> int:
         name = names.get(normalize_code(code), "?")
         try:
             hits, dropped, st = screen_one(
-                code, name=name, is_st="ST" in name.upper(), start=args.start,
+                code, name=name, is_st=is_st_name(name), start=args.start,
                 window=args.window, ratio_threshold=args.ratio)
         except Exception as e:
             status["error"] += 1

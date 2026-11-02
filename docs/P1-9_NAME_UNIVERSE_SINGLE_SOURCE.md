@@ -211,6 +211,11 @@ normalize_code(code)          # 契约 A：lower + 剥前缀 + 零填充 6 位 �
   「代码在不在 ST 名单里」，属**另一契约**（不是名称判定的副本）。
 - **但内联写法散落 16 处**，且口径各异：含退市整理「退」（2 处）、判 vault 文件名词干（2 处）、
   仅前缀匹配（1 处，与权威的"任意位置含 ST"不同）、与权威等价待收编（1 处）等。
+  > **P1-12 Phase 2a/2b 后续（2026-11-02）**：这个「16」是**宽口径**计数（字符串含 ST 子串 + 「退」按行去重），
+  > 其中 9 处是已知误报（`tests/`、`state`、`step`、`stage1`、`inst_net` 等）；守卫实际用的
+  > 精确 AST 口径当时是 **6 处**。2a 收编 `find_double_up_hfq`、2b 新增
+  > `names.is_st_or_delisting` 收编含「退」两处后，精确口径剩 **3 处**（仅前缀匹配 1 + vault 文件名词干 2），
+  > 三者口径与权威不同、逐条登记保留。`daban/paper.py` 的「退」→ `risk_warning` 是状态分类，属另一契约，未合并。
 
 因此**不重构**，改为用 AST 守卫（`tests/test_names_single_source.py`，4 → 16 条）固化三条校验目标：
 
@@ -298,6 +303,12 @@ D2 决策（执行研究线是否归档）──⚠─► 归档会让 6 份副�
 ---
 
 ## 10. 下一步（批次 A / D / E / F 已完成）
+
+> **2026-11-02 结案补记**：下列 #1/#2/#3 已由 **P1-12** 完成——#1 走 Phase 2a/2b（方案 A 新增
+> `is_st_or_delisting`，逐票 diff = 0），#2 走 Phase 3（17 处代码 + 1 处 docstring 全部收编到
+> `limits.RET_TOLERANCE` / `is_limit_up_ret`，`LIMIT_MAP` 改派生，逐点 diff = 0，台账
+> `KI-SINGLE-004` 转 FIXED），#3 走项 3（40 条 detect 逐条反向验证，复扫
+> STILL_PRESENT 15 · FIXED_OK 25 · GUARD_MISSING 0）。**#4 仍未做**。原文保留作决策轨迹。
 
 1. **收编可收编的内联 ST 判定**（批次 E 留下的尾巴）：16 处例外里，
    `scripts/find_double_up_hfq.py` 那处与权威等价 → 可直接改调 `names.is_st_name`；

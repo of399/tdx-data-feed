@@ -88,17 +88,22 @@
    `max_age_days=2` 硬闸门（周一阈值 10-31，周五 10-30 的 bar 已算陈旧）——今天 16:30 同步若成功，
    18:05 用新鲜数据正常跑；若不成功，闸门 exit 2 **整轮跳过**。放行观察须同时覆盖「被跳过」分支：
    跳过不等于本次改动有问题，但首跑取证要顺延到下一个同步成功的交易日。
-3. **🟠 门禁信号被稀释**：10 项既有红里有 **3 项**（`test_ci_semantic_guard` / `test_sem002_convergence` /
-   `test_error_counters`）由同 **5 处 SEM002** 触发（`check_sync_sentinel.py`×2、
-   `mark_sync_done.py`、`mcp/schema_validation.py`、`mcp/servers/parquet_reader.py`）
-   ⇒ 新增吞错违规会混在这 5 处里难以分辨；且 `mark_sync_done.py` 的入口 smoke 至今红。
+3. **🟢 门禁信号被稀释（已结案，见「P1-12 落地与生产首跑补记」#1）**：10 项既有红里有 **3 项**
+   （`test_ci_semantic_guard` / `test_sem002_convergence` / `test_error_counters`）由同 **5 处 SEM002** 触发
+   （`check_sync_sentinel.py`×2、`mark_sync_done.py`、`mcp/schema_validation.py`、
+   `mcp/servers/parquet_reader.py`）⇒ 新增吞错违规会混在这 5 处里难以分辨；且 `mark_sync_done.py` 的入口 smoke 至今红。
 4. **🟡 性能结论是推断**：仅微基准，无端到端基准（见 §📈）。
-5. **🟡 口径分叉残留**：内联 ST 判定 **16 处**仍未收编（已全部登记进守卫例外表，守卫能挡"新增"、挡不住"既有"）；
+5. **🟢 口径分叉残留（已结案，见「P1-12 落地与生产首跑补记」#2；下列数字是批次 E 当时口径）**：
+   内联 ST 判定 **16 处**（宽口径计数，含 9 处已知误报；守卫用的精确 AST 口径是 6 处）仍未收编
+   （已全部登记进守卫例外表，守卫能挡"新增"、挡不住"既有"）；
    涨停判定 **9 处 `limit - 0.001`** 仍在（P1-12 未做），且其中 **0.001 容差的性质待确认**。
 6. **🟡 台账 19 条 STILL_PRESENT**（14 条无守卫、会复发）——与本次改动无关，但属既有技术债。
 7. **🟡 共享工作树**：本会话与其它会话共用 checkout ⇒ 回滚与提交都须**显式路径**，禁用 `-A`。
 
 ## 🔧 下一步建议
+
+> 下列 #1–#4 已在文末「P1-12 落地与生产首跑补记（2026-11-02 20:30）」逐条结案，保留原文作为决策轨迹；
+> #5（回滚演练）与 #6（端到端性能基准）**仍未做**。
 
 1. **放行判定**：建议**条件性放行**——代码、测试、部署、接口四项均达标，唯一缺口是「生产首跑未发生」。
    放行条件 = 今天 18:05 `predict-daily` 首跑后检查：① 服务 `Result=success`（不因本次改动崩）；
@@ -135,3 +140,61 @@
 生成者：升级就绪评估会话
 模型版本：不适用（工程改造）
 数据日期：不适用
+
+---
+
+## P1-12 落地与生产首跑补记（2026-11-02 20:35，独立核查会话）
+
+本节把上面「风险 #3 / #5 / #6」与「下一步建议 #1–#4」逐条结案。数字均为实测，清理旧产物（仓库
+`__pycache__` / `.pytest_cache`、副本 `data/`、副本里的 gitignore 目录）后重跑取得。
+
+1. **风险 #3 结案（吞错面）**：5 处 SEM002 全部计数化（`d9d6951`），`scripts/ci_semantic_guard.py`
+   现 **SEM001/SEM002/SEM003 各 0 条**，`config/semantic_baseline.json` 仍为 0（没靠抬基线解锁）；
+   `mark_sync_done.py` 补 argparse 后入口 smoke 红消解 ⇒ 三项红（semantic_guard / sem002_convergence /
+   error_counters）解锁。
+2. **风险 #5 结案（口径分叉）**：
+   - 内联 ST：2a 收编 `find_double_up_hfq`、2b 新增 `names.is_st_or_delisting`（方案 A）收编含「退」两处，
+     精确 AST 口径 6 处 → **3 处**（仅前缀匹配 1 + vault 文件名词干 2，口径与权威不同、逐条登记保留）；
+     `daban/paper.py` 的「退 → `risk_warning`」属状态分类，未合并。逐票 diff = 0（宇宙 5221 / 样本 17794）。
+   - 涨停容差：Phase 0② 确认 **0.001 = `limits.RET_TOLERANCE` 浮点容忍**，不是有意放宽 ⇒ P1-12 是去重不是收窄。
+     原 detect 只认变量名 `limit`，放宽形态后是 **17 处代码 + 1 处 docstring**，全部收编（标量走
+     `is_limit_up_ret`、向量化减 `RET_TOLERANCE`，`features_5d.LIMIT_MAP` / `LIMIT_ST_MAIN_OLD` 改派生）。
+     等价性：与 HEAD 版同输入对跑，**1044 个特征向量 / 30276 个取值 + 839913 个逐日涨停判定点零差异**
+     ⇒ 翻倍样本 CSV 与特征表**不需要重跑**。价格级 EPS（`ztj/limit_price - EPS`，min60 是 0.005）
+     是另一契约，明确不收编。
+3. **放行判定结案（原建议 #1/#2）**：18:05 `predict-daily` 两道 `ExecStartPre` 均 SUCCESS、`ExecStart`
+   exit 0（18:10 又跑一次，两次 Top5 一致），5213/5221 只打分并出榜；`logs/predict.err` 中
+   `load_universe` / `normalize_code` / `is_st` 相关异常 **0 条**；本轮改到的开盘一字过滤在新代码路径上
+   实际执行（日志「过滤 T 日开盘即涨停: 4932 → 4923」）。canary 20:30 那条 **err=0 / warn=1**
+   （warn 从 2 降到 1，剩 `swallowed_errors`——吞错从「不被计数」变成「计数非零」，正是 #1 的预期副作用）。
+4. **风险 #6 计数更新**：台账复扫 **STILL_PRESENT 15 · RESOLVED 0 · FIXED_OK 25 · GUARD_MISSING 0**，
+   无守卫（会复发）14 → **11** 条；M-5「FIXED 必须绑定含条目 ID 的真实测试」通过。
+5. **全量回归（清理旧产物后）**：
+   - 本机 `tests/ + v5/tests/`：**1832 passed / 4 failed / 6 skipped**（6:53）。4 条红 = 3 条既有基线红
+     （mypy 基线、ruff 基线、`test_daban_mcp` 的 skill yaml `KeyError`）**+ 1 条新红**
+     `test_hfq_factor_monotone::test_downward_jumps_match_whitelist`——**数据缺陷，非代码回归**，见下。
+   - CI 同构副本（改用 `git ls-files` 跟踪清单重建，1941 文件、无 `data/`、遮蔽 `/home`）：
+     **1758 passed / 82 skipped / 2 failed**，2 条均为副本免疫项（bare-pytest shebang、`/etc` 单元镜像比对）；
+     上一轮那两条语义红是我用 tar 整树拷贝时把 gitignore 的 `train/` 带进副本造成的，已按跟踪清单重建消除。
+     CI 阈值（≥1140 passed、≤100 skipped）满足。
+6. **新红归因（绊线正常工作，需人处置）**：`tdxfeed.hfq_factor` 今晚增量写坏了
+   `data/hfq_factor/002247.parquet` 的 2026-10-29 / 10-30 / 11-02 三行——`raw_close` 落的是
+   **6 位小数的后复权价**（`13.687908`；交易所价不可能，13.687908 ÷ 6.48716 = 2.1099 才是真收盘价），
+   于是 `hfq_factor` 算成 1.0，序列上出现 **−84.6%** 的因子塌方（该文件 mtime 19:41:12，复跑两次同一结果，
+   不是读写竞态）。全表不变量审计（`data/parquet/daily` 权威收盘价 vs hfq 表 `raw_close`，
+   2026-09-01 起 **199019 行逐行对齐**）：**只有 002247 这 3 行不一致**，其余全部一致
+   （日线定位用 `paths.daily_files()` + `exchange_prefix` 消歧，避免同码双文件把个股读成指数）。
+   影响面：`adjusted.frame(kind="hfq")` 会给 002247 造出一个约 +546% 的假日涨幅，污染跨 10-29 的
+   价格比率特征与标签；**今天 18:05 的实盘预测未受影响**（它跑在 19:41 写入之前）。
+   正确值可精确还原（无需臆造）：日线收盘 × 既有因子 6.48716 = 表内已存的 `hfq_close`
+   （2.11 → 13.6879076 ✓ / 2.02 → 13.1040632 ✓ / 2.08 → 13.4932928 ✓），
+   所以处置就是把这三行的 `raw_close` 改回日线收盘价、`hfq_factor` 回到 6.48716。
+   处置建议（须带日期备份后动手，`data/` 不进 git）：按上法定点修复或整表重拉 002247，
+   回到 12 条白名单；同时在写入侧加「`raw_close` 必须与日线权威收盘价一致（容差 0.005 元）」
+   的前置校验，让这类写坏在落盘前就被拦下（下一批次项）。
+
+仍未做：#5 回滚演练、#6 端到端性能基准、上面第 6 条的写入侧前置校验。
+
+生成者：P1-12 批次执行会话
+模型版本：不适用（工程改造）
+数据日期：2026-11-02
