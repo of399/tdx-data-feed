@@ -168,7 +168,13 @@ class McpClient:
         })
         if "error" in resp:
             raise RuntimeError(f"MCP error: {resp['error']}")
-        content = resp.get("result", {}).get("content", [])
+        result = resp.get("result", {})
+        # P1-5 向前兼容：识别工具级业务错误 result:{isError:true}（不影响既有 error 路径）
+        if isinstance(result, dict) and result.get("isError"):
+            content = result.get("content", [])
+            text = content[0].get("text", "工具返回 isError") if content else "工具返回 isError"
+            raise RuntimeError(f"MCP tool error: {text}")
+        content = result.get("content", [])
         if not content:
             return None
         text = content[0].get("text", "{}")
@@ -458,7 +464,14 @@ class SkillRuntime:
         ):
             return self._execute_with_llm(skill, inputs)
 
-        # 2. 降级：纯工具/规则
+        # 2. 无 LLM：若声明了 fallback_skill，直接降级到该 skill 的纯工具路径。
+        #    KI-SKILL：此前 fallback 仅在「LLM 加载成功但推理失败」时触发，
+        #    “根本无 LLM” 的情况被漏掉，kline-analysis 会直接报错而非降级。
+        fb = self._run_fallback(skill, inputs, "llm_unavailable")
+        if fb is not None:
+            return fb
+
+        # 3. 降级：纯工具/规则（无 LLM 且无 fallback 声明）
         return self._execute_pure_tools(skill, inputs)
 
     # -----------------------------------------------------------------
@@ -947,21 +960,30 @@ class SkillRuntime:
             _ERROR_COUNT['_execute_with_llm'] += 1
             return self._handle_llm_failure(skill, inputs, f"LLM 推理失败：{e}")
 
+    def _run_fallback(self, skill: dict[str, Any], inputs: dict[str, Any],
+                     reason: str) -> dict[str, Any] | None:
+        """按 skill 声明的 fallback_skill 降级到纯工具路径；未声明则返回 None。"""
+        fb_name = skill.get("fallback_skill")
+        if not fb_name:
+            return None
+        fb = self.skills.get(fb_name)
+        if not fb:
+            return {"ok": False, "skill": skill["name"], "code": inputs.get("code"),
+                    "error": f"{reason}；声明的 fallback_skill={fb_name} 不存在"}
+        result = self._execute_pure_tools(fb, inputs)
+        result["fallback_from"] = skill["name"]
+        result["fallback_reason"] = reason
+        return result
+
     def _handle_llm_failure(self, skill: dict[str, Any], inputs: dict[str, Any],
                             error: str) -> dict[str, Any]:
-        """只使用 skill 显式声明的 fallback；财务/新闻等 null fallback 必须报错。"""
+        """LLM 加载成功但推理失败时，使用 skill 显式声明的 fallback；
+        financial/news 等声明 fallback_skill=null 的必须报错。"""
         name = skill["name"]
-        fb_name = skill.get("fallback_skill")
-        log.warning("%s LLM 失败：%s（fallback=%s）", name, error, fb_name)
-        if fb_name:
-            fb = self.skills.get(fb_name)
-            if not fb:
-                return {"ok": False, "skill": name, "code": inputs.get("code"),
-                        "error": f"{error}；声明的 fallback_skill={fb_name} 不存在"}
-            result = self._execute_pure_tools(fb, inputs)
-            result["fallback_from"] = name
-            result["fallback_reason"] = error
-            return result
+        log.warning("%s LLM 失败：%s（fallback=%s）", name, error, skill.get("fallback_skill"))
+        fb = self._run_fallback(skill, inputs, error)
+        if fb is not None:
+            return fb
         return {"ok": False, "skill": name, "code": inputs.get("code"), "error": error}
 
     def _guard_hallucination(self, name: str, text: str, extra_vars: dict) -> tuple[str, bool]:

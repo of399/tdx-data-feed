@@ -27,21 +27,35 @@ from typing import Any
 from skill_router.runtime import SkillRuntime
 
 # === 意图路由规则 ===========================================================
-INTENT_PATTERNS = [
+# KI-SKILL-001：原 INTENT_PATTERNS 编译时缺 re.IGNORECASE，导致 "PE"/"MACD" 等
+# 大写写法漏匹配、退化到默认 indicator-match。统一加 re.I 重编译。
+INTENT_SPEC = [
     # 优先级从高到低
-    (re.compile(r'财务|营收|净利润|ROE|毛利|EPS|pe|pb|市盈率|市净率|报表|资产负债|现金流'), "financial-summary"),
-    (re.compile(r'复权|除权除息|前复权|后复权|送转|分红'), "adj-factor"),
-    (re.compile(r'新闻|公告|政策|舆情|消息|利好|利空'), "news-summary"),
-    (re.compile(r'打板|连板|首板|次日涨停|涨停候选|涨停股|接力板'), "daban"),
-    (re.compile(r'指标|形态|金叉|死叉|锤子|十字星|超买|超卖|均线|MACD|KDJ|RSI'), "indicator-match"),
-    # 默认：含代码 → 主分析
-    (re.compile(r'((sh|sz|bj)\d{6})'), "kline-analysis"),
+    (r'财务|营收|净利润|ROE|毛利|EPS|pe|pb|市盈率|市净率|报表|资产负债|现金流', "financial-summary"),
+    (r'复权|除权除息|前复权|后复权|送转|分红', "adj-factor"),
+    (r'新闻|公告|政策|舆情|消息|利好|利空', "news-summary"),
+    (r'打板|连板|首板|次日涨停|涨停候选|涨停股|接力板', "daban"),
+    (r'指标|形态|金叉|死叉|锤子|十字星|超买|超卖|均线|MACD|KDJ|RSI', "indicator-match"),
+    # 带前缀代码 → 主分析（裸 6 位在 route() 末尾统一归并，避免重复逻辑）
+    (r'(sh|sz|bj)\d{6}', "kline-analysis"),
 ]
+INTENT_PATTERNS = [(re.compile(p, re.IGNORECASE), s) for p, s in INTENT_SPEC]
 
 # === 理论讲义（财经七书）路由 ================================================
 # 只在「查询里没有股票代码」且命中概念性提问词时才走 theory-reference，
 # 否则「600519 的护城河是什么」这类个股问题会被讲义抢走。
+# CODE_RE 已带 IGNORECASE 且允许裸 6 位，供 theory 守卫与代码抽取共用。
 CODE_RE = re.compile(r'(?<!\d)(?:sh|sz|bj)?\d{6}(?!\d)', re.IGNORECASE)
+
+
+def _normalize_code(raw: str) -> str:
+    """裸 6 位 → 按首位补 sh/sz 前缀（与 parquet_reader._norm_code 口径一致）；带前缀原样小写。"""
+    raw = raw.strip().lower()
+    if not re.fullmatch(r'(?:sh|sz|bj)?\d{6}', raw):
+        return raw
+    if raw[:2] in ("sh", "sz", "bj"):
+        return raw
+    return ("sh" + raw) if raw.startswith("6") else ("sz" + raw)
 
 THEORY_PATTERN = re.compile(
     r'什么是|定义|原理|公式|推导|假设|证明|含义|概念|名词解释|知识点|考点|复习|'
@@ -93,6 +107,9 @@ class Orchestrator:
         for pattern, skill in INTENT_PATTERNS:
             if pattern.search(query):
                 return skill
+        # KI-SKILL-001：裸 6 位（无关键词）也应归到主分析，而非退化到 indicator-match
+        if CODE_RE.search(query):
+            return "kline-analysis"
         return "indicator-match"  # 兜底（纯计算，无需 LLM）
 
     def _err(self, msg: str, intent: str, t0: float) -> dict[str, Any]:
@@ -109,9 +126,9 @@ class Orchestrator:
         }
 
     def extract_code(self, query: str) -> str | None:
-        """从查询提取股票代码"""
-        m = re.search(r'((?:sh|sz|bj)\d{6})', query, re.IGNORECASE)
-        return m.group(1).lower() if m else None
+        """从查询提取并归一化股票代码（支持裸 6 位，KI-SKILL-001）"""
+        m = CODE_RE.search(query)
+        return _normalize_code(m.group(0)) if m else None
 
     def extract_metric(self, query: str) -> str | None:
         """从查询提取财务指标"""
@@ -179,10 +196,12 @@ class Orchestrator:
             result = self.runtime.execute_skill("kline-analysis", {
                 "code": code, "query": query,
             })
-            # 若 LLM 不可用且未返回，自动 fallback
-            if not result.get("ok") or "llm_output" not in result:
+            # P1-4：runtime 已在内部按 fallback_skill 降级（结果含 fallback_from）。
+            # 仅当 runtime 既未成功也未降级（无 fallback_from 且 ok=False）时才兜底再试
+            # indicator-match，否则会因 'llm_output' 缺失而二次执行，导致 MCP 调用翻倍。
+            if not result.get("ok") and not result.get("fallback_from"):
                 if self.verbose:
-                    print("[orchestrator] LLM 不可用，自动降级到 indicator-match")
+                    print("[orchestrator] kline-analysis 未降级，兜底重试 indicator-match")
                 result = self.runtime.execute_skill("indicator-match", {"code": code})
         else:
             result = {"ok": False, "error": f"未知意图：{intent}"}
