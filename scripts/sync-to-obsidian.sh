@@ -5,9 +5,10 @@
 
 set -e -o pipefail   # 补 pipefail 防管道吞错（保留 -e）
 
-# ============== 配置 ==============
-SRC="/home/jiuben/tdx-data-feed"
-VAULT="/home/jiuben/ObsidianVaults/tdx-data-feed"
+# ============== 配置（P1-8：路径单一源，禁止硬编码仓库根） ==============
+source "$(dirname "${BASH_SOURCE[0]}")/lib/tdx-env.sh"
+SRC="$TDX_HOME"
+VAULT="$TDX_VAULT_PROJ"
 
 # 颜色
 GREEN='\033[0;32m'

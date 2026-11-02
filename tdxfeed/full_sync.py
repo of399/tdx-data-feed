@@ -27,6 +27,7 @@ from tdxfeed.errors import (  # noqa: E402
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.state import State
 from tdxfeed.symbols import INDICES, get_core_stocks, group, sym_of_index
+from tdxfeed.paths import DATA_ROOT  # noqa: E402
 from tdxfeed.writers import Writers
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
@@ -34,7 +35,8 @@ _ERROR_COUNT: Counter[str] = Counter()
 
 atexit.register(_flush_swallowed_counts)
 
-OUT_ROOT = os.environ.get("TDX_OUT_ROOT", "/home/jiuben/tdx-data-feed/data")
+# 仓库根/数据根单一源（P1-8）：复用以 tdxfeed.paths.DATA_ROOT（= TDX_OUT_ROOT 或 仓库根/data），禁止硬编码
+OUT_ROOT = str(DATA_ROOT)
 SLEEP = float(os.environ.get("TDX_SLEEP", "0.15"))
 
 

@@ -3,14 +3,16 @@
 #   A. verify-obsidian-templates（源-部署零漂移）— 决定 vault-kind
 #   B. 敏感信息扫描（git diff --cached 新增行，匹配白名单正则）
 # 用法：
-#   chmod +x /home/jiuben/tdx-data-feed/scripts/hooks/pre-commit
-#   git -C <vault> config core.hooksPath /home/jiuben/tdx-data-feed/scripts/hooks
+#   chmod +x scripts/hooks/pre-commit
+#   git -C <vault> config core.hooksPath scripts/hooks
 # 紧急跳过：git commit --no-verify
 set -e
 
-REPO="/home/jiuben/tdx-data-feed"
-VAULT_DEFAULT_STOCK="/home/jiuben/StockVault"
-VAULT_DEFAULT_PROJ="/home/jiuben/ObsidianVaults/tdx-data-feed"
+# P1-8：路径单一源，禁止硬编码仓库根
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tdx-env.sh"
+REPO="$TDX_HOME"
+VAULT_DEFAULT_STOCK="$TDX_VAULT_STOCK"
+VAULT_DEFAULT_PROJ="$TDX_VAULT_PROJ"
 
 # 探测当前 vault 路径
 VAULT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$VAULT_DEFAULT_STOCK")"

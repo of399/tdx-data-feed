@@ -8,15 +8,17 @@
 #   4. config core.hooksPath 指向 scripts/hooks/
 #   5. chmod +x pre-commit
 #   6. 检查 obsidian-git 插件启用
-# 用法：bash /home/jiuben/tdx-data-feed/scripts/git_init_vaults.sh
+# 用法：bash scripts/git_init_vaults.sh（仓库根可用 TDX_HOME 覆盖）
 set -uo pipefail
 
-REPO="/home/jiuben/tdx-data-feed"
+# P1-8：路径单一源，禁止硬编码仓库根
+source "$(dirname "${BASH_SOURCE[0]}")/lib/tdx-env.sh"
+REPO="$TDX_HOME"
 HOOKS_DIR="$REPO/scripts/hooks"
 PRE_COMMIT="$HOOKS_DIR/pre-commit"
 
-VAULT_STOCK="/home/jiuben/StockVault"
-VAULT_PROJ="/home/jiuben/ObsidianVaults/tdx-data-feed"
+VAULT_STOCK="$TDX_VAULT_STOCK"
+VAULT_PROJ="$TDX_VAULT_PROJ"
 
 AUTHOR_NAME="vault-bot"
 AUTHOR_EMAIL="vault@local"

@@ -13,18 +13,21 @@ from pathlib import Path
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 可导入
+from tdxfeed.paths import ROOT  # 仓库根单一源（P1-8）：路径统一走 tdxfeed.paths.ROOT
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根：让 tdxfeed.atomic 等可导入
 
 from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.state import State
+from tdxfeed.paths import ROOT
 from tdxfeed.writers import Writers
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
-CONFIG_PATH = '/home/jiuben/tdx-data-feed/config.yaml'
+CONFIG_PATH = ROOT / 'config.yaml'
 
 
 def load_config():
@@ -36,7 +39,7 @@ def get_out_root():
     cfg = load_config()
     return os.environ.get(
         'TDX_OUT',
-        cfg.get('output_root', '/home/jiuben/tdx-data-feed/data'))
+        cfg.get('output_root', str(ROOT / 'data')))
 
 
 def cmd_sync(symbol):
@@ -136,7 +139,7 @@ def cmd_verify(symbol=None):
 def cmd_vault_doc():
     cfg = load_config()
     vault = cfg.get('obsidian_vault', '/home/jiuben/StockVault')
-    out_root = cfg.get('output_root', '/home/jiuben/tdx-data-feed/data')
+    out_root = cfg.get('output_root', str(ROOT / 'data'))
     state = State(os.path.join(out_root, '.state', 'manifest.json'))
     data_dir = os.path.join(vault, '03-数据')
     os.makedirs(data_dir, exist_ok=True)

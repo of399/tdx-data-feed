@@ -23,7 +23,8 @@ FIN_JSON = os.path.join(OUT, 'finance')
 XDR_JSON = os.path.join(OUT, 'xdxr')
 FIN_PQ = os.path.join(OUT, 'finance.parquet')
 XDR_PQ = os.path.join(OUT, 'xdxr.parquet')
-CORE_FILE = '/home/jiuben/tdx-data-feed/core_stocks.json'
+# 仓库根单一源（P1-8）：复用本文件已推导的 _ROOT，禁止硬编码主机路径
+CORE_FILE = os.path.join(_ROOT, 'core_stocks.json')
 
 
 def jsonl_to_df(d):
