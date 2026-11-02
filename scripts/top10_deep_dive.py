@@ -19,14 +19,13 @@ import pandas as pd
 socket.setdefaulttimeout(30)
 warnings.filterwarnings('ignore')
 
-from _common import daily_dir, get_limit, universe_path  # noqa: E402
+from _common import daily_dir, get_limit  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 VAULT_DIR = Path('/home/jiuben/StockVault/01-标的')
-ALL_STOCKS = universe_path()
 V1_DETAIL = Path('/home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_detail.csv')
 V1_BY_CODE = Path('/home/jiuben/tdx-data-feed/data/double_up/double_up_2020_2026_by_code.csv')
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')

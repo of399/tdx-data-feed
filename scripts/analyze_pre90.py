@@ -26,14 +26,13 @@ from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原�
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('analyze_pre90')
 
-from _common import adj_factor_dir, daily_dir, universe_path  # noqa: E402
+from _common import adj_factor_dir, daily_dir  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
 PARQUET = daily_dir()
 ADJ = adj_factor_dir()
-NAME_MAP_PATH = universe_path()
 CSV_IN = Path('/home/jiuben/tdx-data-feed/data/double_up/double_30d_2021_2026.csv')
 OUT_DIR = Path('/home/jiuben/tdx-data-feed/data/double_up')
 

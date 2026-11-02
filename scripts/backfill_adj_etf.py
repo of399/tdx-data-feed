@@ -33,14 +33,13 @@ warnings.filterwarnings('ignore')
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import adj_factor_dir, universe_path  # noqa: E402
+from _common import adj_factor_dir  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
 OUT = adj_factor_dir()
 OUT.mkdir(parents=True, exist_ok=True)
-ALL_STOCKS = universe_path()
 ETF_CODES = ROOT / 'data' / 'etf_codes.txt'
 LOG = Path('/tmp/adj_factor_etf.log')
 
