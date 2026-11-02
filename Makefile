@@ -51,6 +51,13 @@ USER_TIMERS := predict-daily plan-e-today plan-e-journal plan-e-double-up \
 # 在一键收口时被落下。
 RETIRED_TIMERS := tdxfeed-sync plan-e-monitor plan-e-weekly plan-e-real-refresh
 USER_UNIT_TEMPLATES := onfailure-alert@.service
+
+# Obsidian 同步是 .path 触发 + .service 执行；make timer-install 默认只复制 .service/.timer，
+# 漏掉它就会让单元在跑、但仓库改动传不下去（canary 每 5 分钟报"修复动作无效"）。
+# 新增 path 只改 USER_PATHS 一处；service 必须排在 path 之前（path 触发时 service 须已存在）。
+USER_PATHS := obsidian-sync.service obsidian-sync.path
+# 退役的 path：timer-disable 也要收口，否则手工 enable 过的旧 .path 落不下。
+RETIRED_PATHS := tdxfeed-sync.path
 LOGS := $(ROOT)/logs
 DATA := $(ROOT)/data
 MODELS := /home/jiuben/models
@@ -143,7 +150,7 @@ venv:  ## 仅创建虚拟环境
 	python3 -m venv $(VENV)
 	@echo "$(GREEN)✓ 虚拟环境创建完成: $(VENV)$(NC)"
 
-setup: install data-universe data-sync  ## 完整初始化（环境 + 数据）
+setup: install data-universe full-sync  ## 完整初始化（环境 + 全市场数据）
 
 update:  ## 更新依赖到最新版（受 requirements.txt 上限 pin 约束）
 	$(PIP) install --upgrade pip
@@ -385,8 +392,8 @@ deploy-rm:  ## 删除指定模型（MODEL=name）
 	@echo "$(GREEN)✓ 已删除 $(MODEL)$(NC)"
 
 # ============== 应用层 ==============
-predict:  ## 跑方案 D 全市场预测（默认 Top 20）
-	$(PYTHON) $(SCRIPTS)/predict.py --top 30 --threshold 0.7
+predict:  ## 跑方案 D 全市场预测（生产口径：small/Top5/并行 8，与 predict-daily.service 一致）
+	$(PYTHON) $(SCRIPTS)/predict.py --position-mode small --threshold 0.7 --workers 8
 	@echo "$(GREEN)✓ 预测报告: $(DATA)/predictions/predict_latest.md$(NC)"
 
 predict-top:  ## 跑方案 D Top 50 + 阈值 0.6
@@ -447,6 +454,9 @@ timer-install:  ## 安装白名单 systemd unit 到 user systemd（凡改 system
 	done
 	@echo "$(GREEN)✓ 已安装以下 timer：$(NC)"
 	@ls -1 $(USER_SYSTEMD)/*.timer 2>/dev/null | xargs -n1 basename
+	@for f in $(USER_PATHS); do \
+	  cp --remove-destination $(SYSTEMD_DIR)/$$f $(USER_SYSTEMD)/; \
+	done
 	@echo "$(CYAN)提示：改 systemd/ 后记得 systemctl --user daemon-reload$(NC)"
 # 方案 E 六只 timer 里的三只在启用列表里：2026-10-24 晚 plan-e-today（工作日 08:45 出盘前清单）
 # 与 plan-e-journal（18:10 复用那份清单归档 signals_YYYYMMDD.csv）重开，同日补上
@@ -483,6 +493,10 @@ timer-disable:  ## 禁用所有 timer 与 path 单元
 	done
 	systemctl --user disable obsidian-sync.path 2>/dev/null || true
 	systemctl --user stop obsidian-sync.path 2>/dev/null || true
+	@for p in $(RETIRED_PATHS); do \
+	  systemctl --user disable $$p 2>/dev/null || true; \
+	  systemctl --user stop $$p 2>/dev/null || true; \
+	done
 	@echo "$(GREEN)✓ 所有 timer/path 已禁用$(NC)"
 
 timer-status:  ## 查看所有 timer/path 状态
@@ -623,7 +637,7 @@ reset-data:  ## 重置数据（删 parquet + adj_factor + predictions，需重�
 	@echo "$(YELLOW)下一步: make data-universe && make data-sync && make data-adj$(NC)"
 
 # ============== 完整流程 ==============
-pipeline: install data-universe data-sync data-adj analyze-all deploy-all timer-enable  ## 完整流程（从零到全自动化）
+pipeline: install data-universe full-sync data-adj analyze-all deploy-all timer-enable  ## 完整流程（从零到全自动化）
 
 quickstart: install predict  ## 5 分钟快速上手
 
@@ -643,7 +657,7 @@ fix-tests-check:  ## M-5 修复必须附带测试（台账绑定 + 变更配对�
 ci-gate: lint format-check lint-pipeline gate typecheck-gate fix-tests-check test  ## 纯门禁链（不含宿主健康检查）
 	@echo "$(GREEN)✓ 门禁链全部通过$(NC)"
 
-ci: lint format-check lint-pipeline gate typecheck-gate fix-tests-check test canary  ## CI 检查（门禁链 + 宿主健康）
+ci: lint format-check lint-pipeline gate typecheck-gate fix-tests-check test  ## CI 检查（纯门禁链；canary 宿主健康不进 CI 避免必红）
 
 # ============== 帮助分类 ==============
 help-install:  ## 安装类目标
