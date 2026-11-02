@@ -311,9 +311,12 @@ def test_skill_is_pure_tool_and_book_paths_cover_the_enum(skill):
     assert skill["name"] == "theory-reference"
     assert skill["llm"]["model_id"] == "none", "讲义检索必须是纯检索，不走 LLM"
     assert skill["llm"]["inference"] is None
-    books = skill["input_schema"]["properties"]["book"]["enum"]
-    assert set(books) <= set(skill["book_paths"])
-    assert "mcp:tdx-vault.search" in skill["tools"]
+    # P1-2 去死字段：input_schema/tools 移进 skill_router，book 枚举即 book_paths 的键
+    books = set(skill["book_paths"])
+    assert "all" in books and len(books) >= 10, f"讲义书目不全: {sorted(books)}"
+    assert all(p.startswith("09-理论讲义") for p in skill["book_paths"].values())
+    runtime_src = (ROOT / "skill_router" / "runtime.py").read_text(encoding="utf-8")
+    assert '"tools_used": ["tdx-vault.search"]' in runtime_src, "theory 分支须接 tdx-vault.search"
 
 
 def test_book_paths_point_at_real_dirs(skill):
