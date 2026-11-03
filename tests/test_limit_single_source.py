@@ -234,8 +234,8 @@ def test_limit_map_is_derived_not_hardcoded():
     for lit in ("0.095", "0.195", "0.295", "0.045"):
         assert lit not in src, f"features_5d 不得硬编码阈值 {lit}（应从 limits 派生）"
     buf = Decimal(str(limits.DEFAULT_THRESHOLD_BUFFER))
-    assert features_5d.LIMIT_MAP == {m: float(r - buf) for m, r in limits.LIMIT_RATIO.items()}
-    assert features_5d.LIMIT_ST_MAIN_OLD == float(limits.LIMIT_RATIO_ST_MAIN_OLD - buf)
+    assert {m: float(r - buf) for m, r in limits.LIMIT_RATIO.items()} == features_5d.LIMIT_MAP
+    assert float(limits.LIMIT_RATIO_ST_MAIN_OLD - buf) == features_5d.LIMIT_ST_MAIN_OLD
 
 
 @pytest.mark.parametrize("limit", [0.095, 0.195, 0.295, 0.045])

@@ -53,7 +53,7 @@ try:
         validate_response,
         validate_tool_args,
     )
-except Exception:  # pragma: no cover - 退化路径
+except Exception as _schema_import_err:  # pragma: no cover - 退化路径
     _ERROR_COUNT["<module>"] += 1
     import importlib.util as _ilu
     import os as _os
@@ -61,7 +61,7 @@ except Exception:  # pragma: no cover - 退化路径
         "tdx_mcp_schema_validation",
         _os.path.join(_os.path.dirname(__file__), "..", "schema_validation.py"))
     if _vs is None or _vs.loader is None:
-        raise RuntimeError("schema_validation 兜底加载失败：按文件找不到模块规格")
+        raise RuntimeError("schema_validation 兜底加载失败：按文件找不到模块规格") from _schema_import_err
     _vm = _ilu.module_from_spec(_vs)
     _vs.loader.exec_module(_vm)
     validate_request = _vm.validate_request

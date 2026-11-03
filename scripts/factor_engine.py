@@ -43,10 +43,13 @@ from tdxfeed.atomic import atomic_write_parquet  # SEM001 原子写
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import daily_files, daily_path, get_limit, read_path
+from _common import daily_files, daily_path, get_limit, read_path  # noqa: E402
 
-from tdxfeed.execution.limits import RET_TOLERANCE, strip_exchange_prefix  # 容差（P1-12）+ 代码归一（P1-9 D）
-from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
+from tdxfeed.execution.limits import (  # 容差（P1-12）+ 代码归一（P1-9 D）  # noqa: E402
+    RET_TOLERANCE,
+    strip_exchange_prefix,
+)
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()

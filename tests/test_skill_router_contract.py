@@ -5,9 +5,10 @@
 - 每个 skill 必须有非空 name（load_all_skills 靠它注册，缺 name 即静默丢弃）
 - 不允许同名 skill（重名会导致后者覆盖前者，路由结果不可预期）
 """
-import yaml
-import pytest
 from pathlib import Path
+
+import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS_DIR = ROOT / "skills"
@@ -24,7 +25,7 @@ def test_all_skill_yaml_parse_and_named():
     for p in sorted(SKILLS_DIR.glob("*.yaml")):
         data = yaml.safe_load(p.read_text(encoding="utf-8"))
         assert isinstance(data, dict), f"{p.name} 不是映射"
-        assert "name" in data and data["name"], f"{p.name} 缺少 name"
+        assert data.get("name"), f"{p.name} 缺少 name"
         names.append(data["name"])
     assert names, "skills/ 下没有任何有效 skill"
     # 无重名

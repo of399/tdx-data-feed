@@ -21,7 +21,6 @@ from tdxfeed.sources.akshare_source import AkshareSource
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.sources.tencent_source import TencentSource
 from tdxfeed.state import State
-from tdxfeed.paths import ROOT
 from tdxfeed.writers import Writers
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率

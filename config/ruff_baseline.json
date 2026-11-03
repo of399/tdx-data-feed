@@ -60,9 +60,6 @@
       "B007": 1,
       "RUF013": 1
     },
-    "scripts/factor_engine.py": {
-      "SIM115": 1
-    },
     "scripts/feature_engineering.py": {
       "B905": 1,
       "SIM113": 1
@@ -91,9 +88,6 @@
       "B007": 2,
       "E402": 3,
       "SIM113": 1
-    },
-    "scripts/plan_e_sim_live.py": {
-      "SIM108": 1
     },
     "scripts/recompute_pnl_labels.py": {
       "E402": 2
@@ -139,8 +133,7 @@
       "SIM113": 1
     },
     "scripts/v3_premarket_top.py": {
-      "F841": 1,
-      "SIM115": 1
+      "F841": 1
     },
     "scripts/v3_simulate.py": {
       "F841": 1,
@@ -260,19 +253,19 @@
     "RUF100": 1,
     "SIM102": 2,
     "SIM105": 1,
-    "SIM108": 8,
+    "SIM108": 7,
     "SIM113": 3,
     "SIM114": 1,
-    "SIM115": 23,
+    "SIM115": 21,
     "UP009": 1,
     "UP032": 5,
     "UP045": 1
   },
   "created": "2026-11-01",
-  "files": 63,
-  "measured_at": "7250e59",
+  "files": 61,
+  "measured_at": "a514218",
   "ruff_version": "ruff 0.16.7",
-  "total": 205,
-  "updated": "2026-11-01",
+  "total": 202,
+  "updated": "2026-11-03",
   "version": 1
 }

@@ -24,10 +24,10 @@ log = logging.getLogger(__name__)
 from tdxfeed.errors import (  # noqa: E402
     flush as _flush_swallowed_counts,
 )
+from tdxfeed.paths import DATA_ROOT  # noqa: E402
 from tdxfeed.sources.sina_source import SinaSource
 from tdxfeed.state import State
 from tdxfeed.symbols import INDICES, get_core_stocks, group, sym_of_index
-from tdxfeed.paths import DATA_ROOT  # noqa: E402
 from tdxfeed.writers import Writers
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率

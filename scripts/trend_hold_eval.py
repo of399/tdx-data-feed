@@ -44,17 +44,17 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-from _common import adj_factor_dir, daily_dir
+from _common import adj_factor_dir, daily_dir  # noqa: E402
 
-from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
-from tdxfeed.daban.execution_backtest import ExecutionConfig, net_return
-from tdxfeed.daban.limit_price import (
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写  # noqa: E402
+from tdxfeed.daban.execution_backtest import ExecutionConfig, net_return  # noqa: E402
+from tdxfeed.daban.limit_price import (  # noqa: E402
     exchange_prefix,
     is_st,
     limit_ratio,
     limit_up_price,
 )
-from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）  # noqa: E402
 
 DAILY_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()

@@ -86,14 +86,14 @@ warnings.filterwarnings('ignore')
 ROOT = Path(__file__).parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from _common import (
+from _common import (  # noqa: E402
     adj_factor_dir,
     daily_path,
     model_dir,
     model_path,
 )
 
-from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写  # noqa: E402
 
 ADJ_DIR = adj_factor_dir()
 MODEL_FILE = model_path('d_signal_5d_model.txt')
@@ -178,20 +178,22 @@ FEATURE_COLS = [
 # 涨停限制与 18/26 维特征：单一数据源见 tdxfeed/features_5d（向后兼容 v8 18 维与 v9+ 26 维）
 # compute_features() 始终返回 26 维（含 8 维扩展），main() 按 model.feature_name() 取子集
 # Step 7：polars 候选因子路径（新模型 vpnl_huber_stage1 必需）
-import polars as pl
-from _common import compute_window_features_extended
+import polars as pl  # noqa: E402
+from _common import compute_window_features_extended  # noqa: E402
 
-from tdxfeed import adjusted
-from tdxfeed.daban.sector_features import (
+from tdxfeed import adjusted  # noqa: E402
+from tdxfeed.daban.sector_features import (  # noqa: E402
     EXTRA_FEATURE_COLS,
     build_lookup,
 )
-from tdxfeed.errors import (
+from tdxfeed.errors import (  # noqa: E402
     flush as _flush_swallowed_counts,
 )
-from tdxfeed.execution.limits import RET_TOLERANCE  # 涨停判定容差唯一来源（P1-12 Phase 3）
-from tdxfeed.factors_candidates import compute_candidate_features
-from tdxfeed.names import (  # 股票池唯一入口（P1-9）
+from tdxfeed.execution.limits import (  # noqa: E402  # 涨停判定容差唯一来源（P1-12 Phase 3）
+    RET_TOLERANCE,
+)
+from tdxfeed.factors_candidates import compute_candidate_features  # noqa: E402
+from tdxfeed.names import (  # 股票池唯一入口（P1-9）  # noqa: E402
     is_st_name,
     load_universe,
     universe_codes,

@@ -41,20 +41,20 @@ from _common import (
 ROOT = Path(__file__).parent.parent
 # 显式把项目根加入 sys.path，确保 `import tdxfeed`（如 freshness）在直接运行时可用。
 sys.path.insert(0, str(ROOT))
-from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写
+from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原子写  # noqa: E402
 
 # 结算内核（唯一实现）：出场阶梯与时间窗跟 plan_e_backtest 同源。
-from tdxfeed.execution.bars import as_bars
-from tdxfeed.execution.costs import PLAN_E_COSTS
-from tdxfeed.execution.single import SingleTradePlan, settle_single_trade
-from tdxfeed.names import universe_codes  # 股票池唯一入口（P1-9）
+from tdxfeed.execution.bars import as_bars  # noqa: E402
+from tdxfeed.execution.costs import PLAN_E_COSTS  # noqa: E402
+from tdxfeed.execution.single import SingleTradePlan, settle_single_trade  # noqa: E402
+from tdxfeed.names import universe_codes  # 股票池唯一入口（P1-9）  # noqa: E402
 
 MODEL_FILE = model_path("d_signal_5d_model.txt")
 
 # v9 兼容: predict.py FEATURE_COLS 是 18 维;v9 模型是 26 维(需在 predict 路径兼容)。
 # sim_live 用相同的 DataFrame + LightGBM predict,模型自动按特征顺序匹配。
 
-from _common import daily_path
+from _common import daily_path  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()

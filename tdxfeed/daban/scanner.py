@@ -50,7 +50,10 @@ from tdxfeed.daban.session import SESSION_AUCTION, current_session
 from tdxfeed.daban.tencent_source import TQuote, fetch_tencent_map
 from tdxfeed.daban.ths_board import ConceptStrength, load_concept_snapshot, match_concepts
 from tdxfeed.date_utils import parse_date_series
-from tdxfeed.names import is_st_or_delisting, load_universe  # 股票池与 ST/退判定唯一入口（P1-9 / P1-12）
+from tdxfeed.names import (  # 股票池与 ST/退判定唯一入口（P1-9 / P1-12）
+    is_st_or_delisting,
+    load_universe,
+)
 from tdxfeed.paths import universe_path
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率

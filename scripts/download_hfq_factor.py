@@ -31,11 +31,11 @@ socket.setdefaulttimeout(30)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pandas as pd
-from _common import hfq_factor_dir
+import pandas as pd  # noqa: E402
+from _common import hfq_factor_dir  # noqa: E402
 
-from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
-from tdxfeed.parquet_io import write_table
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）  # noqa: E402
+from tdxfeed.parquet_io import write_table  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()

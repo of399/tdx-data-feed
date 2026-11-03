@@ -15,7 +15,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tdxfeed.execution.limits import RET_TOLERANCE, strip_exchange_prefix  # 容差（P1-12）+ 代码归一（P1-9 D）
+from tdxfeed.execution.limits import (  # 容差（P1-12）+ 代码归一（P1-9 D）
+    RET_TOLERANCE,
+    strip_exchange_prefix,
+)
 from tdxfeed.paths import daily_path, read_path
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率

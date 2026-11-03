@@ -9,7 +9,7 @@
 """
 from pathlib import Path
 
-from skill_router.orchestrator import Orchestrator, _normalize_code, CODE_RE
+from skill_router.orchestrator import CODE_RE, Orchestrator, _normalize_code
 
 ROOT = Path(__file__).resolve().parents[1]
 

@@ -10,7 +10,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import predict
+import predict  # noqa: E402
 
 OLD_ENTRIES = {
     "prod": "d_signal_5d_model.txt",

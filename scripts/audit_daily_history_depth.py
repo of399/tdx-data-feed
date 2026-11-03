@@ -33,17 +33,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import pandas as pd
+import pandas as pd  # noqa: E402
 
-from tdxfeed.history_paging import PAGE_CAP, PageRequestError, http_page
-from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
-from tdxfeed.symbols import (  # sym_of_a_share 为再导出（tests/test_history_depth_gap_plan.py 直接断言）
+from tdxfeed.history_paging import PAGE_CAP, PageRequestError, http_page  # noqa: E402
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）  # noqa: E402
+from tdxfeed.symbols import (  # sym_of_a_share 为再导出（tests/test_history_depth_gap_plan.py 直接断言）  # noqa: E402
     a_share_symbols,
-    sym_of_a_share,
+    sym_of_a_share,  # noqa: F401  # 有意再导出：tests/test_history_depth_gap_plan.py 按 AUD.sym_of_a_share 断言
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 被 tests 按文件路径加载时 scripts/ 不在 sys.path
-from _common import daily_dir
+from _common import daily_dir  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()

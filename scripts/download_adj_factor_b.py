@@ -19,9 +19,9 @@ warnings.filterwarnings("ignore")
 # baostock 网络调用全局 30s 超时（避免某只 hang 阻塞整个流程）
 socket.setdefaulttimeout(30)
 
-from _common import adj_factor_dir
+from _common import adj_factor_dir  # noqa: E402
 
-from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()

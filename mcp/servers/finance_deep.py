@@ -45,12 +45,12 @@ logging.basicConfig(
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
-from tdxfeed.names import (  # 股票池唯一入口（P1-9）
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写  # noqa: E402
+from tdxfeed.names import (  # 股票池唯一入口（P1-9）  # noqa: E402
     load_universe as _load_pool,
     name_of as _name_of_pool,
 )
-from tdxfeed.paths import finance_deep_dir, finance_parquet
+from tdxfeed.paths import finance_deep_dir, finance_parquet  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()

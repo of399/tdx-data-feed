@@ -167,9 +167,9 @@ def _st_defs(tree: ast.AST) -> list[tuple[str, int]]:
     """ST 判定函数定义：[(函数名, 行号)]。"""
     out = []
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if node.name.lstrip("_").lower() in ST_DEF_NAMES:
-                out.append((node.name, node.lineno))
+        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name.lstrip("_").lower() in ST_DEF_NAMES):
+            out.append((node.name, node.lineno))
     return out
 
 
@@ -342,8 +342,9 @@ def test_two_contracts_keep_their_own_semantics():
 
 def test_common_still_exposes_norm_code_alias():
     """`scripts/_common.norm_code` 仍在（大量脚本在用），但它必须是权威实现的别名而非副本。"""
-    from tdxfeed.execution import limits
     import _common
+
+    from tdxfeed.execution import limits
     assert _common.norm_code is limits.normalize_code, (
         "_common.norm_code 必须是 limits.normalize_code 的别名（不要再包一层）")
 
@@ -403,7 +404,7 @@ def test_exception_tables_are_not_stale():
         tree = ast.parse(fp.read_text(encoding="utf-8"))
         if not _st_inline(tree):
             problems.append(f"{rel}: 例外已失效（文件里没有内联 ST 判定了）——请重新评估并删除该例外")
-    for rel, (kind, _why) in ST_DEF_EXCEPTIONS.items():
+    for rel, (_kind, _why) in ST_DEF_EXCEPTIONS.items():
         fp = ROOT / rel
         if not fp.exists():
             problems.append(f"{rel}: 例外登记的文件已不存在")

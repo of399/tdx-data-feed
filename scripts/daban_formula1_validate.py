@@ -34,16 +34,16 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-from tdxfeed.atomic import atomic_write_text  # SEM001 原子写
-from tdxfeed.daban.limit_price import (
+from tdxfeed.atomic import atomic_write_text  # SEM001 原子写  # noqa: E402
+from tdxfeed.daban.limit_price import (  # noqa: E402
     board_label,
     exchange_prefix,
     is_st,
     limit_ratio,
     limit_up_price,
 )
-from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
-from tdxfeed.paths import DATA_ROOT, daily_dir
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）  # noqa: E402
+from tdxfeed.paths import DATA_ROOT, daily_dir  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()

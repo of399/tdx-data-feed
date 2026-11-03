@@ -46,11 +46,11 @@ logging.basicConfig(
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tdxfeed.names import (  # 股票池唯一入口（P1-9）
+from tdxfeed.names import (  # 股票池唯一入口（P1-9）  # noqa: E402
     load_universe as _load_pool,
     universe_codes as _universe_codes,
 )
-from tdxfeed.paths import (
+from tdxfeed.paths import (  # noqa: E402
     adj_factor_dir,
     daily_dir,
     model_path,
@@ -60,13 +60,13 @@ DABAN_MODEL = model_path("d_signal_5d_model_daban.txt")
 DAILY_DIR = daily_dir()
 ADJ_DIR = adj_factor_dir()
 
-from tdxfeed.daban.limit_price import (
+from tdxfeed.daban.limit_price import (  # noqa: E402
     is_st as _is_st_name,
     limit_ratio,
     limit_up_price,
 )
-from tdxfeed.execution import single as _single
-from tdxfeed.features_5d import (
+from tdxfeed.execution import single as _single  # noqa: E402
+from tdxfeed.features_5d import (  # noqa: E402
     compute_window_features_extended,
     get_limit,
     is_open_limit_up,

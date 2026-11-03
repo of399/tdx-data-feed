@@ -31,10 +31,12 @@ from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # SEM001 原�
 
 ROOT = Path('/home/jiuben/tdx-data-feed')
 
-from _common import adj_factor_dir, daily_dir, get_limit
+from _common import adj_factor_dir, daily_dir, get_limit  # noqa: E402
 
-from tdxfeed.execution.limits import RET_TOLERANCE  # 涨停判定容差唯一来源（P1-12 Phase 3）
-from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）
+from tdxfeed.execution.limits import (  # noqa: E402  # 涨停判定容差唯一来源（P1-12 Phase 3）
+    RET_TOLERANCE,
+)
+from tdxfeed.names import load_universe  # 股票池唯一入口（P1-9）  # noqa: E402
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
