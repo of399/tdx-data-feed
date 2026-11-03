@@ -15,7 +15,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-      - run: pip install ruff==0.16.7
+      # PyYAML 不是可选依赖：M-5 的 scripts/audit_fix_tests.py 要读 config/known_issues.yaml
+      # 台账，缺它这一步直接 ModuleNotFoundError 退出 1（2026-11-03 run 41612909804 就是
+      # 这个形状——此前它一直被更早的失败步骤挡着没跑到）。版本对齐 requirements.lock。
+      - run: pip install ruff==0.16.7 PyYAML==6.0.3
       - name: 阻断项：语法错误与未定义名
         run: ruff check . --select E9,F63,F7,F82
       - name: 建议项：完整规则集（存量约 250 条，不阻断）
