@@ -14,7 +14,7 @@ from pathlib import Path
 NEEDS_DATA = False
 
 ROOT = Path(__file__).resolve().parents[1]
-SKIP_DIRS = {"venv", "venv-math", "_archive", "node_modules", ".git", ".qoder", "tests"}
+SKIP_DIRS = {"venv", "venv-math", "venv-qlib", "_archive", "node_modules", ".git", ".qoder", "tests"}
 _ABS = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
 
 

@@ -8,6 +8,7 @@ __pycache__/
 # 虚拟环境
 venv/
 venv-math/              # v5 数学服务专用（antlr4 4.11），建法 v5/scripts/install_math_venv.sh
+venv-qlib/              # qlib 表达式引擎专用（Python 3.12 + pyqlib，主 venv 3.14 装不上），建法 scripts/install_qlib_env.sh
 vllm-venv/                # 已删除 (2026-09-25)
 .env
 # 原始环境变量备份，禁止入版本库

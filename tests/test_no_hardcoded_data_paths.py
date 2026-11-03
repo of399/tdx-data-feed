@@ -27,7 +27,7 @@ PATH_CALLS = {
     "iterdir", "rglob",
 }
 WHITELIST = {"tdxfeed/paths.py", "v5/scripts/_paths.py"}
-SKIP_DIRS = {"venv", "venv-math", "_archive", "node_modules", ".git", ".qoder", "tests"}
+SKIP_DIRS = {"venv", "venv-math", "venv-qlib", "_archive", "node_modules", ".git", ".qoder", "tests"}
 
 
 def _strs(node: ast.AST) -> list[str]:

@@ -35,7 +35,7 @@ NEEDS_DATA = False
 ROOT = Path(__file__).resolve().parents[1]
 MARK = "all_a_stocks.json"
 WHITELIST = {"tdxfeed/paths.py", "v5/scripts/_paths.py"}
-SKIP_DIRS = {"venv", "venv-math", "_archive", "node_modules", ".git", ".qoder", "tests"}
+SKIP_DIRS = {"venv", "venv-math", "venv-qlib", "_archive", "node_modules", ".git", ".qoder", "tests"}
 
 # ---- 实现层：每个依赖域的权威文件（唯一允许读名单 / 定义入口的地方） ----
 # 主仓权威层：股票池加载与代码枚举的唯一入口。

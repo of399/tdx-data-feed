@@ -1,0 +1,15 @@
+# qlib 专用解释器 venv-qlib/ 的依赖清单（由 scripts/install_qlib_env.sh 安装）。
+#
+# 为什么要独立环境：pyqlib 0.9.7（2025-08-15 发布，PyPI 上的最新版）的 wheel tag
+# 只到 cp312（cp38 / cp39 / cp310 / cp311 / cp312，即 Python 3.8~3.12），没有
+# cp313/cp314，而主 venv 是 Python 3.14.4，装不上；而且它的依赖树（mlflow / gym /
+# jupyter / pymongo / redis / cvxpy）会把训练栈与 CI 门禁的精简集
+# requirements-ci.txt 一起污染。所以这里只服务一件事：借 qlib 的表达式引擎产出
+# Alpha158 因子配置，产物以「表达式字符串」的形式离开这个环境，回主 venv 自己算。
+#
+# 只钉 pyqlib 本身，其余交给 pip 解析——不许用 --no-deps 把冲突藏起来（这条约定同
+# v5/requirements-math.txt 的教训：`pip check` 干净不代表能用）。
+#
+# 这个清单里**不得**出现本仓库生产读路径的入口包；qlib 不得被 tdxfeed/ 或 scripts/
+# import（守卫 tests/test_qlib_env_island.py）。
+pyqlib==0.9.7
