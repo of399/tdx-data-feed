@@ -1084,6 +1084,60 @@ issues:
     exemption: "NONE"
     fix_hint: "评估见 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §2.3/§4：①写入侧不变量（新增行 |raw_close − 日线 close| > 0.005 丢行并计数，单只 >3 行或 >1% 判 fail:raw-mismatch 不落盘；全历史实测 7,689,919 行零假阳性，成本 +≈22 秒）；②后置任务自报 ok/skip/fail/rebase/剩余计数，canary 新增维度并进 PAGING_CHECKS；③下跳白名单绊线做成脚本日跑（全表实测 14.8 秒）。保留 - 前缀，失败判红交给②而不是抽样中位数"
 
+  - id: KI-DATA-001
+    title: "日线 amount 自 2026-09-16 起全市场是 close×volume×100 代理值，派生特征失去独立信息且无覆盖率告警"
+    theme: silent-failure
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-03"
+    last_seen: "2026-11-03"
+    seen_count: 1
+    sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md"]
+    locations: ["tdxfeed/sources/sina_source.py", "tdxfeed/amount_fix.py", "tdxfeed/features_5d.py", "data/.state/amount_estimated.json"]
+    detect:
+      - kind: absent
+        pattern: "amount_estimated"
+        path: "scripts/canary_health_check.py"
+        note: "canary 没有「估算成交额覆盖率」维度 ⇒ 全市场代理化不可见；加上该维度后本条翻假"
+      - kind: grep
+        pattern: "row\\.get\\('amount'\\) or 0"
+        paths: ["tdxfeed/sources/sina_source.py"]
+        min_count: 1
+        note: "新浪日 K 结构性不返回 amount（2026-11-03 实测 6/6 根 amount=0.0），写盘时按缺口补齐成代理值"
+    impact: "实测断点在 2026-09-16：08-24 真实额/(close×volume×100) 中位 1.0012（p5–p95 0.987~1.018）、09-15 中位 1.0074，而 09-16 起 **100% 的行精确等于公式**（中位 1.000000）⇒ amount 从观测量变成 close 与 volume 的确定性函数。下游全部建在这条列上：avg_amount_5d / vol_ratio_t1 / amount_surge_3d / amt_per_price / amihud_20，以及 18 维模型输入的 turnover_proxy（features_5d.py:176 = amount/volume）——2026-11-02 生产榜 4923/4923 行 turnover_proxy 恰等于 close×100、与 close 的相关系数为 1.0，该维已退化成价格的复制品；训练样本跨 09-16 ⇒ 存在未登记的口径断点。daban 流动性闸门 min_avg_amount_5d=5e7 比的也是代理值。旁路清单 amount_estimated.json 同一 symbol 整段替换、只保留最后一次写入的日期，所以现在只列 10-29/10-30/11-02 三天，容易被读成「只有三天坏」"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-30"
+    exemption: "NONE"
+    fix_hint: "评估见 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §6.4。三档：①用带成交额的源回填 09-16 之后（tdxfeed/sources/akshare_source.py 已映射「成交额」→amount、mootdx_source.py 也读 amount，二者本次未活测；腾讯源明确无 amount）；②保留代理值但在 canary 加「估算覆盖率」维度（>50% 即 warn 并进 PAGING_CHECKS），同时把清单改成累积写入；③把 turnover_proxy 改成真换手（volume/流通股本）或显式弃用该维并重训。任一档都要在特征侧登记断点日期"
+
+  - id: KI-DATA-002
+    title: "amount_fix 只在 amount<=0 时补缺，漏掉「有值但量级错」：2026-10-26 实测 5 行比 close×volume×100 低 6~15 倍"
+    theme: contract
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-03"
+    last_seen: "2026-11-03"
+    seen_count: 1
+    sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md"]
+    locations: ["tdxfeed/amount_fix.py", "data/parquet/daily"]
+    detect:
+      - kind: grep
+        pattern: "mask = \\(amount <= 0\\) & \\(volume > 0\\) & \\(close > 0\\)"
+        paths: ["tdxfeed/amount_fix.py"]
+        min_count: 1
+        note: "触发条件只看非正数：amount>0 但量级错的行既不修也不标，事后无从筛除"
+      - kind: absent
+        pattern: "amount_deviation"
+        path: "tdxfeed/amount_fix.py"
+        note: "加入「与 close×volume×100 或独立源比量级」的校验并出现该 token 后翻假"
+    impact: "2026-10-26 全市场 5225 行里有 5 行的 amount 既不等于估算公式、也比 baostock 真实成交额低 6~15 倍且比例互不相同（比值 0.0665~0.1677：sh600000/sz000001/sz000002/sz000012/sz000021）⇒ 不是统一单位错，形态更像写入时只拿到当日部分成交额（机制未在日志取证，属推断）。这类行因 amount>0 而绕过守卫、也不进旁路清单：基准日 5 日窗口一旦含 10-26（例如基准日 10-30），该票 avg_amount_5d 就被压低约 20%，且 avg_amount_5d/vol_ratio_t1/amt_per_price 全部连带。2026-11-02 那份榜的窗口是 10-27~11-02，不含 10-26，已核未受影响"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-30"
+    exemption: "NONE"
+    fix_hint: "与 KI-OPS-005 的写入侧不变量同形，只是换列：补齐前先判量级，r = amount/(close×volume×100)，真实值实测散布 p5–p95 0.987~1.018 ⇒ 阈值取 0.10 安全；r 越界且 volume>0 ⇒ 记入旁路清单并报警，不静默保留原值。代理期（2026-09-16 起）不能拿代理值当比对基准，判据要按当期口径分档"
+
   # ---------------- 已修复并有守卫（示例：固化"修完有守卫"的范式）----------------
   - id: KI-SINGLE-005
     title: "股票池路径访问器已单源化（universe_path）"
