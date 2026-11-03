@@ -1173,27 +1173,34 @@ issues:
     title: "skills/daban.yaml 的 tools 顶层键已在 P1-2 移除，但 tests/test_daban_mcp.py 仍断言 skill[\"tools\"] ⇒ 有 data/ 的机器上该用例必红，CI 因收集期跳过看不见"
     theme: skill
     severity: P2
-    status: OPEN
+    status: FIXED
     first_seen: "2026-11-03"
     last_seen: "2026-11-03"
     seen_count: 1
     sources: ["71195c5（2026-11-02 10:25 feat: P1-2 yaml 变真契约(去死字段+参数完整传递)）", "tests/test_daban_mcp.py:104"]
-    locations: ["skills/daban.yaml", "tests/test_daban_mcp.py"]
+    locations: ["skills/daban.yaml", "tests/test_daban_mcp.py", "mcp/schemas/tools.json"]
     detect:
       - kind: grep
-        pattern: "skill\\[\"tools\"\\]"
+        pattern: "dead in \\(\"tools\", \"input_schema\"\\)"
         paths: ["tests/test_daban_mcp.py"]
         min_count: 1
+        note: "断言已翻成负向绊线：死字段再回到 daban.yaml 就红（把 tools 加回去实测 1 failed，随后还原）"
+      - kind: grep
+        pattern: "declared == actual == 5"
+        paths: ["tests/test_daban_mcp.py"]
+        min_count: 1
+        note: "top 默认值改钉两个活源头——mcp/schemas/tools.json 与 daban_top_picks 的签名，任一侧漂移即红"
       - kind: absent
-        pattern: "^tools:"
-        path: "skills/daban.yaml"
-        note: "测试还在读 tools、yaml 已不写 tools ⇒ 两侧契约不一致仍在；任一侧改到位本条翻假"
-    impact: "本机（有 data/）实测 `tests/test_daban_mcp.py::test_skill_yaml_wires_mcp_tool` 以 KeyError: 'tools' 失败；daban.yaml 顶层键只剩 name/llm/prompt_template/fallback_skill。CI 门禁作业只装 requirements-ci.txt 且不落 data/，该模块在收集期被跳过，所以这条红**只在开发机出现、CI 永远是绿的**——属「本机红/CI 绿」分叉面，不是新引入的故障（2026-11-03 用 HEAD~5 的干净 worktree 复跑证实）。风险是它长期红会让真红被当成噪声忽略"
-    guard: "NONE"
+        pattern: "skill\\[\"tools\"\\]"
+        path: "tests/test_daban_mcp.py"
+        note: "读死字段的写法必须消失；重新出现即本条翻真"
+    impact: "（已修）原症状：本机（有 data/）实测 `tests/test_daban_mcp.py::test_skill_yaml_wires_mcp_tool` 以 KeyError: 'tools' 失败；daban.yaml 顶层键只剩 name/llm/prompt_template/fallback_skill。CI 门禁作业只装 requirements-ci.txt 且不落 data/，该模块在收集期被跳过，所以这条红**只在开发机出现、CI 永远是绿的**——属「本机红/CI 绿」分叉面，不是新引入的故障（2026-11-03 用 HEAD~5 的干净 worktree 复跑证实）。契约归属按证据定为本条 fix_hint 的 ②：`skill_router/runtime.py` 只读 name（224）、llm.model_id（461）、prompt_template（901）、fallback_skill（966），从不读 tools 或 input_schema；KI-MCP-002 已把两者列为死字段，P1-2（71195c5）据此从 9 份 yaml 删除并与 tests/test_skill_router_contract.py 的 DEAD_FIELDS 断言对齐——把 tools 加回 daban.yaml 会同时打红那条守卫，所以唯一自洽的解法是改断言去校验活契约。2026-11-03 收口：用例改钉两半——① yaml 只声明 runtime 真读的字段且死字段不得回来（负向绊线）；② top 默认值取自 mcp/schemas/tools.json 且必须等于 daban_top_picks 的签名默认值。注册片↔schemas 的工具名单一致性本来就有一层 CI 可见的守卫（tests/test_mcp_contracts.py::test_server_tools_match_schema，不依赖 data/），本条不重复它"
+    guard: "tests/test_daban_mcp.py"
+    test: "tests/test_daban_mcp.py"
     owner: "jiuben"
     due: "2026-11-30"
     exemption: "NONE"
-    fix_hint: "先定契约归属再改，二选一：①若 MCP 接线确实要以技能声明为权威，就把 tools 放回 daban.yaml 并让 P1-2 的『去死字段』结论在文档里限定范围；②若工具接线的权威是 mcp 注册片（更可能，符合 P1-2 意图），就改这条断言去校验注册片与 input_schema 的一致性，并在 tests/ 里加一条**不依赖 data/** 的 skills 契约检查，让 CI 也能看见这一面"
+    fix_hint: "已按本条原 fix_hint 的 ② 收口（判据见 impact）。后续若确实要以技能 YAML 声明 MCP 绑定，必须先让它成活字段——runtime 读取 + 契约测试 + 从 KI-MCP-002 的 DEAD_FIELDS 名单里摘掉，三件一起做完才准把 tools 写回 yaml；单独加回来会同时打红 tests/test_skill_router_contract.py 与本用例。原 hint 的第 2 半「加一条不依赖 data/ 的 skills 契约检查」经复核已存在（test_mcp_contracts.py 与 test_skill_router_contract.py 都不落 data/，CI 收得到），不需新增"
 
   # ---------------- 已修复并有守卫（示例：固化"修完有守卫"的范式）----------------
   - id: KI-SINGLE-005

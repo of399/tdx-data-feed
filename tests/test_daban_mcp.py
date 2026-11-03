@@ -5,11 +5,12 @@
 2. 扫描 worker 的特征契约（29 维、名称与模型一致、数值有限）；
 3. `prev_close` 特征名不被行情元数据覆盖（历史命名冲突导致的打分偏移）；
 4. 非交易日 / 非法参数的行为；
-5. daban skill YAML 的 MCP 引用。
+5. daban skill YAML 只声明 runtime 真读的字段，工具默认值取自真实入口 schemas/tools.json。
 """
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -99,8 +100,21 @@ def test_invalid_params_rejected_before_scan():
 
 
 def test_skill_yaml_wires_mcp_tool():
+    """KI-SKILL-003：本用例原先断言 `skill["tools"]` 与 `skill["input_schema"]`，
+    而这两个都是 KI-MCP-002 登记的死字段——`skill_router/runtime.py` 从不读取，
+    P1-2（71195c5）已把它们从 9 份 skill yaml 里删掉。断言死字段等于钉住装饰，
+    所以这里改钉活的两半：
+
+    ① yaml 只声明 runtime 真读的字段（`name` / `llm.model_id`），死字段不得回来；
+    ② 工具的默认值取自真实入口 `mcp/schemas/tools.json`，不是 yaml 里的副本。
+    """
     skill = yaml.safe_load((ROOT / "skills/daban.yaml").read_text(encoding="utf-8"))
     assert skill["name"] == "daban"
-    assert "mcp:tdx-backtest.daban_top_picks" in skill["tools"]
-    assert skill["llm"]["model_id"] == "none"
-    assert skill["input_schema"]["properties"]["top"]["default"] == 5
+    assert skill["llm"]["model_id"] == "none", "daban 是纯工具技能，runtime 据此跳过 LLM"
+    for dead in ("tools", "input_schema"):
+        assert dead not in skill, f"{dead} 是 KI-MCP-002 死字段（P1-2 已删），别为旧断言加回来"
+    schema = json.loads((ROOT / "mcp/schemas/tools.json").read_text(encoding="utf-8"))
+    tools = {t["name"]: t for t in schema["servers"]["tdx-backtest"]["tools"]}
+    declared = tools["daban_top_picks"]["inputSchema"]["properties"]["top"]["default"]
+    actual = inspect.signature(backtest.daban_top_picks).parameters["top"].default
+    assert declared == actual == 5, "MCP 客户端看到的 top 默认值必须与实现签名同源"
