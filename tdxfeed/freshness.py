@@ -3,8 +3,12 @@
 目的：在每个 stage CLI 入口（predict / plan_e_backtest / plan_e_journal / plan_e_sim_live）
 开头跑一次快速抽样检查，若大量样本末日期 < 阈值则 `sys.exit(2)` 阻断。
 
-为什么抽样而非全量：parquet 文件 8000+ 个，全量扫每次 ~10s，会显著拖慢每次调用；
+为什么抽样而非全量：parquet 文件 8000+ 个，全量**整列读**每次 ~10s，会显著拖慢每次调用；
 抽样 50 个文件足够反映整体新鲜度，<100ms。
+
+但中位数抽样答不了「有没有个别标的掉队」——某一只票整表停更时中位数纹丝不动
+（台账 KI-OPS-005）。那条问题由 `table_freshness()` 全量逐文件回答：它走 footer 列统计，
+实测单表 5,200+ 文件 0.2 秒级，不是这里记的 ~10s 量级（见其 docstring 的成本实测）。
 
 阈值默认 2 天（覆盖周末），可按需上调。
 
@@ -12,11 +16,16 @@
     from tdxfeed.freshness import require_fresh
     require_fresh(max_age_days=2)  # 缺数据则 sys.exit(2)
 
+用法（巡检维度，全量尾部）：
+    from tdxfeed.freshness import table_freshness
+    table_freshness(files, date.today(), allowed_trading_days=1)
+
 CLI bypass：
     --no-freshness-check
 """
 from __future__ import annotations
 
+import datetime as _dt
 import sys
 from collections import Counter
 from datetime import date, timedelta
@@ -24,6 +33,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from tdxfeed.execution.limits import normalize_code
 from tdxfeed.paths import daily_dir
@@ -63,6 +73,82 @@ def _last_date_from_parquet(fp: Path) -> pd.Timestamp | None:
     if isinstance(d, (int, np.integer)) and not isinstance(d, bool):
         return pd.to_datetime(str(int(d)), format="%Y%m%d")
     return pd.to_datetime(d)
+
+
+def _decode_date_stat(value: object, logical_type: str) -> pd.Timestamp | None:
+    """把 parquet row-group 统计里的 date 上界解码成 Timestamp；认不出来返回 None。
+
+    返回 None 不是「文件坏了」，而是「这条统计我不认」——调用方会回退到
+    `_last_date_from_parquet` 整列读末行，所以 int64 YYYYMMDD 之类的漂移仍由
+    那一份既有实现负责，不在这里重复一套解析规则。
+    """
+    if value is None:
+        return None
+    # datetime 是 date 的子类，必须先判 datetime
+    if isinstance(value, (pd.Timestamp, _dt.datetime)):
+        return pd.Timestamp(value)
+    if isinstance(value, _dt.date):
+        return pd.Timestamp(value)
+    if isinstance(value, str):
+        try:
+            return pd.to_datetime(value)
+        except (ValueError, TypeError):
+            _ERROR_COUNT['_decode_date_stat'] += 1
+            return None
+    if isinstance(value, (int, np.integer)) and not isinstance(value, bool):
+        # date32/date64 的物理类型是 INT32，统计值是 epoch days。
+        # pyarrow ≥ 某版会替我们解成 datetime.date，这里只兜住它没解的情况。
+        if logical_type.startswith(("date32", "date64")):
+            return pd.Timestamp(int(value), unit="D")
+        return None
+    return None
+
+
+def _max_date_from_parquet_stats(fp: Path) -> pd.Timestamp | None:
+    """只读 footer（元数据 + 各 row group 的列统计）取 date 列上界的最大值。
+
+    为什么不用 `_last_date_from_parquet` 做全表扫：整列读实测 daily 5,232 只
+    21.3 秒、hfq_factor 5,221 只 21.6 秒（约 4.1 ms/只），超出 20 秒预算；footer
+    统计实测同两张表分别是 0.19 秒与 0.17 秒（约 0.04 ms/只，快 ~110 倍）。
+    canary 每 5 分钟跑一次、且 `TimeoutStartSec=120`，21 秒×N 张表会直接把巡检拖爆。
+
+    取舍（必须知道的三点语义差）：
+      1. 这里取的是**最大值**，`_last_date_from_parquet` 取的是**末行**。生产表
+         （daily / adj_factor / hfq_factor / derived）按日期升序追加写，两者逐文件
+         实测一致（全表 min/max 两法完全相同）；若某表末行不是最大日期，"表有没有
+         前进"这个问题按最大值回答也更对。
+      2. 统计是按 row group 存的，必须**遍历全部 row group** 取最大——只读第一个
+         会把一只 2020 年起、末段在 2031 年的表读成 2020 年。
+      3. 统计缺失（写文件时 `write_statistics=False`）或值不认识 → 返回 None，
+         调用方整列读回退；真实数据 daily/hfq 各全表 0 只需要回退。
+    """
+    try:
+        pf = pq.ParquetFile(fp)
+        schema = pf.schema_arrow
+        idx = schema.get_field_index("date")
+        if idx < 0:
+            return None
+        logical = str(schema.field(idx).type)
+    except Exception:
+        # 读不出 footer 就交给整列读那条路径去计吞错，这里不重复计数
+        return None
+    try:
+        n_rg = pf.num_row_groups
+        if n_rg == 0:
+            return None
+        best: pd.Timestamp | None = None
+        for rg in range(n_rg):
+            stats = pf.metadata.row_group(rg).column(idx).statistics
+            if stats is None:
+                return None
+            ts = _decode_date_stat(stats.max, logical)
+            if ts is None:
+                return None
+            if best is None or ts > best:
+                best = ts
+        return best
+    except Exception:
+        return None
 
 
 def last_trading_day(ref: date, holidays: set[str] | None = None) -> date:
@@ -149,6 +235,74 @@ def stale_threshold(ref: date, allowed_trading_days: int = 3,
     return _subtract_trading_days(last_trading_day(ref, hol), allowed_trading_days, hol)
 
 
+def table_freshness(files, ref_date: date, allowed_trading_days: int = 1,
+                    holidays: set[str] | None = None) -> dict:
+    """全量逐文件末日期 → 尾部新鲜度统计（KI-OPS-005：中位数抽样看不见单只停更）。
+
+    与 `sample_latest_date` 的分工：抽样中位数回答「整张表有没有前进」（快、<100ms，
+    stage 入口守卫用），本函数回答「有没有个别标的掉队」（全量、单表实测 0.2 秒级）。
+    两者互不替代，本函数不改变 `sample_latest_date` 的行为。
+
+    参数
+      files               待统计的文件（Path 或 str 可迭代）；**过滤由调用方负责**
+                          （A 股个股判定见 `_is_a_share_stock`，迁移备份见 ".bak" 排除），
+                          这样同一份实现能同时服务 daily / adj_factor / hfq_factor。
+      ref_date            新鲜度基准日（一般是今天）；阈值 = 该日往前
+                          「最近已收盘交易日 - allowed_trading_days 个交易日」。
+      allowed_trading_days 容忍回退的交易日数，默认 1：baostock 当日 EOD 晚间才发布，
+                          因子表与派生表结构性只能追到 T-1，那是正常态不是故障。
+
+    返回 {total, parsed, latest, oldest, stale_count, stale_ratio, threshold, examples}
+      total / parsed   文件总数 / 成功读出末日期的文件数。解析失败率 = 1 - parsed/total，
+                       属**另一维**（覆盖率），不进 stale_count：一个读不出日期的文件没有
+                       可比较的日期，把它同时算成「停更」就是同一件事告警两遍。
+      latest/oldest    成功读出文件的最大/最小末日期（date | None）。
+      threshold        `stale_threshold(ref_date, allowed_trading_days, holidays)` 的返回值；
+                       末日期 **<** threshold 才计陈旧（等于 threshold 是 T-1 正常态）。
+      stale_count      陈旧文件数。
+      stale_ratio      stale_count / **total**（分母含读不出日期的文件；total=0 时 0.0）。
+      examples         最滞后的 ≤5 个代码，按 (末日期升序, 文件名) 排序，最严重的在最前。
+                       形态是文件名去掉 `.parquet`（保留 sh/sz/bj 前缀）：daily 里
+                       000001/000016/000688 等同码双文件（指数 vs 个股），normalize 后
+                       会撞车，所以这里不剥前缀。
+
+    成本纪律：全量扫必须实测。默认走 footer 统计（见 `_max_date_from_parquet_stats`），
+    统计缺失或不认识才回退整列读；整列读实测单表 ~21 秒，超 20 秒预算，所以它只能是回退。
+    """
+    hol = holidays if holidays is not None else CN_HOLIDAYS
+    threshold = stale_threshold(ref_date, allowed_trading_days, hol)
+
+    total = 0
+    parsed = 0
+    dates: list[date] = []
+    stale: list[tuple[date, str]] = []
+    for raw in files:
+        fp = Path(raw)
+        total += 1
+        last = _max_date_from_parquet_stats(fp)
+        if last is None:
+            last = _last_date_from_parquet(fp)      # 回退：整列读末行（慢，但认 YYYYMMDD）
+        if last is None:
+            continue
+        parsed += 1
+        d = last.date()
+        dates.append(d)
+        if d < threshold:
+            stale.append((d, fp.stem))
+
+    stale.sort()
+    return {
+        "total": total,
+        "parsed": parsed,
+        "latest": max(dates) if dates else None,
+        "oldest": min(dates) if dates else None,
+        "stale_count": len(stale),
+        "stale_ratio": (len(stale) / total) if total else 0.0,
+        "threshold": threshold,
+        "examples": [name for _, name in stale[:5]],
+    }
+
+
 def require_fresh(parquet_dir: Path = DEFAULT_PARQUET_DIR, max_age_days: int = 2,
                   sample_size: int = 50, allowed_stale_trading_days: int | None = None,
                   holidays: set[str] | None = None) -> None:
@@ -211,4 +365,5 @@ def require_fresh(parquet_dir: Path = DEFAULT_PARQUET_DIR, max_age_days: int = 2
     )
 
 
-__all__ = ["last_trading_day", "require_fresh", "sample_latest_date", "stale_threshold"]
+__all__ = ["last_trading_day", "require_fresh", "sample_latest_date",
+           "stale_threshold", "table_freshness"]
