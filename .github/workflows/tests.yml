@@ -32,13 +32,30 @@ jobs:
           passed=$(grep -Eo '[0-9]+ passed' /tmp/pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
           skipped=$(grep -Eo '[0-9]+ skipped' /tmp/pytest.log | tail -1 | grep -Eo '[0-9]+' || true)
           echo "passed=${passed:-0} skipped=${skipped:-0}"
-          # 2026-11-01 复刻实测（CI 同构 venv：Python 3.14.4 + requirements-ci.txt；
-          # 干净副本 + /home 遮蔽）：1177 passed / 80 skipped，2 条红均为复刻专属——
-          # 本守卫在 tests.yml 更新前必红；bind-mount 让 console script shebang 指到被遮蔽路径，
-          # CI 上该用例正常。故 CI 可达 ≈ 1179 passed / 80 skipped。
-          # 本地无数据演练（TDX_TEST_DATA_ROOT=/nonexistent）为 1232 passed / 26 skipped，
-          # 差额来自 CI 无 data/、/etc 单元、venv-math、告警栈/Ollama 时的运行期自跳过。
-          # 下限 1140 = 1179 − 39 余量；skipped 上限 100 = 80 + 20 余量，
-          # 两个方向都有界：空跑/整片失败压低 passed，整片 skip 抬高 skipped。
-          test "${passed:-0}" -ge 1140
-          test "${skipped:-0}" -le 100
+          # 基数来源（两个方向都要有界）：
+          # · 2026-11-01 复刻实测（CI 同构 venv：Python 3.14.4 + requirements-ci.txt；干净副本 +
+          #   /home 遮蔽）：1177 passed / 80 skipped ⇒ CI 可达 ≈ 1179 passed / 80 skipped，
+          #   当时下限取 1140（−39 余量）、上限取 100（+20 余量）。
+          # · 2026-11-02 复刻收敛 1730 passed / 82 skipped——passed 远离下限，所以本批只可能
+          #   顶破 skipped 上限；本地无数据演练（TDX_TEST_DATA_ROOT=/nonexistent）为
+          #   1929 passed / 26 skipped，它压不住 CI 那批「缺 venv-qlib/venv-math//etc/告警栈」
+          #   的自跳过，别拿它的 26 当 CI 基数（见 tests/test_ci_data_skip.py 的坑说明）。
+          # · 2026-11-03 本批（3d751ee..99d8e3b：A2 量级守卫 / A3 canary 两维 / B1 venv-qlib
+          #   孤岛 / C1 股本反推）合法扩大了「机器状态自跳过」面：在 99d8e3b 的干净 worktree
+          #   （无 data/、无 venv-qlib/venv-math）实测本批改动的 15 个测试文件 =
+          #   185 passed / 24 skipped——test_shares_derivation 9 条要 finance.parquet、
+          #   test_amount_deviation_guard 8 条要真实日线、test_qlib_env_island 与
+          #   test_canary_tail_freshness 模块级约 6 条、test_limit_single_source 1 条。
+          #   80 + 24 ≈ 104 > 旧上限 100，run 41612909930 因此红（pytest 步骤本身成功）。
+          # 上限随之抬到 130 = 实测 104 + 26 余量；passed 下限 1140 不动（本批给 CI 净增的是
+          # 可跑用例）。这一界仍然有意义：新增自跳过必须同时在
+          # tests/test_machine_state_skips.py 登记，两边是同一件事的两半。
+          # 两条界分开归因：旧写法在 bash -e 下第一条失败就中止，红了也看不出越的是哪界。
+          bad=""
+          test "${passed:-0}" -ge 1140 || bad="passed=${passed:-0} < 1140（通过数下限）"
+          test "${skipped:-0}" -le 130 || bad="${bad:+$bad; }skipped=${skipped:-0} > 130（跳过数上限）"
+          if [ -n "$bad" ]; then
+            echo "::error::通过数/跳过数越界：$bad"
+            exit 1
+          fi
+          echo "✅ 在界内：passed=${passed:-0} ≥ 1140 且 skipped=${skipped:-0} ≤ 130"
