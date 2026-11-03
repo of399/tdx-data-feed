@@ -1258,3 +1258,28 @@ issues:
     due: "2026-10-20"
     exemption: "NONE"
     fix_hint: "已完成；作为『修完必须绑守卫』的样板条目保留在台账中（示范 status=FIXED + guard）"
+
+  - id: KI-DATA-004
+    title: "hfq_factor 的 raw_close 会与日线收盘脱钩（2026-11-02 起 300386 尾两行塌成 1.0），写入侧没有对账"
+    theme: silent-failure
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-03"
+    last_seen: "2026-11-03"
+    seen_count: 1
+    sources: ["tests/test_hfq_factor_monotone.py::test_downward_jumps_match_whitelist（本机全量首现红）"]
+    locations: ["tdxfeed/hfq_factor.py", "data/hfq_factor"]
+    detect:
+      - kind: absent
+        path: "tdxfeed/hfq_factor.py"
+        pattern: "daily_path"
+        note: "写入侧没有与日线收盘的对账 ⇒ 两条 baostock 序列取错/同源时 hfq_factor 会静默塌成 1.0"
+      - kind: glob_absent
+        pattern: "data/.state/hfq_raw_close_mismatch.json"
+        note: "还没有全市场 raw_close≠日线 close 的清单 ⇒ 无法判断这是 1 只还是 N 只。建了该文件本条翻假"
+    impact: "2026-11-03 实测：data/hfq_factor/300386.parquet 的 2026-11-02 / 11-03 两行 raw_close=48.452460、hfq_close=48.452460、hfq_factor=1.000000，而同一天的 data/parquet/daily/sz300386.parquet close=10.72/10.58，data/adj_factor/300386.parquet 的 raw_close 也是 10.72/10.58。48.4525 = 10.72×4.519819（前一日因子），所以 hfq_close 是对的、raw_close 被写成了后复权值 ⇒ 因子从 4.5198 断崖跌到 1.0。后果按读侧权威链条展开：tdxfeed/adjusted.frame 的 hfq 价在这两天变成 raw×1.0（等于不复权价），价格特征与 hypothetical_pnl 在这两天拿到一次约 4.5 倍的伪跳变，而守卫 tests/test_hfq_factor_monotone.py 是把它当『新增下跳』报红的——它只能说『又跳了一次』，说不出『这次是数据错』。全市场扫描（5,221 个文件）显示**只有 300386 这一只**命中『尾段因子塌成 1.0 而历史段不是』这一形态，所以按当前证据这是个例而不是系统性改版；但检测判据本身是我临时写的，不能当成『别处都干净』的证明"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-30"
+    exemption: "NONE"
+    fix_hint: "①先取证：写一份 data/.state/hfq_raw_close_mismatch.json（逐标的比 raw_close 与日线 close，容差按分后两位），把范围从『1 只』变成有据可查；②写入侧加对账：_assemble 里 raw_close 与 paths.daily_path(code) 的收盘不符就拒绝落盘并计数（SEM002：不许静默吞），别靠事后守卫；③定点修 300386 的尾两行（照 tdxfeed/adj_factor.py 的既有修数路径，先做带日期备份——data/ 不在 git 里）；④tests/test_hfq_factor_monotone.py 的白名单**不要把这条加进去**：那 12 次是真实除权，这一条是取错序列，性质不同，混进白名单等于把缺陷洗成已知形态"
