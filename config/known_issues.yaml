@@ -44,7 +44,7 @@
 meta:
   version: 1
   created: "2026-11-01"
-  updated: "2026-11-01"
+  updated: "2026-11-03"
   owner: "jiuben"
   scan_command: "venv/bin/python scripts/audit_ledger.py scan"
   report_command: "venv/bin/python scripts/audit_ledger.py report"
@@ -1090,6 +1090,39 @@ issues:
     exemption: "NONE"
     fix_hint: "评估见 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §2.3/§4：①写入侧不变量（新增行 |raw_close − 日线 close| > 0.005 丢行并计数，单只 >3 行或 >1% 判 fail:raw-mismatch 不落盘；全历史实测 7,689,919 行零假阳性，成本 +≈22 秒）；②后置任务自报 ok/skip/fail/rebase/剩余计数，canary 新增维度并进 PAGING_CHECKS；③下跳白名单绊线做成脚本日跑（全表实测 14.8 秒）。保留 - 前缀，失败判红交给②而不是抽样中位数。2026-11-03 已完成「②的前半」：freshness.table_freshness 走 parquet footer 统计全量逐文件末日期（5,232 文件 0.24 秒 / 峰值 0.14 GiB），canary 加 data_files_tail 与 data_coverage 两维并接进 run_all_checks；两维暂为 report-only（尾部实测 stale_count=9，其中 5 只 *ST、sh600001 是名单外历史残留），翻 PAGING 需要先把这批显式进白名单或按表分级重测。①③与「后置任务自报计数」仍未落地，抽样中位数依旧是唯一会推微信的新鲜度信号"
 
+
+  - id: KI-OPS-006
+    title: "sync-docs 的「检测变更文件」写的是 `jq -s .c`（本意 -sc），凡命中 DOC_SOURCES 的推送或定时轮必红，并连带跳过它声称的全部下游作业"
+    theme: ops
+    severity: P2
+    status: OPEN
+    first_seen: "2026-11-03"
+    last_seen: "2026-11-03"
+    seen_count: 1
+    sources: ["run 41630326861（f897ca2 push 2026-11-03 11:47，步「检测变更文件」failure）", "run 41279165105（b5e394f push，改 README.md + docs/PLAN_E_LIVE.md + docs/WORKFLOW.md，同红）", "schedule 轮次 2026-10-25→11-03 共 9 次全 failure（41584452337 / 41389768892 / 41273897276 / 41168078909 / 41003790036 / 40818670570 / 40631237262 / 40446709112 / 40264157576）", "本地把该步工作流原文抽出、以 bash -e 复跑复现"]
+    locations: [".github/workflows/sync-docs.yml"]
+    detect:
+      - kind: grep
+        pattern: "jq -s \\.c"
+        paths: [".github/workflows/sync-docs.yml"]
+        min_count: 1
+        note: "命中原样写法即本条判真：`-s` 之后跟的 `.c` 是「把数组按键 c 索引」，不是 compact 标志"
+      - kind: grep
+        pattern: "git push origin HEAD:"
+        paths: [".github/workflows/sync-docs.yml"]
+        min_count: 1
+        note: "记录「为什么不盲修」：修好检测步就会唤醒 sync-vault 以 bot 身份 push main。本条按用户决定暂只登记"
+      - kind: absent
+        pattern: "docs/obsidian-vault"
+        path: ".gitignore"
+        note: "该目录既未跟踪（git ls-files = 0）也未忽略（check-ignore 退 1），本机真正的 vault 是外部 StockVault ⇒ 下游一旦被唤醒会新建一份仓库里没有先例的跟踪目录"
+
+    impact: "该步是后续三个作业的 needs 上游，它一红 sync-vault / deploy-docs / pr-preview 全 skipped ⇒ 工作流注释里承诺的三件事（GitHub Wiki 同步、Obsidian Vault 同步、PR 预览评论）自可见的历史起**一次都没真正执行过**，红叉本身又只是「jq 用法错」而非业务失败。第二层代价是信号稀释：`trigger paths` 含 README.md / CONTRIBUTING.md / SECURITY.md / Makefile / DELIVERY.md / docs/**，于是任何动到这些文件的推送都会在 main 上多挂一条红（本条首次命中就是 f897ca2 改了 Makefile）；门禁判定虽然只认 tests.yml，但「CI 有红」这句话的可读性会被它持续污染。判据细节：工作流未显式声明 shell，GitHub 默认 `bash -e`，`JSON=$(... | jq -s .c)` 的命令替换失败使赋值返回非零并当场中止；同一支路只在 FILTERED 非空时进入，这解释了为什么绝大多数 push 轮是绿的——不是修好了，是没踩到"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-30"
+    exemption: "NONE"
+    fix_hint: "分两步且顺序不能反。① 先定 sync-vault 的去留（这是真正需要拍板的一步）：它会 `git add docs/obsidian-vault` + `git commit` + `git push origin HEAD:${{ github.ref_name }}`，即让 Actions 以 github-actions[bot] 往 main 自动提交；而 `docs/obsidian-vault` 在本仓库既无跟踪先例也不在 .gitignore 里，本机 vault 同步实际走外部 StockVault + 用户级 timer 那套（`mcp/servers/vault.py`、`scripts/verify_obsidian_systemd.sh`）。三选一：把下游改成只打印统计（删「提交 Vault 变更」步）、给整条工作流加 `--dry-run` 语义、或直接删掉 sync-docs.yml 并在 AGENTS.md 记「文档同步只在本机」。② 再修那一行：`jq -s .c` → `jq -sc .`（本地验证：退出码 0，`changed=true` / `files=[\"Makefile\"]`）。无论选哪条都该补一条同族守卫（挂在 tests/test_ci_workflows_not_fake_green.py 旁边）：扫全部 workflow 里 `jq -s .<字段>` 这类「命令替换里的静默中止面」，并断言仓库内没有任何作业含 `git push origin HEAD:`——除非那条写回是被显式批准过的。2026-11-03 用户决定：本条只登记，暂不动工作流"
 
   - id: KI-DATA-001
     title: "日线 amount 自 2026-09-16 起全市场是 close×volume×100 代理值，派生特征失去独立信息且无覆盖率告警"
