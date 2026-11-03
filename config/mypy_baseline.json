@@ -19,7 +19,6 @@
       "operator": 1
     },
     "mcp/servers/parquet_reader.py": {
-      "operator": 1,
       "return-value": 1
     },
     "mcp/servers/vault.py": {
@@ -60,13 +59,13 @@
   },
   "created": "2026-11-01",
   "files": 12,
-  "measured_at": "2026-11-01",
+  "measured_at": "2026-11-03",
   "targets": [
     "skill_router/",
     "mcp/",
     "tdxfeed/execution/"
   ],
-  "total": 64,
-  "updated": "2026-11-01",
+  "total": 63,
+  "updated": "2026-11-03",
   "version": 1
 }

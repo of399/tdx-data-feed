@@ -218,3 +218,48 @@ def test_stdio_list_tools_is_generated():
              and getattr(n.func, "id", None) == "Tool"]
     assert len(calls) == 1
     assert calls[0].keywords and calls[0].keywords[0].arg is None, "list_tools 应由 **spec 生成"
+
+
+# --- read_xdxr 的 code=None 契约 ------------------------------------------------ #
+# 工具 schema 把 code 写成「标的代码（None=全部）」，但实现有两处和它对不上：
+# symbol 分支用 `df["symbol"] == None` 得到 0 行，代码列分支在 code=None 时
+# 直接 `code[2:]` 抛 TypeError。mypy 的 index 错误只是这个契约缺口的投影，
+# 所以这里先把契约钉住，再让实现服从它。
+
+def _xdxr_module(tmp_path, monkeypatch, frame):
+    """按文件加载 parquet_reader，把 xdxr 表指向内存帧（不读真实数据）。"""
+    import pandas as pd
+
+    mod = _load("mcp/servers/parquet_reader.py", "parquet_reader_xdxr_under_test")
+    stub = tmp_path / "xdxr.parquet"
+    stub.write_bytes(b"stub")
+    monkeypatch.setattr(mod, "XDXR_PARQUET", stub)
+    monkeypatch.setattr(mod.pd, "read_parquet", lambda *a, **k: frame)
+    assert pd is mod.pd
+    return mod
+
+
+def test_read_xdxr_none_returns_all_rows_with_symbol_column(tmp_path, monkeypatch):
+    import pandas as pd
+
+    frame = pd.DataFrame({"symbol": ["sh600000", "sz000001", "sh600001"],
+                          "累计股息": [1.0, 2.0, 3.0]})
+    mod = _xdxr_module(tmp_path, monkeypatch, frame)
+    assert mod.read_xdxr(None)["rows"] == 3, "schema 声明 None=全部，实得 0 行"
+
+
+def test_read_xdxr_none_does_not_crash_on_bare_code_column(tmp_path, monkeypatch):
+    import pandas as pd
+
+    frame = pd.DataFrame({"代码": ["600000", "000001"], "名称": ["浦发银行", "平安银行"]})
+    mod = _xdxr_module(tmp_path, monkeypatch, frame)
+    assert mod.read_xdxr(None)["rows"] == 2, "代码列分支在 code=None 时 TypeError"
+
+
+def test_read_xdxr_with_code_still_filters_both_layouts(tmp_path, monkeypatch):
+    import pandas as pd
+
+    sym = pd.DataFrame({"symbol": ["sh600000", "sz000001"], "名称": ["a", "b"]})
+    assert _xdxr_module(tmp_path, monkeypatch, sym).read_xdxr("600000")["rows"] == 1
+    bare = pd.DataFrame({"代码": ["600000", "000001"], "名称": ["a", "b"]})
+    assert _xdxr_module(tmp_path, monkeypatch, bare).read_xdxr("sz000001")["rows"] == 1

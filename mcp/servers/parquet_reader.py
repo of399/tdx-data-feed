@@ -20,6 +20,7 @@ from collections import Counter
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -59,12 +60,14 @@ except Exception:  # pragma: no cover - 退化路径
     _vs = _ilu.spec_from_file_location(
         "tdx_mcp_schema_validation",
         _os.path.join(_os.path.dirname(__file__), "..", "schema_validation.py"))
+    if _vs is None or _vs.loader is None:
+        raise RuntimeError("schema_validation 兜底加载失败：按文件找不到模块规格")
     _vm = _ilu.module_from_spec(_vs)
     _vs.loader.exec_module(_vm)
     validate_request = _vm.validate_request
     validate_tool_args = _vm.validate_tool_args
     validate_response = _vm.validate_response
-    McpValidationError = _vm.McpValidationError
+    McpValidationError = _vm.McpValidationError  # type: ignore[misc]  # 兜底重绑类名，与 try 分支同一契约
 
 DAILY_DIR = daily_dir()
 FINANCE_PARQUET = finance_parquet()
@@ -219,12 +222,16 @@ def read_xdxr(code: str | None = None) -> dict:
     if not XDXR_PARQUET.exists():
         raise McpError(404, f"xdxr.parquet 不存在：{XDXR_PARQUET}")
     df = pd.read_parquet(XDXR_PARQUET)
-    # 实际字段是 symbol，不是 code
-    if "symbol" in df.columns:
-        df = df[df["symbol"] == code]
-    elif "代码" in df.columns:
-        # symbol 缺失时用代码列（去掉 sh/sz 前缀）
-        df = df[df["代码"] == code[2:]]
+    if code:
+        # code=None 表示「全部」（工具 schema 的声明），此时不做任何行过滤。
+        # 旧写法把 None 直接比进 symbol 列，得到 0 行；代码列分支则 `None[2:]` 抛
+        # TypeError——两条都和 schema 相反。
+        # 实际字段是 symbol，不是 code
+        if "symbol" in df.columns:
+            df = df[df["symbol"] == code]
+        elif "代码" in df.columns:
+            # symbol 缺失时用代码列（去掉 sh/sz 前缀）
+            df = df[df["代码"] == code[2:]]
     return {
         "rows": len(df),
         "data": _records(df),
@@ -249,7 +256,10 @@ def list_codes(pattern: str | None = None, market: str | None = None,
 
 
 # === MCP 协议 dispatcher ==================================================
-TOOLS = {
+# 叶子值是异构的（描述串 / schema dict / handler 闭包），所以内层用 Any 收口：
+# 不加注解时 mypy 把值推断成 dict[str, object]，dispatcher 取 ["inputSchema"]/["handler"]
+# 就报 object 不匹配、不可调用，而真实的形状校验由 validate_tool_args 在运行时做。
+TOOLS: dict[str, dict[str, Any]] = {
     "read_daily_kline": {
         "description": "读日 K 线 Parquet",
         "inputSchema": {
