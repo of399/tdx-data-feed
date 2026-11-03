@@ -308,6 +308,12 @@ qlib-export:  ## 岛内重新导出 Alpha158 清单工件（config/alpha158_expr
 qlib-check:  ## 核对岛与清单工件一致（qlib 版本/默认配置漂了就非零退出）
 	$(QLIB_PYTHON) scripts/qlib_island/export_alpha158.py --check
 
+qlib-export-ops:  ## 岛内重新导出 18 个算子的语义金标准（config/alpha158_ops.json）
+	$(QLIB_PYTHON) scripts/qlib_island/export_alpha158_ops.py
+
+qlib-check-ops:  ## 核对岛与算子金标准一致（pandas/numpy/qlib 任一漂了就非零退出）
+	$(QLIB_PYTHON) scripts/qlib_island/export_alpha158_ops.py --check
+
 data-watch:  ## 启动 watchdog 自动重启挂死进程
 	$(PYTHON) $(SCRIPTS)/download_adj_factor_watch.py &
 

@@ -44,14 +44,30 @@ echo "▶ 装依赖（$REQS）"
 "$QLIB_VENV/bin/pip" install --upgrade pip --quiet
 "$QLIB_VENV/bin/pip" install --requirement "$REQS"
 
-echo "▶ 自检 1：解释器与 pyqlib 版本"
+echo "▶ 自检 1：解释器与钉住的依赖版本"
+export REQS
 "$QLIB_VENV/bin/python" - <<'PY'
+import os
 import sys
-import importlib.metadata as m
+from importlib.metadata import version as v
+from pathlib import Path
+
 assert sys.version_info[:2] == (3, 12), f"Python 是 {sys.version.split()[0]}，pyqlib wheel 只到 cp312"
-v = m.version("pyqlib")
-assert v == "0.9.7", f"pyqlib={v}，清单钉 0.9.7"
-print(f"  Python {sys.version.split()[0]} ✓  pyqlib {v} ✓")
+# 版本判据直接读 requirements-qlib.txt，不在这里抄第二份清单：金标准
+# （config/alpha158_ops.json）的 provenance 记的是 pandas/numpy 的具体版本，
+# 守卫 tests/test_alpha158_semantics.py 拿它对账，装错岛必须在这里就挡住，
+# 而不是等工件与解释器各说各话。
+pins = {}
+for line in Path(os.environ["REQS"]).read_text(encoding="utf-8").splitlines():
+    line = line.strip()
+    if line and not line.startswith("#") and "==" in line:
+        name, _, want = line.partition("==")
+        pins[name.strip()] = want.strip()
+assert pins, f"{os.environ['REQS']} 里没有任何 == 钉版，自检等于没跑"
+for dist, want in pins.items():
+    got = v(dist)
+    assert got == want, f"{dist}={got}，清单钉 {want}：与已入库金标准的口径不一致，按清单重装或重导工件"
+print(f"  Python {sys.version.split()[0]} ✓  " + "  ".join(f"{d} {w} ✓" for d, w in pins.items()))
 PY
 
 echo "▶ 自检 2：Alpha158 表达式引擎必须真出得来 158 条（9 kbar + 4 price + 29 rolling×5 窗）"

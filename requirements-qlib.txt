@@ -7,11 +7,33 @@
 # requirements-ci.txt 一起污染。所以这里只服务一件事：借 qlib 的表达式引擎产出
 # Alpha158 因子配置，产物以「表达式字符串」的形式离开这个环境，回主 venv 自己算。
 #
-# 只钉 pyqlib 本身，其余交给 pip 解析——不许用 --no-deps 把冲突藏起来（这条约定同
-# v5/requirements-math.txt 的教训：`pip check` 干净不代表能用）。
+# 不许用 --no-deps 把冲突藏起来（这条约定同 v5/requirements-math.txt 的教训：
+# `pip check` 干净不代表能用）。
 #
 # 这个清单里**不得**出现本仓库生产读路径的入口包；qlib 不得被 tdxfeed/ 或 scripts/ import
 # （守卫 tests/test_qlib_env_island.py，已升级为闭合判据：全仓库唯一允许 import qlib 的落点
-# 是岛目录 scripts/qlib_island/）。岛侧唯一的消费者就是那里的导出器，它把 158 条表达式落成
-# config/alpha158_expressions.json（`make qlib-export` 重导、`make qlib-check` 核对岛↔工件）。
+# 是岛目录 scripts/qlib_island/）。岛侧唯一的消费者就是那里的两个导出器：
+#   - export_alpha158.py      → config/alpha158_expressions.json（158 条表达式清单）
+#                               `make qlib-export` 重导、`make qlib-check` 核对岛↔工件
+#   - export_alpha158_ops.py  → config/alpha158_ops.json（18 个算子的语义金标准）
+#                               `make qlib-export-ops` / `make qlib-check-ops`；主 venv 的
+#                               tdxfeed/alpha158/ops.py 逐值复现它，守卫
+#                               tests/test_alpha158_semantics.py
+#
+# 原来只钉 pyqlib、其余交给 pip 解析；2026-11-03 起把 pandas / numpy 也钉死，而且**钉成与
+# 生产侧同一个版本**（requirements.txt 的 `pandas>=2.2.0,<3` 当前解析到 2.3.3）。理由不是
+# 整齐：金标准是数值口径，它的消费者是主 venv。qlib 0.9.7 的依赖解析会把岛里的 pandas 装到
+# 3.1.0，而 rolling 的 rank(pct=True)、corr、预热段 NaN 政策在 2→3 之间不保证一致——用 3.x
+# 算真值、再要求 2.3.3 复现，等于让守卫去追一个消费侧根本无法复现的口径。实测过一遍：岛在
+# 3.1.0 与 2.3.3 上导出的前几个点相同，但那是巧合不是契约，所以按 2.3.3 重导并钉住。
+#
+# 另一条同类陷阱：venv-qlib/ 是 conda **前缀环境**，不像 venv 那样自动关掉 PEP 370 用户
+# 站点目录，`~/.local/lib/python3.12/site-packages` 在 sys.path 里排在岛自己的
+# site-packages 前面，会悄悄把岛里的 pandas 盖住（第一次导出时就是被 ~/.local 的 3.0.5
+# 盖住了岛自己的包）。安装脚本与本清单都在 PYTHONNOUSERSITE=1 下工作，导出器还会自己
+# execve 回隔离环境并核对模块路径，见
+# scripts/qlib_island/export_alpha158_ops.py::_ensure_island_only。
+# 版本对不上就是工件要重导，不是守卫该放宽。
 pyqlib==0.9.7
+pandas==2.3.3
+numpy==2.5.3
