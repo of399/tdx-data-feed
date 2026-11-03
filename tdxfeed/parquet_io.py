@@ -13,6 +13,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .amount_fix import record_deviation_for_table
 from .paths import daily_path, derived_path, minute_path, read_path
 
 # float 日期列的唯一可接受口径：同 _as_date32 的年份边界 1990–2100。
@@ -124,6 +125,8 @@ def write_table(path: Path, df: pd.DataFrame, date_col: str = "date") -> Path:
     tmp = path.with_name(path.name + ".tmp")
     pq.write_table(table, tmp, compression="snappy")
     os.replace(tmp, path)
+    # 量级守卫挂钩：只登记 amount 与公式的偏差日期，不改 df 也不改表值
+    record_deviation_for_table(path, df)
     return path
 
 
