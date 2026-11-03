@@ -16,6 +16,7 @@
 # 分类:
 #   开发      install / lint / fix / format / test
 #   数据      data-universe / data-sync / data-adj
+#   因子      qlib-export / qlib-check（Alpha158 清单工件，只能在 venv-qlib 岛里跑）
 #   分析      analyze-double-up / analyze-signal-d / analyze-top10
 #   训练      train-v5 / train-v6 / train-v7 / distill
 #   部署      deploy-v5 / deploy-v6 / deploy-v7
@@ -34,6 +35,10 @@ PYTEST := $(VENV)/bin/pytest
 RUFF := $(PYTHON) -m ruff
 OLLAMA := ollama
 ROOT := $(shell pwd)
+# qlib 是环境孤岛：pyqlib 只装在 venv-qlib/（主 venv 是 Python 3.14，wheel 只到 cp312）。
+# 变量必须排在 ROOT 之后——`:=` 是即时展开，放前面会得到一个空的 ROOT。
+QLIB_VENV := $(ROOT)/venv-qlib
+QLIB_PYTHON := $(QLIB_VENV)/bin/python
 BASE ?= origin/main
 SCRIPTS := $(ROOT)/scripts
 V5_SCRIPTS := $(ROOT)/v5/scripts
@@ -296,6 +301,12 @@ data-sync-symbol:  ## 同步单股日 K（参数 SYM=sh600000）
 data-adj:  ## 增量更新复权因子（baostock；首次全量用 scripts/download_adj_factor_b.py）
 	$(PYTHON) -m tdxfeed.adj_factor
 	@echo "$(GREEN)✓ 复权因子增量完成$(NC)"
+
+qlib-export:  ## 岛内重新导出 Alpha158 清单工件（config/alpha158_expressions.json）
+	$(QLIB_PYTHON) scripts/qlib_island/export_alpha158.py
+
+qlib-check:  ## 核对岛与清单工件一致（qlib 版本/默认配置漂了就非零退出）
+	$(QLIB_PYTHON) scripts/qlib_island/export_alpha158.py --check
 
 data-watch:  ## 启动 watchdog 自动重启挂死进程
 	$(PYTHON) $(SCRIPTS)/download_adj_factor_watch.py &

@@ -10,6 +10,8 @@
 # 只钉 pyqlib 本身，其余交给 pip 解析——不许用 --no-deps 把冲突藏起来（这条约定同
 # v5/requirements-math.txt 的教训：`pip check` 干净不代表能用）。
 #
-# 这个清单里**不得**出现本仓库生产读路径的入口包；qlib 不得被 tdxfeed/ 或 scripts/
-# import（守卫 tests/test_qlib_env_island.py）。
+# 这个清单里**不得**出现本仓库生产读路径的入口包；qlib 不得被 tdxfeed/ 或 scripts/ import
+# （守卫 tests/test_qlib_env_island.py，已升级为闭合判据：全仓库唯一允许 import qlib 的落点
+# 是岛目录 scripts/qlib_island/）。岛侧唯一的消费者就是那里的导出器，它把 158 条表达式落成
+# config/alpha158_expressions.json（`make qlib-export` 重导、`make qlib-check` 核对岛↔工件）。
 pyqlib==0.9.7

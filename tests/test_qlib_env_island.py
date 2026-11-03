@@ -6,12 +6,16 @@ pymongo / redis / cvxpy）也会把训练栈与 CI 门禁的精简集 requiremen
 处置与 venv-math 同构：单独一套解释器（conda 前缀环境 venv-qlib/，Python 3.12），
 只借 qlib 的表达式引擎产出 Alpha158 表达式字符串，数值计算回主 venv。
 
-锁三件事（前两条无条件跑，第三条按环境存在与否分流）：
+锁五件事（前四条无条件跑，第五条按环境存在与否分流）：
 1. `tdxfeed/**/*.py` 与 `scripts/*.py` 里不得出现 `import qlib` / `from qlib ...`——
    AST 扫描，不是 grep 全文，注释与文档字符串里提 qlib 不该把门禁打红；
-2. **主 venv 里 `import qlib` 必须失败**：这是「不泄漏」的反向证明。CI 没有仓库 venv，
+2. **闭合判据**：全仓库任何 import qlib 的 .py 都必须落在岛目录 `scripts/qlib_island/` 里。
+   第 1 条只扫 `scripts/*.py`（不含子目录），光靠「把文件放进子目录」就能躲开扫描——
+   这条把口子堵上：岛侧脚本可以有 qlib，但只能在声明的那一棵树下；
+3. 岛目录里的豁免必须是**活的**（底下真有 qlib importer），否则豁免已腐化、该删；
+4. **主 venv 里 `import qlib` 必须失败**：这是「不泄漏」的反向证明。CI 没有仓库 venv，
    就跑 pytest 的这个解释器（同样不得装得上 qlib），两条路都真有判据；
-3. venv-qlib/ 存在 ⇒ 它必须 import 得动 qlib 且版本与 `requirements-qlib.txt` 钉的一致；
+5. venv-qlib/ 存在 ⇒ 它必须 import 得动 qlib 且版本与 `requirements-qlib.txt` 钉的一致；
    不存在 ⇒ 安装脚本必须在、且 AGENTS.md 必须指向它（否则下一个人只会照 README 用主 venv）。
 
 跳过条件**只有**「本机没有 conda 且岛也还没建」这一种（那种情况既建不了岛也无岛可验，
@@ -21,6 +25,8 @@ pymongo / redis / cvxpy）也会把训练栈与 CI 门禁的精简集 requiremen
 from __future__ import annotations
 
 import ast
+import functools
+import os
 import shutil
 import subprocess
 import sys
@@ -39,6 +45,10 @@ REQS = ROOT / "requirements-qlib.txt"
 # 生产读路径：只有这两棵树。venv*/data/logs/build 等都是产物或第二解释器，不在门禁面上。
 PROD_GLOBS = ("tdxfeed/**/*.py", "scripts/*.py")
 SKIP_DIR_PARTS = {"venv", "venv-math", "venv-qlib", "data", "logs", "build", "dist", "__pycache__"}
+# 岛侧脚本的唯一允许落点：这里的文件可以 import qlib（只以 venv-qlib/bin/python 运行）。
+# PROD_GLOBS 里 `scripts/*.py` 不含子目录，光靠摆放位置就能躲开扫描——下面的闭合判据堵这个口子。
+ISLAND_DIR = ROOT / "scripts" / "qlib_island"
+PRUNE_DIRS = SKIP_DIR_PARTS | {".git", ".qoder", ".venv", "node_modules"}
 
 
 def _conda_available() -> bool:
@@ -87,6 +97,45 @@ def test_production_read_paths_never_import_qlib():
         f"qlib 只许活在 venv-qlib/ 里（主 venv 无 cp312+ wheel，且它会带进 mlflow/gym/jupyter）。"
         f"这些生产文件 import 了它：{bad}。要么把表达式导出成字符串回主 venv 算，"
         f"要么把这段逻辑挪进 venv-qlib 侧脚本。"
+    )
+
+
+@functools.lru_cache(maxsize=4)
+def _repo_py_files(root: Path) -> tuple[Path, ...]:
+    """全仓库 .py 清单，剪掉虚拟环境与产物树（岛里 site-packages 的 qlib 源码不算违规）。"""
+    out: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in PRUNE_DIRS]
+        out.extend(Path(dirpath) / f for f in filenames if f.endswith(".py"))
+    return tuple(sorted(out))
+
+
+def qlib_importers(root: Path = ROOT) -> list[Path]:
+    return [p for p in _repo_py_files(root) if qlib_import_lines(p)]
+
+
+def test_every_qlib_importer_lives_in_the_island_dir():
+    """闭合判据：把文件挪进子目录以躲开 `scripts/*.py` 这条 glob，不等于合规。"""
+    files = _repo_py_files(ROOT)
+    assert len(files) > 200, f"全仓库只扫到 {len(files)} 个 .py：剪枝把门禁面一起剪没了"
+    outside = [p.relative_to(ROOT).as_posix() for p in qlib_importers() if ISLAND_DIR not in p.parents]
+    assert not outside, (
+        "qlib 只许在岛里被 import。这些岛外文件 import 了它："
+        f"{outside}。要么把逻辑挪进 {ISLAND_DIR.relative_to(ROOT)}/，"
+        "要么让 qlib 的产物以字符串形式离开岛、回主 venv 自己算。"
+    )
+
+
+def test_island_dir_exemption_is_live():
+    """豁免不得腐化：岛目录下必须真的有 qlib importer，否则这条豁免是空条目。"""
+    assert ISLAND_DIR.is_dir(), (
+        f"缺 {ISLAND_DIR.relative_to(ROOT)}/：闭合判据的豁免树不在了，"
+        "导出器搬走时记得同时把这里的豁免删掉"
+    )
+    inside = [p for p in qlib_importers() if ISLAND_DIR in p.parents]
+    assert inside, (
+        f"{ISLAND_DIR.relative_to(ROOT)} 下没有任何 import qlib 的文件："
+        "豁免已空转。要么把岛侧脚本放回来，要么删掉这条豁免与闭合判据。"
     )
 
 

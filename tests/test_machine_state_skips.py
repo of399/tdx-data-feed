@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # 模块 → 它运行期跳过所依赖的机器资源（登记即文档）。
 MACHINE_STATE_SKIP_MODULES = {
+    "tests/test_alpha158_artifact.py": "venv-qlib 岛解释器（岛↔工件重导比对，以及 --check 的篡改反向验证）",
     "tests/test_amount_deviation_guard.py": "data/parquet/daily 真实日线表（KI-DATA-002 那 5 行的真数据核验）",
     "tests/test_backfill_history_runner.py": "data/ 回填产物（amount 修补接线）",
     "tests/test_daily_history_depth_no_cap_truncation.py": "data/ 审计产物与回填文件",
