@@ -70,7 +70,7 @@ def available_after(report_date: int | str) -> int:
     非标准月份按季/半年/年度的最近档处理，并计入清洗统计。
     """
     s = str(int(report_date))
-    year, month, day = int(s[:4]), int(s[4:6]), int(s[6:8])
+    year, month = int(s[:4]), int(s[4:6])
     lag = DISCLOSURE_LAG_MONTHS.get(month)
     if lag is None:
         _CLEAN_COUNT["unexpected_report_month"] += 1
@@ -91,7 +91,7 @@ def _read_long(path: Path, codes: list[str] | None) -> pd.DataFrame:
     if bad:
         _CLEAN_COUNT["non_finite_value"] += bad
     wanted = {(o, m) for num, den in CHANNELS.values() for o, m in (num, den)}
-    keep = [(o, m) in wanted for o, m in zip(df["option"], df["metric"])]
+    keep = [(o, m) in wanted for o, m in zip(df["option"], df["metric"], strict=True)]
     return df[keep & df["value"].notna().to_numpy()].copy()
 
 

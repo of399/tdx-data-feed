@@ -6,10 +6,13 @@ __pycache__/
 .Python
 
 # 虚拟环境
+# venv-math / venv-qlib 是两套专用解释器（数学服务 / qlib 表达式引擎孤岛）。
+# 注释必须单独成行：gitignore 不支持行内注释，把说明写在模式后面会让整行变成
+# 一个匹配不到任何东西的模式名——venv-qlib 当初就是这么漏出去被 ruff 扫到 9,171 条违规的。
 venv/
-venv-math/              # v5 数学服务专用（antlr4 4.11），建法 v5/scripts/install_math_venv.sh
-venv-qlib/              # qlib 表达式引擎专用（Python 3.12 + pyqlib，主 venv 3.14 装不上），建法 scripts/install_qlib_env.sh
-vllm-venv/                # 已删除 (2026-09-25)
+venv-math/
+venv-qlib/
+vllm-venv/
 .env
 # 原始环境变量备份，禁止入版本库
 .env.original.*

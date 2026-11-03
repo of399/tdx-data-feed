@@ -135,7 +135,7 @@ def test_available_after_is_on_every_row(tmp_path):
 
 
 def test_symbols_filter(tmp_path):
-    path = write_finance(tmp_path, ROWS + [
+    path = write_finance(tmp_path, [*ROWS,
         ("sz000001", "20240331", REV_NUM, 3_000_000_000.0),
         ("sz000001", "20240331", REV_DEN, 3.0),
     ])
@@ -301,7 +301,7 @@ def test_channel_agreement_on_synthetic(tmp_path):
         ("sz000001", "20240331", NP_DEN, 0.2),
     ]
     ag = shares.channel_agreement(shares.shares_frame(path=write_finance(tmp_path, rows)))
-    got = dict(zip(ag["symbol"], ag["rel_diff"]))
+    got = dict(zip(ag["symbol"], ag["rel_diff"], strict=True))
     assert math.isclose(got["sh600000"], 0.5, rel_tol=1e-9), got
     assert math.isclose(got["sz000001"], 1.0, rel_tol=1e-9), got
 
@@ -368,7 +368,7 @@ def test_real_att_np_channel_is_within_symbol_flat(real_frame):
     g = real_frame[(real_frame["basis"] == shares.BASIS_ATT_NP)
                    & real_frame["symbol"].isin(pick)]
     spreads = []
-    for sym, sub in g.groupby("symbol"):
+    for _sym, sub in g.groupby("symbol"):
         s = sub.sort_values("report_date")["shares"].tail(8)
         if len(s) >= 3:
             spreads.append(float(s.max() / s.min() - 1.0))

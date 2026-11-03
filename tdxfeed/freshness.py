@@ -130,7 +130,9 @@ def _max_date_from_parquet_stats(fp: Path) -> pd.Timestamp | None:
             return None
         logical = str(schema.field(idx).type)
     except Exception:
-        # 读不出 footer 就交给整列读那条路径去计吞错，这里不重复计数
+        # 读不出 footer 交给整列读那条路径判新鲜度。SEM002 的桶按**函数名**分，
+        # 所以本函数两处吞错共用 `_max_date_from_parquet_stats` 这一个键
+        _ERROR_COUNT['_max_date_from_parquet_stats'] += 1
         return None
     try:
         n_rg = pf.num_row_groups
@@ -148,6 +150,8 @@ def _max_date_from_parquet_stats(fp: Path) -> pd.Timestamp | None:
                 best = ts
         return best
     except Exception:
+        # 统计块不认识/缺失：回退给整列读。桶按函数名分，与上面同一键
+        _ERROR_COUNT['_max_date_from_parquet_stats'] += 1
         return None
 
 

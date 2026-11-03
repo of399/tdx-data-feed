@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # 模块 → 它运行期跳过所依赖的机器资源（登记即文档）。
 MACHINE_STATE_SKIP_MODULES = {
+    "tests/test_amount_deviation_guard.py": "data/parquet/daily 真实日线表（KI-DATA-002 那 5 行的真数据核验）",
     "tests/test_backfill_history_runner.py": "data/ 回填产物（amount 修补接线）",
     "tests/test_daily_history_depth_no_cap_truncation.py": "data/ 审计产物与回填文件",
     "tests/test_daily_listing_and_resolve.py": "data/parquet/daily 行情目录",
@@ -35,6 +36,8 @@ MACHINE_STATE_SKIP_MODULES = {
     "tests/test_plan_e_journal_daban_entry.py": "data/ 回测证据",
     "tests/test_pnl_label_recompute.py": "data/double_up 标签与旧快照",
     "tests/test_position_risk.py": "data/parquet/daily 行情目录",
+    "tests/test_qlib_env_island.py": "venv-qlib 专用解释器（pyqlib 只在里面装得上）",
+    "tests/test_shares_derivation.py": "data/parquet/finance.parquet（股本反推真数据核验）",
     "tests/test_systemd_system_units_mirror.py": "/etc 引用本仓库的 system 单元",
     "tests/test_theory_reference.py": "Obsidian vault 索引 / 讲义笔记",
     "tests/test_wide_table_label_source.py": "stage1 宽表 / 标签 CSV / 特征清单 / 日线",
