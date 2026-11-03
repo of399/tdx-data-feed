@@ -57,12 +57,17 @@ TOP_KEYS = {
     "source",
     "provenance",
     "encoding",
+    "comparison_symbols",
+    "arithmetic_symbols",
     "inputs",
     "windows",
     "operators",
     "content_sha256",
 }
 OP_KEYS = {"class", "base", "arity", "params", "qlib_source_sha256", "reference"}
+
+# 扫表达式里的比较符号：双字符要先试，`>=` 含 `>`，反过来会把一个算子数成另一个。
+CMP_SCAN = r">=|<=|!=|==|[><]"
 
 
 def payload() -> dict:
@@ -188,14 +193,46 @@ def test_inputs_are_pinned_literal_numbers():
 
 # ---------------------------------------------------------------- 算子集合双向闭合 #
 def test_operator_set_is_closed_against_the_expressions_artifact():
+    """算子工件的名单 = 清单里的 18 个函数算子 ∪ 六个比较类 ∪ 四个四则类。
+
+    比较与四则在表达式里都是**符号**（`$close>Ref($close, 1)`、`$close-$open`），不进
+    `operator_expression_counts` 的函数名单，但 qlib 会把它们解析成 `Gt`/`Sub` 这类成对
+    算子——158 条里 15 条用到比较、几乎所有条用到四则。语义同样必须由金标准钉住，
+    不能留给"Python 的 `>` / `-` 大概一样"（`>` 的实际语义是比大小，而名字相近的
+    `Greater` 是取大——这类同名不同义只有真值能分开）。
+    """
     d = payload()
     exprs = json.loads(EXPR_ART.read_text(encoding="utf-8"))
-    in_158 = set(exprs["operator_expression_counts"])
-    in_ops = set(d["operators"])
-    assert in_ops == in_158, (
-        f"算子工件与 158 清单不闭合：只在清单里 {sorted(in_158 - in_ops)}；"
-        f"只在算子工件里 {sorted(in_ops - in_158)}"
+    cmp_classes = set(d["comparison_symbols"].values())
+    arith_classes = set(d["arithmetic_symbols"].values())
+    assert cmp_classes == {"Gt", "Ge", "Lt", "Le", "Eq", "Ne"}, (
+        f"比较符号的映射变了：{d['comparison_symbols']}"
     )
+    assert arith_classes == {"Add", "Sub", "Mul", "Div"}, (
+        f"四则符号的映射变了：{d['arithmetic_symbols']}"
+    )
+    want = set(exprs["operator_expression_counts"]) | cmp_classes | arith_classes
+    in_ops = set(d["operators"])
+    assert in_ops == want, (
+        f"算子工件与 158 清单不闭合：只在清单/符号表 {sorted(want - in_ops)}；"
+        f"只在算子工件 {sorted(in_ops - want)}"
+    )
+    # 两份声明必须互相咬合：① 说清单里用了哪些符号，② 就必须为这些符号给出类与真值
+    assert set(exprs["arithmetic"]) <= set(d["arithmetic_symbols"]), (
+        f"① 声明的四则符号 {exprs['arithmetic']} 超出 ② 的符号表 "
+        f"{sorted(d['arithmetic_symbols'])}"
+    )
+    assert set(exprs["comparison_operators"]) <= set(d["comparison_symbols"]), (
+        f"① 声明的比较符号 {exprs['comparison_operators']} 超出 ② 的符号表 "
+        f"{sorted(d['comparison_symbols'])}"
+    )
+    # 清单的表达式里真出现过这两类符号，否则并入它们是无凭据的
+    using_cmp = [f for f in exprs["features"]
+                 if re.search(CMP_SCAN, f["expr"])]
+    assert using_cmp, "158 条里没有任何比较运算：本条的并集口径该重新评估"
+    using_arith = [f for f in exprs["features"]
+                   if any(s in f["expr"] for s in d["arithmetic_symbols"])]
+    assert using_arith, "158 条里没有任何四则运算：本条的并集口径该重新评估"
 
 
 def test_registry_matches_artifact_exactly():
@@ -270,7 +307,7 @@ def test_every_operator_reproduces_the_island_gold_standard():
                 f"{op_name} {case['args']}：{len(bad)}/{len(expected)} 个点不符，"
                 f"首个 i={bad[0][0]} 实={bad[0][1]} 期={bad[0][2]}"
             )
-    assert seen >= 18, f"金标准只有 {seen} 组用例，18 个算子没覆盖全"
+    assert seen >= 100, f"金标准只有 {seen} 组用例，求值面（18 函数 + 6 比较 + 4 四则）没覆盖全"
     assert not failures, "与岛内真 qlib 不一致：\n" + "\n".join(failures)
 
 

@@ -18,6 +18,10 @@
     "volume",
     "vwap"
   ],
+  "comparison_operators": [
+    "<",
+    ">"
+  ],
   "content_sha256": "9dc1456c171fa9301169f3aa4180ead6d05ff77cead4569af2515e689768d773",
   "count": 158,
   "features": [

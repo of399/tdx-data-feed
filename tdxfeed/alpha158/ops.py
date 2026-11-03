@@ -1,4 +1,9 @@
-"""Alpha158 的 18 个算子：主 venv 侧实现，语义权威是 `config/alpha158_ops.json`。
+"""Alpha158 的算子层：主 venv 侧实现，语义权威是 `config/alpha158_ops.json`。
+
+`REGISTRY` 收 28 个名字 = 18 个函数算子（kbar 除外，它们由 `eval` 直接用四则算）
++ 6 个比较算子（`>` `>=` `<` `<=` `==` `!=`）+ 4 个四则算子（`+ - * /`）。清单里
+15/158 条表达式写了比较符号（`CNTP5 = Mean($close>Ref($close, 1), 5)`），四则则是
+每一条价格差的骨架，两者都是求值面的一部分，所以都在金标准里有逐值用例。
 
 为什么不"照定义写一遍"就算数
 --------------------------
@@ -17,6 +22,9 @@ qlib 0.9.7 的算子有四处与直觉不等价（逐条都在金标准里有对
 4. **非有限值不抛异常**：`Log`/`Abs`/`Greater`/`Less` 走 numpy ufunc
    （qlib 模块级 `np.seterr(invalid="ignore")`）⇒ `Log(0) = -Inf`、`Log(负) = NaN`；
    `Rsquare` 与 `Corr` 还会把「滚动 std ≈ 0（`atol=2e-5`）」的位置显式置 NaN。
+   成对算子（四则与比较）同为 ufunc ⇒ `Div(x, 0)` 得 ±Inf 而不是 `ZeroDivisionError`，
+   `Gt` 一族返回 **bool** 且 NaN 参与比较时得 False（不是 NaN）——后者是 `CNTP*`
+   这类「涨跌天数占比」因子的口径来源。
 
 除零语义同样要照 C 来：.pyx 里是 `cdivision=True`，`0/0` 得 NaN、`x/0` 得 ±Inf，
 而 Python 的 float 除法直接抛 `ZeroDivisionError` ⇒ 全部走 `_div`。
@@ -105,6 +113,68 @@ def lesser(left: SeriesLike, right: SeriesLike) -> pd.Series:
     """qlib `Less` = `np.minimum`（取小）。"""
     l, r = _pair(left, right)
     return _as_series(np.minimum(l, r), l.index)
+
+
+# ------------------------------------------------- 成对 ufunc：四则与比较 #
+def _np_pair(ufunc: Any, left: SeriesLike, right: SeriesLike) -> pd.Series:
+    """qlib 的 `NpPairOperator._load_internal` 就是 `getattr(np, func)(左, 右)`。
+
+    两侧先经 `_pair` 摊齐并硬校验 index；`errstate` 只关告警不改数值——岛里的
+    `np.seterr` 是 `{divide: warn, invalid: ignore}`，所以 `Div(x, 0)` 在岛内会打一条
+    RuntimeWarning 但产出 ±Inf，本层要的是同一个数，不是同一条噪声。
+
+    dtype 跟着 ufunc 走：`Gt` 一族返回 **bool** Series（与岛内一致），不是 0/1 浮点。
+    金标准工件把 bool 编码成 `0.0/1.0`（JSON 没有布尔序列的逐值形态），比对时按数值比。
+    """
+    l, r = _pair(left, right)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return _as_series(ufunc(l, r), l.index)
+
+
+def add(left: SeriesLike, right: SeriesLike) -> pd.Series:
+    return _np_pair(np.add, left, right)
+
+
+def subtract(left: SeriesLike, right: SeriesLike) -> pd.Series:
+    return _np_pair(np.subtract, left, right)
+
+
+def multiply(left: SeriesLike, right: SeriesLike) -> pd.Series:
+    return _np_pair(np.multiply, left, right)
+
+
+def divide(left: SeriesLike, right: SeriesLike) -> pd.Series:
+    """`np.divide` ⇒ `0/0 = NaN`、`x/0 = ±Inf`，不抛（Python 的 `/` 对标量 0 会抛）。"""
+    return _np_pair(np.divide, left, right)
+
+
+def gt(left: SeriesLike, right: SeriesLike) -> pd.Series:
+    """qlib `Gt` = `np.greater`：表达式里写 `$close>Ref($close,1)` 走的是它。
+
+    与 `Greater`（取大）**同名不同义**，别按名字猜。NaN 参与比较两侧都得 False——
+    这是"涨跌停判定"这类计数式因子（`CNTP`）的口径来源，不是漏值。
+    """
+    return _np_pair(np.greater, left, right)
+
+
+def ge(left: SeriesLike, right: SeriesLike) -> pd.Series:
+    return _np_pair(np.greater_equal, left, right)
+
+
+def lt(left: SeriesLike, right: SeriesLike) -> pd.Series:
+    return _np_pair(np.less, left, right)
+
+
+def le(left: SeriesLike, right: SeriesLike) -> pd.Series:
+    return _np_pair(np.less_equal, left, right)
+
+
+def eq(left: SeriesLike, right: SeriesLike) -> pd.Series:
+    return _np_pair(np.equal, left, right)
+
+
+def ne(left: SeriesLike, right: SeriesLike) -> pd.Series:
+    return _np_pair(np.not_equal, left, right)
 
 
 # ------------------------------------------------------------------ 滚动类 #
@@ -258,15 +328,24 @@ def corr(left: pd.Series, right: pd.Series, n: int) -> pd.Series:
 
 REGISTRY: dict[str, Callable[..., pd.Series]] = {
     "Abs": absolute,
+    "Add": add,
     "Corr": corr,
+    "Div": divide,
+    "Eq": eq,
+    "Ge": ge,
+    "Gt": gt,
     "Greater": greater,
     "IdxMax": idx_max,
     "IdxMin": idx_min,
+    "Le": le,
     "Less": lesser,
     "Log": logarithm,
+    "Lt": lt,
     "Max": maximum,
     "Mean": mean,
     "Min": minimum,
+    "Mul": multiply,
+    "Ne": ne,
     "Quantile": quantile,
     "Rank": rank,
     "Ref": ref,
@@ -274,5 +353,6 @@ REGISTRY: dict[str, Callable[..., pd.Series]] = {
     "Rsquare": rsquare,
     "Slope": slope,
     "Std": std,
+    "Sub": subtract,
     "Sum": sum_,
 }

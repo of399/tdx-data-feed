@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""岛内导出器：把 Alpha158 用到的 18 个算子的**真语义**落成金标准工件。
+"""岛内导出器：把 Alpha158 求值面用到的算子的**真语义**落成金标准工件。
 
 为什么还要第二份工件
 --------------------
@@ -47,6 +47,7 @@ import inspect
 import json
 import math
 import os
+import re
 import sys
 from datetime import date
 from importlib.metadata import version as pkg_version
@@ -65,6 +66,24 @@ SOURCE_LABEL = (
 INSTRUMENT = "sh600000"  # 只是占位参数：_load_internal 不用它，不经数据提供方
 WINDOWS = (5, 20)
 QUANTILE_POINTS = (0.5, 0.8)
+
+# 表达式里除了 `+ - * /` 还会写 `>` / `<`（158 条里有 15 条这么写，如
+# `CNTP5 = Mean($close>Ref($close, 1), 5)`）。qlib 把它们解析成 Gt/Lt 这类成对算子，
+# 语义与 `np.maximum` 那组同族但**结果不同**（`Greater` 取大、`Gt` 比大小）。
+# 求值面里这两个符号必须也有金标准，否则比较类的判定只能靠猜。
+#
+# 符号 → 类名这张表**不手写**：权威是 `qlib.data.base.Expression` 的运算符重载
+# （`__gt__` 里写的是 `return Gt(self, other)`），照抄一份常量表就等于把「qlib 以后改
+# 了重载」这类漂移藏起来。`_symbol_maps` 从那些方法的源码里把类名抠出来，再核对它
+# 真的挂在 `qlib.data.ops` 上——漂移时这里直接红，而不是产出一份语义错位的工件。
+# 双字符符号要先判 `>=` 再判 `>`，否则一个算子会被记成另一个。
+SYMBOL_DUNDERS = {
+    ">": "__gt__", ">=": "__ge__", "<": "__lt__", "<=": "__le__",
+    "==": "__eq__", "!=": "__ne__",
+    "+": "__add__", "-": "__sub__", "*": "__mul__", "/": "__truediv__",
+}
+COMPARISON_ORDER = (">", ">=", "<", "<=", "==", "!=")
+ARITHMETIC_ORDER = ("+", "-", "*", "/")
 
 ENCODING = {
     "form": "string",
@@ -100,6 +119,41 @@ INPUTS: dict[str, list[float]] = {
 }
 
 OP_MODULES = ("qlib.data.ops",)
+
+_RETURN_CLASS_RE = re.compile(r"return\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+
+
+def _symbol_maps(ops_module) -> tuple[dict, dict]:
+    """从 `Expression` 的运算符重载里读出「符号 → qlib 类名」，分成比较组与四则组。
+
+    每条重载的函数体就一行 `return Gt(self, other)`；正则抠出类名后还要核对它真挂在
+    `qlib.data.ops` 上，否则说明 qlib 换了实现方式（比如改成 `OpFactory(...)`），
+    这套抽取口径本身失效了——那也必须红，而不是导出一份把 `>` 当 `Greater` 的工件。
+    """
+    from qlib.data.base import Expression
+
+    comparison: dict[str, str] = {}
+    arithmetic: dict[str, str] = {}
+    for sym, dunder in SYMBOL_DUNDERS.items():
+        fn = getattr(Expression, dunder, None)
+        if fn is None:
+            raise SystemExit(f"Expression 没有 {dunder}：qlib 的运算符重载形态变了，抽取口径要重设计")
+        src = inspect.getsource(fn)
+        m = _RETURN_CLASS_RE.search(src)
+        if m is None:
+            raise SystemExit(
+                f"Expression.{dunder} 的返回形态不是 `return <类>(...)`，抠不出类名：\n{src}"
+            )
+        cls_name = m.group(1)
+        if not hasattr(ops_module, cls_name):
+            raise SystemExit(
+                f"Expression.{dunder} 指向 {cls_name}，但 qlib.data.ops 里没有这个类——"
+                "符号到算子的映射需要人工重新核对"
+            )
+        (comparison if sym in COMPARISON_ORDER else arithmetic)[sym] = cls_name
+    if set(comparison) != set(COMPARISON_ORDER) or set(arithmetic) != set(ARITHMETIC_ORDER):
+        raise SystemExit("抽出来的符号表不完整，宁可不出工件")
+    return comparison, arithmetic
 
 
 def _qlib_ops():
@@ -242,8 +296,12 @@ def _ensure_island_only() -> None:
             raise SystemExit(2)
 
 
-def _reference_plan() -> dict[str, list[dict]]:
-    """每个算子跑哪几组输入。**args 的键序就是位置序**，主 venv 侧按位置调用。"""
+def _reference_plan(comparison: dict[str, str], arithmetic: dict[str, str]) -> dict[str, list[dict]]:
+    """每个算子跑哪几组输入。**args 的键序就是位置序**，主 venv 侧按位置调用。
+
+    `comparison` / `arithmetic` 是 `_symbol_maps` 从 qlib 的运算符重载里抽出来的
+    「符号 → 类名」表；计划要覆盖的是**求值面全集**，所以类名不写死在这里，由表给。
+    """
     rolling_single = [
         "Ref", "Mean", "Sum", "Std", "Max", "Min",
         "Rank", "Slope", "Rsquare", "Resi", "IdxMax", "IdxMin",
@@ -272,6 +330,23 @@ def _reference_plan() -> dict[str, list[dict]]:
         {"feature_left": "k", "feature_right": "b", "N": WINDOWS[0]},  # 常量侧 ⇒ std = 0 → NaN 分支
         {"feature_left": "c", "feature_right": "a", "N": WINDOWS[1]},  # 含 NaN 侧 ⇒ corr 的 NaN 处理
     ]
+    # 比较运算：两侧都是序列、序列对常量、序列对标量三种形状都要有——清单里
+    # `Mean($close>Ref($close, 1), 5)` 用的是「序列对序列」，而 `Greater(..., 0)` 那类
+    # 写法说明标量也必须能原样穿过成对算子。
+    pair_shapes = [
+        {"feature_left": "a", "feature_right": "b"},
+        {"feature_left": "c", "feature_right": "k"},
+        {"feature_left": "a", "feature_right": 10.5},
+    ]
+    for cls in comparison.values():
+        plan[cls] = list(pair_shapes)
+    for cls in arithmetic.values():
+        plan[cls] = [
+            *pair_shapes,
+            # 除零分支只有 Div 用得上，但对四则统一带上：b 首值是 0 ⇒ Div(a,b) 首点 = +Inf、
+            # Div(b,b) 首点 = 0/0 = NaN。Add/Sub/Mul 传同两组不改变语义，只是多一条对照。
+            {"feature_left": "b", "feature_right": "b"},
+        ]
     return plan
 
 
@@ -312,8 +387,10 @@ def build_payload() -> dict:
     ops_module = _qlib_ops()  # 先给「不在岛里」一个好读的退出，再谈解释器隔离
     _ensure_island_only()
     _SERIES_BASE = _make_series_cls(ops_module)
+    comparison, arithmetic = _symbol_maps(ops_module)
+    plan = _reference_plan(comparison, arithmetic)
     operators: dict[str, dict] = {}
-    for name in sorted(_reference_plan()):
+    for name in sorted(plan):
         cls = getattr(ops_module, name)
         operators[name] = {
             "class": name,
@@ -325,7 +402,7 @@ def build_payload() -> dict:
             ).hexdigest(),
             "reference": [
                 {"args": args, "expected": _build_case(cls, args)}
-                for args in _reference_plan()[name]
+                for args in plan[name]
             ],
         }
     payload = {
@@ -341,6 +418,9 @@ def build_payload() -> dict:
             "generated_at": date.today().isoformat(),
         },
         "encoding": ENCODING,
+        # 两张表都是从 qlib 的运算符重载现读出来的（见 _symbol_maps），不是抄写的常量。
+        "comparison_symbols": comparison,
+        "arithmetic_symbols": arithmetic,
         "inputs": {k: [_encode(v) for v in vals] for k, vals in sorted(INPUTS.items())},
         "windows": list(WINDOWS),
         "operators": operators,
@@ -360,8 +440,8 @@ def content_sha(payload: dict) -> str:
 
 
 def first_content_diff(live: dict, saved: dict) -> str:
-    """比对失败时给第一条具体差异，别让人对着两个哈希自己二分 18 个算子。"""
-    for key in ("inputs", "windows", "encoding"):
+    """比对失败时给第一条具体差异，别让人对着两个哈希自己二分二十几个算子。"""
+    for key in ("inputs", "windows", "encoding", "comparison_symbols", "arithmetic_symbols"):
         if live.get(key) != saved.get(key):
             return f"{key} 不一致"
     live_ops, saved_ops = live.get("operators", {}), saved.get("operators", {})

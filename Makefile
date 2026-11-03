@@ -39,6 +39,9 @@ ROOT := $(shell pwd)
 # 变量必须排在 ROOT 之后——`:=` 是即时展开，放前面会得到一个空的 ROOT。
 QLIB_VENV := $(ROOT)/venv-qlib
 QLIB_PYTHON := $(QLIB_VENV)/bin/python
+# 组合真值（158 列 × 岛内真 qlib）不入库：它依赖岛在场的数值栈，钉进 git 只会在换
+# pandas 时假报漂移。落 build/（已 gitignore），只给 make qlib-check-compose 现产现比。
+QLIB_COMPOSE_DIR := $(ROOT)/build/qlib-compose
 BASE ?= origin/main
 SCRIPTS := $(ROOT)/scripts
 V5_SCRIPTS := $(ROOT)/v5/scripts
@@ -110,6 +113,9 @@ help:  ## 显示所有目标（默认）
 	@echo ""
 	@echo "$(YELLOW)$(BOLD)📊 数据采集:$(NC)"
 	@grep -E "^data-.*:.*?## .*$$" $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
+	@echo ""
+	@echo "$(YELLOW)$(BOLD)🧬 因子（venv-qlib 岛）:$(NC)"
+	@grep -E "^qlib-.*:.*?## .*$$" $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)$(BOLD)📈 量化分析:$(NC)"
 	@grep -E "^analyze-.*:.*?## .*$$" $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
@@ -308,11 +314,20 @@ qlib-export:  ## 岛内重新导出 Alpha158 清单工件（config/alpha158_expr
 qlib-check:  ## 核对岛与清单工件一致（qlib 版本/默认配置漂了就非零退出）
 	$(QLIB_PYTHON) scripts/qlib_island/export_alpha158.py --check
 
-qlib-export-ops:  ## 岛内重新导出 18 个算子的语义金标准（config/alpha158_ops.json）
+qlib-export-ops:  ## 岛内重新导出算子语义金标准（config/alpha158_ops.json：函数/比较/四则算子）
 	$(QLIB_PYTHON) scripts/qlib_island/export_alpha158_ops.py
 
 qlib-check-ops:  ## 核对岛与算子金标准一致（pandas/numpy/qlib 任一漂了就非零退出）
 	$(QLIB_PYTHON) scripts/qlib_island/export_alpha158_ops.py --check
+
+qlib-compose:  ## 岛内用真 qlib 算子树跑 158 条表达式，产出组合真值到 $(TMPDIR)（不入库）
+	@mkdir -p $(QLIB_COMPOSE_DIR)
+	$(QLIB_PYTHON) scripts/qlib_island/check_alpha158_compose.py \
+		--inputs $(QLIB_COMPOSE_DIR)/frame.json --out $(QLIB_COMPOSE_DIR)/gold.json
+	@echo "$(GREEN)✓ 组合真值：$(QLIB_COMPOSE_DIR)/gold.json（比对由 make test 里的 test_alpha158_compose 做）$(NC)"
+
+qlib-check-compose: qlib-compose  ## 岛内产真值 + 主 venv 逐值比对全 158 列
+	$(PYTEST) tests/test_alpha158_compose.py -q
 
 data-watch:  ## 启动 watchdog 自动重启挂死进程
 	$(PYTHON) $(SCRIPTS)/download_adj_factor_watch.py &

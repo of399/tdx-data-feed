@@ -49,6 +49,9 @@ DOLLAR_RE = r"(\$+)([A-Za-z_][A-Za-z0-9_]*)"
 WINDOW_SUFFIX_RE = r"^(?P<base>.+?)(?P<win>\d+)$"
 WINDOWS = (5, 10, 20, 30, 60)
 
+# 比较符号要**先试双字符**：`>=` 里含 `>`，按单字符扫会把一个算子记成另一个。
+COMPARISON_RE = r">=|<=|!=|==|[><]"
+
 # 读侧口径：下游必须先解决这两条，否则 158 维里混着伪信号。
 CAVEATS = (
     "vwap：本仓库日线没有 vwap 列，只能由 amount/volume 推得；而 2026-09-16 起 amount 是 "
@@ -105,12 +108,14 @@ def build_payload() -> dict:
     columns: set[str] = set()
     instrument: set[str] = set()
     arithmetic: set[str] = set()
+    comparisons: set[str] = set()
     operators: Counter[str] = Counter()
     for expr in fields:
         cols, instr = _split_dollar(expr)
         columns.update(cols)
         instrument.update(instr)
         arithmetic.update(ch for ch in "+-*/" if ch in expr)
+        comparisons.update(re.findall(COMPARISON_RE, expr))
         for op in _ops(expr):
             operators[op] += 1
 
@@ -135,9 +140,12 @@ def build_payload() -> dict:
         "columns": sorted(columns),
         "instrument_fields": sorted(instrument),
         # 值 = 「用到该算子的表达式条数」（同一表达式里重复用只记一次），不是出现次数；
-        # 四则运算符单列在 arithmetic 里，两者合起来才是下游求值器必须实现的完整闭包。
+        # 四则运算符单列在 arithmetic、比较符号单列在 comparison_operators，三者合起来
+        # 才是下游求值器必须实现的完整闭包。qlib 把 `>` 解析成 `Gt`、`<` 解析成 `Lt`
+        # （不是 `Greater`/`Less`——那两个取大取小），符号到类名的映射在 ② 工件里。
         "operator_expression_counts": dict(sorted(operators.items())),
         "arithmetic": sorted(arithmetic),
+        "comparison_operators": sorted(comparisons),
         "caveats": list(CAVEATS),
         "features": features,
     }
@@ -214,7 +222,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"✅ 写出 {target.relative_to(ROOT)}：{payload['count']} 条 = "
           f"{shape['windowless']} 无窗口 + {shape['rolling_families']} 族 × "
           f"{len(shape['windows'])} 窗口；函数算子 {len(payload['operator_expression_counts'])} 个 "
-          f"+ 四则 {payload['arithmetic']}；字段 {payload['columns']}；"
+          f"+ 四则 {payload['arithmetic']} + 比较 {payload['comparison_operators']}；"
+          f"字段 {payload['columns']}；"
           f"content_sha256={payload['content_sha256'][:16]}…")
     return 0
 

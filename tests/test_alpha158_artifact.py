@@ -44,12 +44,14 @@ MAIN_VENV_PY = ROOT / "venv" / "bin" / "python"
 
 TOP_KEYS = {
     "version", "source", "provenance", "count", "shape", "columns",
-    "instrument_fields", "operator_expression_counts", "arithmetic", "caveats",
-    "features", "content_sha256",
+    "instrument_fields", "operator_expression_counts", "arithmetic",
+    "comparison_operators", "caveats", "features", "content_sha256",
 }
 FUNC_RE = re.compile(r"\b([A-Z][A-Za-z0-9]*)\(")
 DOLLAR_RE = re.compile(r"(\$+)([A-Za-z_][A-Za-z0-9_]*)")
 WINDOW_SUFFIX_RE = re.compile(r"^(?P<base>.+?)(?P<win>\d+)$")
+# 双字符必须先试：`>=` 里含 `>`，按单字符扫会把一个算子记成另一个。
+COMPARISON_RE = re.compile(r">=|<=|!=|==|[><]")
 WINDOWS = (5, 10, 20, 30, 60)
 
 
@@ -72,6 +74,11 @@ def feature_columns(expr: str) -> list[str]:
 
 def feature_instrument_fields(expr: str) -> list[str]:
     return sorted({col for sig, col in DOLLAR_RE.findall(expr) if sig == "$$"})
+
+
+def feature_comparisons(expr: str) -> list[str]:
+    """表达式里用到的比较符号（`CNTP5 = Mean($close>Ref($close, 1), 5)` 用的是 `>`)。"""
+    return sorted(set(COMPARISON_RE.findall(expr)))
 
 
 def canonical_payload_sha(features: list[dict]) -> str:
@@ -204,9 +211,21 @@ def test_operator_and_column_closure():
     )
     assert {"close", "open", "high", "low", "volume"} <= set(doc["columns"])
 
-    # 求值器要实现的完整闭包 = 函数算子 + 四则运算符；只声明前者会漏掉 KMID 那类纯算术表达式。
+    # 求值器要实现的完整闭包 = 函数算子 + 四则运算符 + 比较符号；只声明前两者会漏掉
+    # CNTP/CNTN 那 15 条（`Mean($close>Ref($close, 1), 5)`）——它们在表达式串里是符号，
+    # 不进 FUNC_RE 的名单，但下游必须实现对应的算子（qlib 里是 Gt/Lt，不是 Greater/Less）。
     arith_used = sorted({ch for f in doc["features"] for ch in "+-*/" if ch in f["expr"]})
     assert doc["arithmetic"] == arith_used, f"四则运算闭包不符：{doc['arithmetic']} vs {arith_used}"
+    cmp_used: set[str] = set()
+    for f in doc["features"]:
+        cmp_used.update(feature_comparisons(f["expr"]))
+    assert doc["comparison_operators"] == sorted(cmp_used), (
+        f"比较符号闭包不符：{doc['comparison_operators']} vs {sorted(cmp_used)}"
+    )
+    assert doc["comparison_operators"], (
+        "声明的比较符号为空：CNTP*/CNTN* 那批表达式在用 `>`/`<`，"
+        "字段没了说明导出器的扫描口径漂了"
+    )
     counts = doc["operator_expression_counts"]
     assert all(0 < v <= doc["count"] for v in counts.values())
     assert counts["Ref"] == sum(1 for f in doc["features"] if "Ref(" in f["expr"]), (
@@ -221,8 +240,30 @@ def test_exporter_reuses_the_same_extraction_patterns():
         node.value for node in ast.walk(ast.parse(src))
         if isinstance(node, ast.Constant) and isinstance(node.value, str)
     }
-    for pat in (FUNC_RE.pattern, DOLLAR_RE.pattern, WINDOW_SUFFIX_RE.pattern):
+    for pat in (FUNC_RE.pattern, DOLLAR_RE.pattern, WINDOW_SUFFIX_RE.pattern,
+                COMPARISON_RE.pattern):
         assert pat in literals, f"导出器没用到抽取口径 {pat!r}：两份实现会在某天悄悄分叉"
+
+
+def test_symbols_declared_here_are_gold_standard_in_the_ops_artifact():
+    """① 只声明「清单用了哪些符号」，**符号 → 算子 → 真值**全在 ② 里。
+
+    两份工件必须互相咬合：① 冒出 ② 没钉过语义的符号，就意味着求值器要么报错、
+    要么按「Python 里 `>` 大概就是这个意思」猜——后者正是本步要消灭的东西。
+    """
+    doc = load()
+    ops_art = ROOT / "config" / "alpha158_ops.json"
+    if not ops_art.exists():
+        pytest.skip(f"缺 {ops_art.relative_to(ROOT)}：先跑 `make qlib-export-ops`")
+    gold = json.loads(ops_art.read_text(encoding="utf-8"))
+    assert set(doc["arithmetic"]) <= set(gold["arithmetic_symbols"]), (
+        f"① 声明的四则符号 {sorted(doc['arithmetic'])} 里有 ② 没钉过语义的"
+    )
+    assert set(doc["comparison_operators"]) <= set(gold["comparison_symbols"]), (
+        f"① 声明的比较符号 {sorted(doc['comparison_operators'])} 里有 ② 没钉过语义的"
+    )
+    for name in {**gold["arithmetic_symbols"], **gold["comparison_symbols"]}.values():
+        assert name in gold["operators"], f"{name} 被符号表指向，却没有金标准用例"
 
 
 # ---------------- 5. 读侧口径 ----------------
