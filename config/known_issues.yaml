@@ -1063,8 +1063,8 @@ issues:
     severity: P1
     status: OPEN
     first_seen: "2026-11-02"
-    last_seen: "2026-11-02"
-    seen_count: 1
+    last_seen: "2026-11-03"
+    seen_count: 2
     sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md"]
     locations: ["scripts/canary_health_check.py", "tdxfeed/freshness.py", "tdxfeed/hfq_factor.py", "tdxfeed/adj_factor.py"]
     detect:
@@ -1077,12 +1077,19 @@ issues:
         paths: ["scripts/canary_health_check.py"]
         min_count: 1
         note: "抽样判据（30/5221=0.58%，中位数需>15 只落后才动）与容忍 1 个交易日同时在场，才是本条描述的盲区形状"
+      - kind: grep
+        pattern: "TAIL_PAGING_ENABLED = False"
+        paths: ["scripts/canary_health_check.py"]
+        min_count: 1
+        note: "2026-11-03 落地的尾部/覆盖率两维仍是 report-only（实测 stale_count=9 > 0，翻页会刷屏）⇒ 抽样维仍是唯一会推微信的新鲜度信号，本条症状未解除"
+
     impact: "三行 ExecStartPost=- 吞掉非零退出，exit_code() 又允许 fail ≤ max(20, 2%)（5221 只即 ≤104 只仍退 0）、失败只打印前 5 条 ⇒ 104 只永久停更无任何信号。2026-11-02 实证：002247 有 3 行 raw_close 被写成后复权值（hfq_factor 落 1.0，造出 -84.6% 因子下跳），同晚三个后置任务全 status=0/ok=5221/fail=0、canary 抽到的 30 只末日期均为当日；唯一检测器 tests/test_hfq_factor_monotone.py 因 NEEDS_DATA 在 CI 跳过、生产链不跑，读侧 adjusted._raw_close_dev 用重叠期中位数（4468 行里 3 行坏 ≈ 0）同样不报错"
-    guard: "NONE"
+    guard: "tests/test_canary_tail_freshness.py"
     owner: "jiuben"
     due: "2026-11-25"
     exemption: "NONE"
-    fix_hint: "评估见 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §2.3/§4：①写入侧不变量（新增行 |raw_close − 日线 close| > 0.005 丢行并计数，单只 >3 行或 >1% 判 fail:raw-mismatch 不落盘；全历史实测 7,689,919 行零假阳性，成本 +≈22 秒）；②后置任务自报 ok/skip/fail/rebase/剩余计数，canary 新增维度并进 PAGING_CHECKS；③下跳白名单绊线做成脚本日跑（全表实测 14.8 秒）。保留 - 前缀，失败判红交给②而不是抽样中位数"
+    fix_hint: "评估见 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §2.3/§4：①写入侧不变量（新增行 |raw_close − 日线 close| > 0.005 丢行并计数，单只 >3 行或 >1% 判 fail:raw-mismatch 不落盘；全历史实测 7,689,919 行零假阳性，成本 +≈22 秒）；②后置任务自报 ok/skip/fail/rebase/剩余计数，canary 新增维度并进 PAGING_CHECKS；③下跳白名单绊线做成脚本日跑（全表实测 14.8 秒）。保留 - 前缀，失败判红交给②而不是抽样中位数。2026-11-03 已完成「②的前半」：freshness.table_freshness 走 parquet footer 统计全量逐文件末日期（5,232 文件 0.24 秒 / 峰值 0.14 GiB），canary 加 data_files_tail 与 data_coverage 两维并接进 run_all_checks；两维暂为 report-only（尾部实测 stale_count=9，其中 5 只 *ST、sh600001 是名单外历史残留），翻 PAGING 需要先把这批显式进白名单或按表分级重测。①③与「后置任务自报计数」仍未落地，抽样中位数依旧是唯一会推微信的新鲜度信号"
+
 
   - id: KI-DATA-001
     title: "日线 amount 自 2026-09-16 起全市场是 close×volume×100 代理值，派生特征失去独立信息且无覆盖率告警"
@@ -1115,28 +1122,78 @@ issues:
     title: "amount_fix 只在 amount<=0 时补缺，漏掉「有值但量级错」：2026-10-26 实测 5 行比 close×volume×100 低 6~15 倍"
     theme: contract
     severity: P1
+    status: FIXED
+    first_seen: "2026-11-03"
+    last_seen: "2026-11-03"
+    seen_count: 1
+    sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md"]
+    locations: ["tdxfeed/amount_fix.py", "tdxfeed/parquet_io.py", "data/parquet/daily", "data/.state/amount_deviation.json"]
+    detect:
+      - kind: grep
+        pattern: "PROXY_CALIBER_START = 20260916"
+        paths: ["tdxfeed/amount_fix.py"]
+        min_count: 1
+        note: "量级守卫存在且按当期口径分档（判据只在代理期内成立）；两处任一消失本条翻真"
+      - kind: grep
+        pattern: "record_deviation_for_table\\(path, df\\)"
+        paths: ["tdxfeed/parquet_io.py"]
+        min_count: 1
+        note: "挂钩在唯一在役写入口 write_table 上，不是只在 backfill 里顺手调一次"
+    impact: "（已修）原症状：2026-10-26 全市场 5225 行里有 5 行的 amount 既不等于估算公式、也比 baostock 真实成交额低 6~15 倍且比例互不相同（比值 0.0665~0.1677：sh600000/sz000001/sz000002/sz000012/sz000021）⇒ 不是统一单位错，形态更像写入时只拿到当日部分成交额（机制未在日志取证，属推断）。这类行因 amount>0 而绕过守卫、也不进旁路清单：基准日 5 日窗口一旦含 10-26，该票 avg_amount_5d 被压低约 20%，avg_amount_5d/vol_ratio_t1/amt_per_price 连带。2026-11-03 收口：写盘侧新增只检测、不改写的量级守卫，命中日期记旁路清单 data/.state/amount_deviation.json；真实表整表评估实测「代理期内命中恰好这 5 行、零假阳性」。表内错值本身仍未修——守卫只负责让它可见，改值要源侧证据（见 KI-DATA-001 的三档回填）"
+    guard: "tests/test_amount_deviation_guard.py"
+    test: "tests/test_amount_deviation_guard.py"
+    owner: "jiuben"
+    due: "2026-11-30"
+    exemption: "NONE"
+    fix_hint: "已完成（阈值 0.005 + 断点分档 + 三个写入口挂钩：Writers.merge_write / parquet_io.write_table（含 incremental._write_v2）/ backfill_daily_dir）。原 fix_hint 里那句「判据要按当期口径分档」就是本次落地的形状；阈值取 0.005 而非 0.10，因为代理期内 amount 按定义精确等于公式，任何 >0.5% 的偏离都是硬错。剩余动作在 KI-DATA-001（回填真额）与 KI-DATA-003（历史期口径差记账）"
+
+  - id: KI-DATA-003
+    title: "2026-09-16 之前的历史 amount 与 close×volume×100 存在 7,086 行 ≥2 倍量级差，99.7% 落在 1990-1993 的早期成交额口径"
+    theme: silent-failure
+    severity: P2
     status: OPEN
     first_seen: "2026-11-03"
     last_seen: "2026-11-03"
     seen_count: 1
     sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md"]
-    locations: ["tdxfeed/amount_fix.py", "data/parquet/daily"]
+    locations: ["data/parquet/daily", "tdxfeed/amount_fix.py"]
+    detect:
+      - kind: glob_absent
+        pattern: "data/.state/amount_history_outlier.json"
+        note: "还没有一份历史期量级异常清单 ⇒ 这 7,086 行既不进守卫（按断点分档刻意排除），也没有别处记账。建了该文件本条翻假"
+    impact: "2026-11-03 全市场实测（5,236 个日线文件 / 16,786,827 可判定行）：断点前 dev=|amount/(close×volume×100) − 1| 的中位 1.05%、p90 2.55% 是正常形态（公式只是当日 VWAP 的近似），但 dev>0.5 仍有 7,086 行，其中 7,062 行落在 1990-1993（例 sh600601 1991-01-02 表内 amount=20 对公式 243,700，比值 8.2e-05），其余 1994-2024 仅 19 行。这些行的比值不是统一倍数（p10≈0、p90≈5.06），形态像早期成交额字段本身单位/口径与现表不同，而不是写入侧缺陷。后果：任何跨 1990-1993 使用 amount 当量级的因子或回测（amihud_20、avg_amount_5d 的长窗口、按成交额分档的流动性阈值）会拿到 1e-4~5× 的错值，而 KI-DATA-002 的守卫按当期口径分档后**刻意不抓**这些行——所以这笔是那条分档决定的代价，必须单独记账"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-12-31"
+    exemption: "NONE"
+    fix_hint: "先取证再决定：①按年把 dev>0.5 的行出成清单（含比值分布与代表标的），确认 1990-1993 是否整体不可信；②若确为源侧口径，就在 paths/文档里给日线表标「可信起点」，并让建在长窗口成交额上的因子按该起点截断；③不要为了把这些行捞进守卫就放宽断点——那会把 948 万行正常历史偏离一起灌进清单"
+
+
+  - id: KI-SKILL-003
+    title: "skills/daban.yaml 的 tools 顶层键已在 P1-2 移除，但 tests/test_daban_mcp.py 仍断言 skill[\"tools\"] ⇒ 有 data/ 的机器上该用例必红，CI 因收集期跳过看不见"
+    theme: skill
+    severity: P2
+    status: OPEN
+    first_seen: "2026-11-03"
+    last_seen: "2026-11-03"
+    seen_count: 1
+    sources: ["71195c5（2026-11-02 10:25 feat: P1-2 yaml 变真契约(去死字段+参数完整传递)）", "tests/test_daban_mcp.py:104"]
+    locations: ["skills/daban.yaml", "tests/test_daban_mcp.py"]
     detect:
       - kind: grep
-        pattern: "mask = \\(amount <= 0\\) & \\(volume > 0\\) & \\(close > 0\\)"
-        paths: ["tdxfeed/amount_fix.py"]
+        pattern: "skill\\[\"tools\"\\]"
+        paths: ["tests/test_daban_mcp.py"]
         min_count: 1
-        note: "触发条件只看非正数：amount>0 但量级错的行既不修也不标，事后无从筛除"
       - kind: absent
-        pattern: "amount_deviation"
-        path: "tdxfeed/amount_fix.py"
-        note: "加入「与 close×volume×100 或独立源比量级」的校验并出现该 token 后翻假"
-    impact: "2026-10-26 全市场 5225 行里有 5 行的 amount 既不等于估算公式、也比 baostock 真实成交额低 6~15 倍且比例互不相同（比值 0.0665~0.1677：sh600000/sz000001/sz000002/sz000012/sz000021）⇒ 不是统一单位错，形态更像写入时只拿到当日部分成交额（机制未在日志取证，属推断）。这类行因 amount>0 而绕过守卫、也不进旁路清单：基准日 5 日窗口一旦含 10-26（例如基准日 10-30），该票 avg_amount_5d 就被压低约 20%，且 avg_amount_5d/vol_ratio_t1/amt_per_price 全部连带。2026-11-02 那份榜的窗口是 10-27~11-02，不含 10-26，已核未受影响"
+        pattern: "^tools:"
+        path: "skills/daban.yaml"
+        note: "测试还在读 tools、yaml 已不写 tools ⇒ 两侧契约不一致仍在；任一侧改到位本条翻假"
+    impact: "本机（有 data/）实测 `tests/test_daban_mcp.py::test_skill_yaml_wires_mcp_tool` 以 KeyError: 'tools' 失败；daban.yaml 顶层键只剩 name/llm/prompt_template/fallback_skill。CI 门禁作业只装 requirements-ci.txt 且不落 data/，该模块在收集期被跳过，所以这条红**只在开发机出现、CI 永远是绿的**——属「本机红/CI 绿」分叉面，不是新引入的故障（2026-11-03 用 HEAD~5 的干净 worktree 复跑证实）。风险是它长期红会让真红被当成噪声忽略"
     guard: "NONE"
     owner: "jiuben"
     due: "2026-11-30"
     exemption: "NONE"
-    fix_hint: "与 KI-OPS-005 的写入侧不变量同形，只是换列：补齐前先判量级，r = amount/(close×volume×100)，真实值实测散布 p5–p95 0.987~1.018 ⇒ 阈值取 0.10 安全；r 越界且 volume>0 ⇒ 记入旁路清单并报警，不静默保留原值。代理期（2026-09-16 起）不能拿代理值当比对基准，判据要按当期口径分档"
+    fix_hint: "先定契约归属再改，二选一：①若 MCP 接线确实要以技能声明为权威，就把 tools 放回 daban.yaml 并让 P1-2 的『去死字段』结论在文档里限定范围；②若工具接线的权威是 mcp 注册片（更可能，符合 P1-2 意图），就改这条断言去校验注册片与 input_schema 的一致性，并在 tests/ 里加一条**不依赖 data/** 的 skills 契约检查，让 CI 也能看见这一面"
 
   # ---------------- 已修复并有守卫（示例：固化"修完有守卫"的范式）----------------
   - id: KI-SINGLE-005
