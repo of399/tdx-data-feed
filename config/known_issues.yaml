@@ -1029,6 +1029,61 @@ issues:
     exemption: "NONE"
     fix_hint: "已完成（M-6）：Makefile 目标 gate/typecheck-gate/fix-tests-check/ci-gate + scripts/ci_typecheck_gate.py；详见 docs/FIX_REQUIRED_TESTS_M5_M6.md"
 
+  # ---------------- 同步链预算与数据可见性（2026-11-02 实测登记）----------------
+  - id: KI-OPS-004
+    title: "tdx-sync 三条串行后置任务共享一个 TimeoutStartSec，实测 292 分钟只剩 68 分钟余量"
+    theme: ops
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-02"
+    last_seen: "2026-11-02"
+    seen_count: 1
+    sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md"]
+    locations: ["systemd/system/tdx-sync.service", "tdxfeed/adj_factor.py", "tdxfeed/hfq_factor.py"]
+    detect:
+      - kind: grep
+        pattern: "^TimeoutStartSec=21600$"
+        paths: ["systemd/system/tdx-sync.service"]
+        min_count: 1
+      - kind: grep
+        pattern: "^ExecStartPost=-"
+        paths: ["systemd/system/tdx-sync.service"]
+        min_count: 3
+        note: "三条 best-effort 后置任务串行在同一次 activation 内；拆成独立单元后本条翻假"
+    impact: "单元注释与 AGENTS.md 仍写「5221 只 × 约 0.6 秒 / 全量约 60 分钟」，实测 adj 1.41 秒/只（122 分）、hfq 1.47 秒/只（128 分），低估 2.4 倍；成本由 rebase（整表重拉）驱动，今晚 61 次≈多花 70 分钟，即每次约 69 秒——余量只够约 59 次 rebase，上游批量因子修订成簇时会在 TimeoutStartSec 处被杀，表变成半新半旧且没有任何「还剩多少只没跑」的计数（未完成标的下一轮按自身 last_date 续，不丢历史）"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-25"
+    exemption: "NONE"
+    fix_hint: "评估见 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §1.4：推荐把 adj/hfq 拆成独立 oneshot + 各自 timer（每段自带超时与 OnFailure），TimeoutStartSec 调大只作一次性缓冲；不做多会话并行（baostock 单会话+限流）。与 KI-OPS-003（缺 TimeoutStartSec，已修）同主题不同位置"
+
+  - id: KI-OPS-005
+    title: "表级新鲜度只看 30 只抽样的末日期中位数，部分落后/后置连挂/坏值进表都不可见"
+    theme: ops
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-02"
+    last_seen: "2026-11-02"
+    seen_count: 1
+    sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md"]
+    locations: ["scripts/canary_health_check.py", "tdxfeed/freshness.py", "tdxfeed/hfq_factor.py", "tdxfeed/adj_factor.py"]
+    detect:
+      - kind: grep
+        pattern: "sample_latest_date"
+        paths: ["scripts/canary_health_check.py"]
+        min_count: 1
+      - kind: grep
+        pattern: "allowed_trading_days=1"
+        paths: ["scripts/canary_health_check.py"]
+        min_count: 1
+        note: "抽样判据（30/5221=0.58%，中位数需>15 只落后才动）与容忍 1 个交易日同时在场，才是本条描述的盲区形状"
+    impact: "三行 ExecStartPost=- 吞掉非零退出，exit_code() 又允许 fail ≤ max(20, 2%)（5221 只即 ≤104 只仍退 0）、失败只打印前 5 条 ⇒ 104 只永久停更无任何信号。2026-11-02 实证：002247 有 3 行 raw_close 被写成后复权值（hfq_factor 落 1.0，造出 -84.6% 因子下跳），同晚三个后置任务全 status=0/ok=5221/fail=0、canary 抽到的 30 只末日期均为当日；唯一检测器 tests/test_hfq_factor_monotone.py 因 NEEDS_DATA 在 CI 跳过、生产链不跑，读侧 adjusted._raw_close_dev 用重叠期中位数（4468 行里 3 行坏 ≈ 0）同样不报错"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-25"
+    exemption: "NONE"
+    fix_hint: "评估见 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §2.3/§4：①写入侧不变量（新增行 |raw_close − 日线 close| > 0.005 丢行并计数，单只 >3 行或 >1% 判 fail:raw-mismatch 不落盘；全历史实测 7,689,919 行零假阳性，成本 +≈22 秒）；②后置任务自报 ok/skip/fail/rebase/剩余计数，canary 新增维度并进 PAGING_CHECKS；③下跳白名单绊线做成脚本日跑（全表实测 14.8 秒）。保留 - 前缀，失败判红交给②而不是抽样中位数"
+
   # ---------------- 已修复并有守卫（示例：固化"修完有守卫"的范式）----------------
   - id: KI-SINGLE-005
     title: "股票池路径访问器已单源化（universe_path）"
