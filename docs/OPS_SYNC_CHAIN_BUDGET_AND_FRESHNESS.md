@@ -47,9 +47,9 @@
 
 systemd 在 `TimeoutStartSec` 处杀掉整个 unit ⇒ `Result=timeout`、`OnFailure=onfailure-alert-system@tdx-sync.service` 会响——**这一项是有信号的**。真正的问题是杀点之后的状态：
 
-- 已完成与未完成的标的各占一段，表变成半新半旧，而没有任何计数说明「还剩多少只没跑」；
+- 已完成与未完成的标的各占一段，表变成半新半旧。**「还剩多少只没跑」自 2026-11-04 起有落盘计数了**（KI-OPS-007 的 `data/.state/factor_run.json`：开跑写一次、每 200 只一次、收尾一次，`unfinished = target − processed`）——撞顶时被杀的是整轮，进程来不及写收尾标记，所以读法是「`finished=false` 那一轮的最后一次心跳」，误差上界 200 只；
 - 未跑到的标的下一轮按**自己的** `last_date` 续，不会丢历史，但 rebase 簇若连续几天出现，链就**永远跑不完**，落后从「一天」变成结构性；
-- 后置任务的 `-` 前缀只保证「不把同步单元判红」，撞顶是 unit 级超时，不受 `-` 影响——**别把这条读成"撞顶也没人知道"**，但"落后多少只"确实没人知道。
+- 后置任务的 `-` 前缀只保证「不把同步单元判红」，撞顶是 unit 级超时，不受 `-` 影响——**别把这条读成"撞顶也没人知道"**。
 
 ### 1.4 选项
 
@@ -57,13 +57,17 @@ systemd 在 `TimeoutStartSec` 处杀掉整个 unit ⇒ `Result=timeout`、`OnFai
 |---|---|---|---|
 | A | 只把 `TimeoutStartSec` 调到 43200（12h） | 0 代码；`mark_sync_done` 在 17:11 已写哨兵，**不影响 18:05 出榜** | 一次性缓冲，不解决可见性 |
 | B | 把 `adj_factor`/`hfq_factor` 拆成独立 oneshot + 各自 timer（如 20:00 / 22:30），每段自带 `TimeoutStartSec=10800` | 调度源从 1 个变 3 个：`AGENTS.md` 要改、timer 三名单与 canary 的 `timers` 维度要加、竞态面（与 `predict-daily` 读表）要重新核 | **推荐**：预算不共享 + 每段独立 `OnFailure` + 同步单元回归本义 |
-| C | 任务内自限预算（`--budget-minutes`），到点有序停止并把「剩余 N 只」写进 `data/.state/` 供 canary 报警 | 改动最大，需要新状态文件 + 守卫 | B 落地后作为「剩余可见」的实现细节保留 |
+| C | 任务内自限预算（`--budget-minutes`），到点有序停止并把「剩余 N 只」写进 `data/.state/` 供 canary 报警 | 改动最大，需要新状态文件 + 守卫 | 状态文件那半边已随 KI-OPS-007 落了（`data/.state/factor_run.json` + `tdxfeed/factor_run_state.py`）；**自限预算与 canary 接线仍未做**，仍作为 B 落地后的实现细节保留 |
 | D | 降低单位成本：rebase 只重拉重叠段 / 多会话并行 | 前者改数据口径（要上游一致性证据才敢做）；后者受 baostock 单会话与限流约束（2026-10-30 发生过登录黑名单） | **不做** |
 
 推荐 **B（+A 作为本周缓冲）**，C 的「剩余计数」并入 B 的新单元。
 
 **2026-11-04 落地记录：A 已做，B 未做，KI-OPS-004 保持 OPEN。** `TimeoutStartSec` 21600 → **28800（8 小时）**，依据是同一天补测出来的三个数：full_sync 40→73 分钟（11-04 比 11-02 慢 33 分钟）、adj 124.9 分钟（11-04，`rebase=50`）、hfq 128 分钟（11-02）；整轮实测 11-02 = 4h51m59s、11-03 = 5h19m20s，旧 6 小时在 11-04 只剩不到 30 分钟。单元注释、`AGENTS.md`、`docs/WORKFLOW.md` 里「5221 只 × 约 0.6 秒 / 全量约 60 分钟」的措辞已按实测改写；`tests/test_sync_post_jobs.py` 从钉死字面值 `21600` 改成断**下界 ≥ 28800**（变异对照：压回 21600 时该条红）。这只是 §1.5 判据 3 的一半——「声明超时 vs 实测分段预算表」的静态比对仍未做。
-判据 1 也没满足：它要求串行总耗时 < 上限的 50%（8h 的 50% = 4h），实测 4h52m / 5h19m 仍超——**所以提超时只是把撞顶概率推后，共享超时与「落后多少只」不可见这两件事仍要靠 B**。同日新增一个 `-` 吞失败的实例：adj 于 19:52 跑完后，hfq 因 baostock 登录失败 `exit 1`，单元仍记 `Finished`、`OnFailure` 不响，只能从日志末行与 hfq 表末日期反推。
+判据 1 也没满足：它要求串行总耗时 < 上限的 50%（8h 的 50% = 4h），实测 4h52m / 5h19m 仍超——**所以提超时只是把撞顶概率推后，共享超时这件事仍要靠 B**（「落后多少只」自同日起有落盘心跳，但那是取证用的状态文件，不是会推微信的告警信号）。同日新增一个 `-` 吞失败的实例：adj 于 19:52 跑完后，hfq `exit 1`，单元仍记 `Finished`、`OnFailure` 不响，只能从日志末行与 hfq 表末日期反推。**这一句原先写成「hfq 因 baostock 登录失败」，是错的**——见下一段。
+
+**2026-11-04 落地记录（补）：那次登录失败的根因在自家，已单源化修掉，登记 `KI-OPS-007`（FIXED）。** `tdxfeed/hfq_factor.py` 与 `tdxfeed/adj_factor.py` 在 import 期执行 `socket.setdefaulttimeout(30)`（`socket` 的默认超时是**进程全局**的，baostock 内部那条 socket 也吃这个值），而 baostock 的登录握手当夜实测约 60 秒。同夜成对实验只有一处变量：A 走模块路径（含 30s 上限）`--limit 1` → 33 秒返回 `10002007 网络接收错误`；B 裸 `bs.login()` + 同样 30s → 31 秒同一错误码；C 不设上限的裸登录 → 60 秒 `login success`。日志里 4 次登录失败中只有 11-04 这次的下两行是 `timed out`（10-29 一次、10-30 两次是「服务器连接失败 / Broken pipe」，那是真服务端故障）——所以「都是 baostock 不稳定」这句话把一条可修的自家 bug 记成了外部不可靠，这也是它值得单独登记的原因。修法：两个超时数收进 `tdxfeed/baostock_session.py`（`QUERY_TIMEOUT_SEC=30` / `LOGIN_TIMEOUT_SEC=120` / `LOGIN_ATTEMPTS=3` / `LOGIN_BACKOFF_SEC=(15, 45)`），`login_with_retry()` 只在握手期放宽、`finally` 里必回 30 秒——逐只查询的 hang 保护一寸没松；两个因子模块删掉 `import socket` 与裸 `bs.login()`，循环内重连走同一入口，异常分支按 SEM002 计数；进度心跳落 `data/.state/factor_run.json`（`unfinished = target − processed` 单源算式，adj / hfq 各占一键）。守卫 `tests/test_baostock_login_retry.py`（13 条，含三条变异对照：上限改回 30、换回裸 `bs.login()`、去掉异常计数，各自都红）。**未做**：`scripts/download_adj_factor_b.py`（30s + baostock 登录）与 `scripts/download_adj_factor_watch.py`（20s）仍是旧写法——都是一次性/手工 Makefile 目标、无单元调度，收编前先确认还有没有人在跑；方案 B（拆独立 oneshot + 各自 `OnFailure`）仍未做，所以"登录彻底失败那一轮"仍然只有状态文件里 `finished=false / processed=0 / unfinished=target` 这一处痕迹，不会主动响。
+
+**同夜全市场补齐的唯一一条失败不是登录，是新登记的 `KI-DATA-007`。** 21:07 起的 hfq 全市场补齐（用 `/tmp` 的一次性 driver 把登录上限放到 120 秒绕开上面那条根因，故跑的是**改造前**的代码路径）结果 `ok=5218 skip=2 fail=1 新增行=5215 截止=2026-11-04`，末日期分布 5,216 只到 11-04、5 只落后（000788 / 301139 / 000016 / 601059 / 601198，后四只是既知的退市或停牌）。唯一失败是 `✗ 000788: fail:raw-vs-daily:3:1997-07-22 10.41≠10.34`——KI-DATA-004 的跨源对账在**整表重拉**时把窗口取成文件全历史（`boundary = old_first`），而这 3 行 1997 年的差异正是 `data/.state/hfq_raw_close_mismatch.json` 里那 2,339 行 / 461 只的一部分（全部落在 1991–2018，2019 起 0 行）。后果是这 461 只票**任何一次 rebase 都会被自己的历史拦住**，而且是**自锁的**：拦住即不写盘，旧表末行与源的值差异于是每晚都还在，`_rebase_needed` 每晚重新判真——22:01 用新代码单只复现同一条失败（`--code 000788 --today 2026-11-04`，退出码 1，表与补齐前快照逐字节一致），000788 从此停在 2026-11-03，不会自己恢复。拦住之后也没有信号：`fail=1` 远小于 `exit_code` 的容忍、canary 的 `data_files` 只看固定 30 只抽样的中位数——正是 §2 那条 KI-OPS-005 盲区的又一个实例（该条 `seen_count` 已记到 3）。修法要拍板"历史段两源差算不算缺陷"，三条路写在台账 `fix_hint` 里（推荐按 2019-01-01 分界切窗口）。
 
 ### 1.5 关闭判据（KI-OPS-004）
 

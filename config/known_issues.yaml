@@ -1051,12 +1051,12 @@ issues:
         paths: ["systemd/system/tdx-sync.service"]
         min_count: 3
         note: "三条 best-effort 后置任务串行在同一次 activation 内；拆成独立单元后本条翻假"
-    impact: "2026-11-04 按实测重排了预算：超时 21600→28800，单元注释与 AGENTS.md 里「5221 只 × 约 0.6 秒 / 全量约 60 分钟」的措辞已改写，tests/test_sync_post_jobs.py 从钉字面值改成断下界。实测口径（三条都能在场复核）：adj 1.41 秒/只 = 122.6 分（11-02，rebase=61）/ 124.9 分（11-04，rebase=50），hfq 1.47 秒/只 = 128 分，full_sync 40→73 分，整轮 journal 记账 11-02 = 4h51m59s、11-03 = 5h19m20s；旧 6 小时在 11-04 只剩不到 30 分钟。仍未解的是两件事：① 三段共享一次 activation 的一个超时，被杀时后半段没有任何完成标记、也没有「还剩多少只没跑」的计数（未完成标的下一轮按自身 last_date 续，不丢历史）——8 小时下退避余量约够 130 次 rebase（每次约 69 秒）；② `-` 前缀吞失败：2026-11-04 adj 于 19:52 跑完后 hfq 因 baostock 登录失败 exit 1，单元仍记 `Finished`、OnFailure 不响，只能从日志末行与 hfq 表末日期反推"
+    impact: "2026-11-04 按实测重排了预算：超时 21600→28800，单元注释与 AGENTS.md 里「5221 只 × 约 0.6 秒 / 全量约 60 分钟」的措辞已改写，tests/test_sync_post_jobs.py 从钉字面值改成断下界。实测口径（三条都能在场复核）：adj 1.41 秒/只 = 122.6 分（11-02，rebase=61）/ 124.9 分（11-04，rebase=50），hfq 1.47 秒/只 = 128 分，full_sync 40→73 分，整轮 journal 记账 11-02 = 4h51m59s、11-03 = 5h19m20s；旧 6 小时在 11-04 只剩不到 30 分钟。仍未解的是两件事：① 三段共享一次 activation 的一个超时，被杀时后半段没有完成标记（「还剩多少只没跑」自 2026-11-04 起有落盘计数了，见 KI-OPS-007 的 data/.state/factor_run.json，但那只在任务真的起跑过时才写，登录彻底失败那一轮靠的是 finished=false / processed=0 / unfinished=target）——8 小时下退避余量约够 130 次 rebase（每次约 69 秒）；② `-` 前缀吞失败：2026-11-04 adj 于 19:52 跑完后 hfq `exit 1`，单元仍记 `Finished`、OnFailure 不响，只能从日志末行与 hfq 表末日期反推。**该次失败的根因不是 baostock 不稳定**，是 hfq 模块 import 期的 `socket.setdefaulttimeout(30)` 把约 60 秒的登录握手砍断（同夜成对实验：30s 上限→31 秒 `10002007 网络接收错误`；不设上限→60 秒成功），已单源化修掉并登记 KI-OPS-007；本条只留「共享超时 + `-` 吞退出码」这一结构性问题"
     guard: "tests/test_sync_post_jobs.py"
     owner: "jiuben"
     due: "2026-11-25"
     exemption: "NONE"
-    fix_hint: "方案 A 已落地（提超时 + 措辞按实测更正 + 守卫改下界断言）。仍推荐 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §1.4 的方案 B：把 adj/hfq 拆成独立 oneshot + 各自 timer（每段自带超时与 OnFailure，并补「本轮未完成只数」的落盘计数）；不做多会话并行（baostock 单会话+限流）。与 KI-OPS-003（缺 TimeoutStartSec，已修）同主题不同位置"
+    fix_hint: "方案 A 已落地（提超时 + 措辞按实测更正 + 守卫改下界断言）。仍推荐 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §1.4 的方案 B：把 adj/hfq 拆成独立 oneshot + 各自 timer（每段自带超时与 OnFailure——那样登录彻底失败会自己响，不必等下一轮反推；「本轮未完成只数」的落盘计数已随 KI-OPS-007 落在 data/.state/factor_run.json，剩下的只是把它接进 canary 的翻页判据）；不做多会话并行（baostock 单会话+限流）。与 KI-OPS-003（缺 TimeoutStartSec，已修）、KI-OPS-007（登录超时被自家上限截断，已修）同主题不同位置"
 
   - id: KI-OPS-005
     title: "表级新鲜度只看 30 只抽样的末日期中位数，部分落后/后置连挂/坏值进表都不可见"
@@ -1064,8 +1064,8 @@ issues:
     severity: P1
     status: OPEN
     first_seen: "2026-11-02"
-    last_seen: "2026-11-03"
-    seen_count: 2
+    last_seen: "2026-11-04"
+    seen_count: 3
     sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md"]
     locations: ["scripts/canary_health_check.py", "tdxfeed/freshness.py", "tdxfeed/hfq_factor.py", "tdxfeed/adj_factor.py"]
     detect:
@@ -1084,7 +1084,7 @@ issues:
         min_count: 1
         note: "2026-11-03 落地的尾部/覆盖率两维仍是 report-only（实测 stale_count=9 > 0，翻页会刷屏）⇒ 抽样维仍是唯一会推微信的新鲜度信号，本条症状未解除"
 
-    impact: "三行 ExecStartPost=- 吞掉非零退出，exit_code() 又允许 fail ≤ max(20, 2%)（5221 只即 ≤104 只仍退 0）、失败只打印前 5 条 ⇒ 104 只永久停更无任何信号。2026-11-02 实证：002247 有 3 行 raw_close 被写成后复权值（hfq_factor 落 1.0，造出 -84.6% 因子下跳），同晚三个后置任务全 status=0/ok=5221/fail=0、canary 抽到的 30 只末日期均为当日；唯一检测器 tests/test_hfq_factor_monotone.py 因 NEEDS_DATA 在 CI 跳过、生产链不跑，读侧 adjusted._raw_close_dev 用重叠期中位数（4468 行里 3 行坏 ≈ 0）同样不报错"
+    impact: "三行 ExecStartPost=- 吞掉非零退出，exit_code() 又允许 fail ≤ max(20, 2%)（5221 只即 ≤104 只仍退 0）、失败只打印前 5 条 ⇒ 104 只永久停更无任何信号。2026-11-02 实证：002247 有 3 行 raw_close 被写成后复权值（hfq_factor 落 1.0，造出 -84.6% 因子下跳），同晚三个后置任务全 status=0/ok=5221/fail=0、canary 抽到的 30 只末日期均为当日；唯一检测器 tests/test_hfq_factor_monotone.py 因 NEEDS_DATA 在 CI 跳过、生产链不跑，读侧 adjusted._raw_close_dev 用重叠期中位数（4468 行里 3 行坏 ≈ 0）同样不报错。2026-11-04 的第二个实例：全市场补齐 hfq 时 000788 被跨源对账拦住（`fail:raw-vs-daily`，见 KI-DATA-007），5,221 只里就这 1 只停更、整轮仍退 0，`fail` 只打印前 5 条、抽样中位数毫发不动——事后只能靠翻日志末段发现"
     guard: "tests/test_canary_tail_freshness.py"
     owner: "jiuben"
     due: "2026-11-25"
@@ -1124,6 +1124,40 @@ issues:
     due: "2026-11-30"
     exemption: "NONE"
     fix_hint: "分两步且顺序不能反。① 先定 sync-vault 的去留（这是真正需要拍板的一步）：它会 `git add docs/obsidian-vault` + `git commit` + `git push origin HEAD:${{ github.ref_name }}`，即让 Actions 以 github-actions[bot] 往 main 自动提交；而 `docs/obsidian-vault` 在本仓库既无跟踪先例也不在 .gitignore 里，本机 vault 同步实际走外部 StockVault + 用户级 timer 那套（`mcp/servers/vault.py`、`scripts/verify_obsidian_systemd.sh`）。三选一：把下游改成只打印统计（删「提交 Vault 变更」步）、给整条工作流加 `--dry-run` 语义、或直接删掉 sync-docs.yml 并在 AGENTS.md 记「文档同步只在本机」。② 再修那一行：`jq -s .c` → `jq -sc .`（本地验证：退出码 0，`changed=true` / `files=[\"Makefile\"]`）。无论选哪条都该补一条同族守卫（挂在 tests/test_ci_workflows_not_fake_green.py 旁边）：扫全部 workflow 里 `jq -s .<字段>` 这类「命令替换里的静默中止面」，并断言仓库内没有任何作业含 `git push origin HEAD:`——除非那条写回是被显式批准过的。2026-11-03 用户决定：本条只登记，暂不动工作流"
+
+  - id: KI-OPS-007
+    title: "因子任务的模块级 socket.setdefaulttimeout(30) 截断 baostock 约 60 秒的登录握手 ⇒ 登录必失败，且被 ExecStartPost=- 吞掉"
+    theme: timeout
+    severity: P1
+    status: FIXED
+    first_seen: "2026-11-04"
+    last_seen: "2026-11-04"
+    seen_count: 1
+    sources: ["2026-11-04 tdx-sync 后置任务巡检（logs/tdx-systemd.log:900 hfq 登录失败）",
+              "同夜成对实验 A/B/C：模块路径 --limit 1 / 裸登录+30s 上限 / 不设上限的裸登录",
+              "docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §1.4「2026-11-04 落地记录（补）」"]
+    locations: ["tdxfeed/baostock_session.py", "tdxfeed/adj_factor.py", "tdxfeed/hfq_factor.py", "tdxfeed/factor_run_state.py"]
+    detect:
+      - kind: absent
+        path: tdxfeed/hfq_factor.py
+        pattern: "socket\\.setdefaulttimeout|bs\\.login\\(\\)"
+        note: "命中=旧写法复发（模块自己设紧上限 + 裸登录）；缺失=已收编单源"
+      - kind: grep
+        paths: ["tdxfeed/baostock_session.py"]
+        pattern: "^LOGIN_TIMEOUT_SEC = 120$"
+        min_count: 1
+        note: "登录上限必须容得下实测约 60 秒的握手；改小就是本条复发"
+      - kind: grep
+        paths: ["tdxfeed/factor_run_state.py"]
+        pattern: "unfinished.*max\\(int\\(target\\) - int\\(processed\\), 0\\)"
+        min_count: 1
+        note: "「还剩多少只没跑」的唯一算式；删掉它，被超时截断的那一轮又变成不可见"
+    impact: "症状是「baostock 今天又挂了」，实际是自家把连接砍断：模块在 import 期执行 `socket.setdefaulttimeout(30)`（原意是防某只票 hang 住拖垮整轮），而 baostock 的登录握手在 2026-11-04 实测约 60 秒——30 秒到点即 `timed out`，`bs.login()` 返回 `10002007 网络接收错误`。同一晚成对实验三份只有一处变量：A 走模块路径（含 30s 上限）`--limit 1` → 33 秒失败；B 裸 `bs.login()` + 同样 30s → 31 秒同一错误码；C 不设上限的裸登录 → 60 秒 `login success`。日志里 4 次登录失败中只有 11-04 这次下两行是 `timed out`（10-29 一次、10-30 两次的下两行是「服务器连接失败 / Broken pipe」，那是真服务端故障），所以「都是 baostock 不稳定」这句话此前把可修的自家 bug 记成了外部不可靠，AGENTS.md 与 KI-OPS-004 都照它写了。第二层代价来自 `-` 前缀：hfq 退出码 1 不把整轮判红、OnFailure 不响，且当轮没有任何「跑了多少只、还剩多少只」的落盘计数，只能靠日志末行与 hfq 表末日期反推——这就是 11-04 hfq 少一天、第二天要补两天的来由"
+    guard: "tests/test_baostock_login_retry.py"
+    owner: "jiuben"
+    due: "2026-11-04"
+    exemption: "NONE"
+    fix_hint: "已落地：① 两个超时数收进 `tdxfeed/baostock_session.py` 单源（`QUERY_TIMEOUT_SEC=30` / `LOGIN_TIMEOUT_SEC=120` / `LOGIN_ATTEMPTS=3` / `LOGIN_BACKOFF_SEC=(15, 45)`），`login_with_retry()` 只在握手期放宽、`finally` 里必回 30 秒——逐只查询的 hang 保护一寸没松；② 两个因子模块删掉 `import socket` 与裸 `bs.login()`，循环内重连走同一入口，异常分支按 SEM002 计数；③ 进度心跳落 `data/.state/factor_run.json`（开跑/每 200 只/收尾三处，adj 与 hfq 各占一个键互不覆盖），完成行自带 `未跑=`。守卫含三条变异对照：上限改回 30、登录换回裸 `bs.login()`、异常分支去掉计数，各自都红。残留（本轮未收编，都是一次性/手工脚本，无单元调度）：`scripts/download_adj_factor_b.py`（30s + baostock 登录，Makefile 的 `data-adj` 注释把它写成「首次全量」）、`scripts/download_adj_factor_watch.py`（20s，`data-adj-watch` 手工目标）——要收编先确认还有没有人在跑，别把停更的脚本改成一条新的失败面。真正的结构性修法仍是 KI-OPS-004 方案 B：拆成独立 oneshot + 各自超时与 OnFailure，那样登录彻底失败会自己响，不必等下一轮反推"
 
   - id: KI-DATA-001
     title: "日线 amount 自 2026-09-16 起全市场是 close×volume×100 代理值，派生特征失去独立信息且无覆盖率告警"
@@ -1354,3 +1388,31 @@ issues:
     due: "2026-11-04"
     exemption: "NONE"
     fix_hint: "已完成：`aggregate_and_write` 在算 IC 前把特征列与全部标签列（含现算的 `label_hN`）折成落盘 dtype ⇒ 两条路径同一口径，报告可被拿 parquet 的人逐格复算。用例造了一个 float64 严格递增、float32 全并成常数的维（步长要小于半个 ulp≈6e-8，1e-9 仍会翻出第二个值）：撤掉折算是 IC=+0.48、折上则是 NaN（整列常数=不知道）。本文 §3 的既有数字本来就是复用路径（float32）出的，因此这次修正**不改**已入库的结论，改的是装配路径那份报告"
+
+  - id: KI-DATA-007
+    title: "整表重拉时 KI-DATA-004 的对账窗口覆盖全历史，461 只带两源历史修正差的票一触发 rebase 就被拦住、此后每晚都被拦"
+    theme: contract
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-04"
+    last_seen: "2026-11-04"
+    seen_count: 1
+    sources: ["2026-11-04 手工全市场补齐 hfq（logs/hfq_manual_backfill_20261104.log 唯一一条失败 `✗ 000788: fail:raw-vs-daily:3:1997-07-22 10.41≠10.34`）",
+              "2026-11-04 22:01 单只复现：`venv/bin/python -m tdxfeed.hfq_factor --code 000788 --today 2026-11-04` → 同一条失败、退出码 1、表逐字节未动（`cmp` 与补齐前快照一致）",
+              "data/.state/hfq_raw_close_mismatch.json（scripts/audit_hfq_raw_close.py 全历史扫 16,783,596 行：2,339 行 / 461 只，日期跨度 1991–2018，2019 起 0 行）"]
+    locations: ["tdxfeed/hfq_factor.py"]
+    detect:
+      - kind: grep
+        paths: ["tdxfeed/hfq_factor.py"]
+        pattern: "boundary = old_first if rebased else start"
+        min_count: 1
+        note: "命中=重拉时窗口取文件全历史（本条形状在）；改成按修正差起点或 2019 分界切窗口后本条翻假"
+      - kind: glob_exists
+        pattern: "data/.state/hfq_raw_close_mismatch.json"
+        note: "清单在本机 data/ 里（不进 git）——CI 侧判据只剩上一条 grep"
+    impact: "重拉（`rebased=True`）时 `boundary = old_first`，即对账窗口 = 文件全历史，而 `update_one` 任何原因返回 `fail:*` 都在写盘之前——**原表一字节不动**（这是 KI-DATA-004 不变量刻意要的）。副作用是那 461 只票一旦触发整表重拉，就必然被自己 1991–2018 年的两源修正差拦住：今晚 000788 就是第一次命中，hfq 表停在 2026-11-03，22:01 单只复现同一条失败。**而且这是自锁的**——拦住即不写盘，旧表末行与源的值差异于是每晚都还在，`_rebase_needed` 每晚都重新判真，这一只从此结构性停在 2026-11-03，不会自己恢复。拦住之后没有信号：`fail=1` 远小于 `exit_code` 的容忍（≤ max(20, 2%) ⇒ 仍退 0）、失败只打印前 5 条、canary 的 `data_files` 看的是固定 30 只抽样的末日期中位数（30/5221=0.58%），所以这一只的停更落进 KI-OPS-005 已登记的盲区。而 hfq 是价格特征与收益率标签的读侧权威（`tdxfeed/adjusted.frame`），一只票停在旧日期意味着下游拿到短帧而不是报错"
+    guard: "NONE"
+    owner: "jiuben"
+    due: "2026-11-25"
+    exemption: "NONE"
+    fix_hint: "三条路，都要先拍板「历史段两源差算不算缺陷」：① 对账窗口只比 `min(取数窗口起点, 已知修正差分界)` 之后的行——实测那 2,339 行全在 1991–2018、2019 起 0 行，按 2019-01-01 一刀就能放行全部 461 只，代价是主动放弃历史段的对账（与 AGENTS 里「扩到整表等于让每次 rebase 被历史差异拦住」同一条理由，只是这次它撞上了真实的一只票）；② 把 `data/.state/hfq_raw_close_mismatch.json` 里逐行的 (code, date) 当白名单，窗口内命中清单的日期跳过——最精确，但清单不进 git、CI 侧不存在，且要求清单不漂（重跑审计会覆盖）；③ 只比本次**新增**的行（`date > old_last`）——窗口最窄、语义最贴「修订检测」，但整表重拉时新增段≈全表，基本等于回到现状。推荐 ①，配一条用例造「文件首行早于 2019 + 历史段两源差」的形状，断言重拉能写进去、而 2019 之后的两源差仍拒写。无论选哪条，都要把「单只连续 N 轮 fail」变成可见信号（ KI-OPS-005 的 `factor_run.json` 已经带 fail 计数，接进 canary 即可），否则下一只被拦的票仍然只能靠翻日志发现"
