@@ -1144,7 +1144,7 @@ issues:
         paths: ["tdxfeed/sources/sina_source.py"]
         min_count: 1
         note: "新浪日 K 结构性不返回 amount（2026-11-03 实测 6/6 根 amount=0.0），写盘时按缺口补齐成代理值"
-    impact: "实测断点在 2026-09-16：08-24 真实额/(close×volume×100) 中位 1.0012（p5–p95 0.987~1.018）、09-15 中位 1.0074，而 09-16 起 **100% 的行精确等于公式**（中位 1.000000）⇒ amount 从观测量变成 close 与 volume 的确定性函数。下游全部建在这条列上：avg_amount_5d / vol_ratio_t1 / amount_surge_3d / amt_per_price / amihud_20，以及 18 维模型输入的 turnover_proxy（features_5d.py:176 = amount/volume）——2026-11-02 生产榜 4923/4923 行 turnover_proxy 恰等于 close×100、与 close 的相关系数为 1.0，该维已退化成价格的复制品；训练样本跨 09-16 ⇒ 存在未登记的口径断点。daban 流动性闸门 min_avg_amount_5d=5e7 比的也是代理值。旁路清单 amount_estimated.json 同一 symbol 整段替换、只保留最后一次写入的日期，所以现在只列 10-29/10-30/11-02 三天，容易被读成「只有三天坏」。2026-11-04 另测得（1,199 只 / 656 天日频横截面，标签 t→t+5 hfq 收益）：avg_amount_5d 是全表最强单维（mean_IC −0.0825、NW t −6.25、BH q 2.8e-09），而它正是被代理改写成 close×volume 量级的那一维 ⇒ 这条从「数据卫生」升级为「信号风险」，②（真 amount 回填）的优先级高于原判断。2026-11-04 又测了一层（同面板 + 24 个交易日代理段、同一判据做跨断点位移对照，见 docs/research/2026-11-04-alpha158-vs-feat26-ic.md §3.8/§3.9）：①**这条的信号代价在 24 天窗口里定不出价**——受污染 5 维的位移 |z| 中位 2.72，与不受污染的对照 19 维 2.52 分不开（Mann-Whitney 单侧 U=58.0、p=0.239），且该段自己的 2×SE 门槛 0.0717 是主段 0.0183 的 3.9 倍，整段更像一次市场状态切换（两段各自 |t|>2 而符号相反的 6 条维里有 4 条是对照的短窗动量类）；要定价得等代理段攒到 100 天以上重跑同一条命令，判据与代码都不用改。②代理化对 `vwap` 派生的实际形状比原措辞更危险：2026-09-16 起 `amount = close×volume(手)×100` ⇒ 每股 VWAP **精确等于 close** ⇒ 装配出的 VWAP0 恒等于 100/复权因子（日内截面标准差 0），成为复权因子的纯替身，而在该段它 q=0.049 **过 BH**——退化不是『这一维变弱』，是『变成另一个变量的替身并且看起来显著』"
+    impact: "实测断点在 2026-09-16：08-24 真实额/(close×volume×100) 中位 1.0012（p5–p95 0.987~1.018）、09-15 中位 1.0074，而 09-16 起 **100% 的行精确等于公式**（中位 1.000000）⇒ amount 从观测量变成 close 与 volume 的确定性函数。下游全部建在这条列上：avg_amount_5d / vol_ratio_t1 / amount_surge_3d / amt_per_price / amihud_20，以及 18 维模型输入的 turnover_proxy（features_5d.py:176 = amount/volume）——2026-11-02 生产榜 4923/4923 行 turnover_proxy 恰等于 close×100、与 close 的相关系数为 1.0，该维已退化成价格的复制品；训练样本跨 09-16 ⇒ 存在未登记的口径断点。daban 流动性闸门 min_avg_amount_5d=5e7 比的也是代理值。旁路清单 amount_estimated.json 同一 symbol 整段替换、只保留最后一次写入的日期，所以现在只列 10-29/10-30/11-02 三天，容易被读成「只有三天坏」。2026-11-04 另测得（1,199 只 / 656 天日频横截面，标签 t→t+5 hfq 收益）：avg_amount_5d 是全表最强单维（mean_IC −0.0825、NW t −6.25、BH q 2.8e-09），而它正是被代理改写成 close×volume 量级的那一维 ⇒ 这条从「数据卫生」升级为「信号风险」，②（真 amount 回填）的优先级高于原判断。2026-11-04 又测了一层（同面板 + 24 个交易日代理段、同一判据做跨断点位移对照，见 docs/research/2026-11-04-alpha158-vs-feat26-ic.md §3.8/§3.9）：①**这条的信号代价在 24 天窗口里定不出价**——受污染 5 维的位移 |z| 中位 2.72，与不受污染的对照 19 维 2.52 分不开（Mann-Whitney 单侧 U=58.0、p=0.239），且该段自己的 2×SE 门槛 0.0718 是主段 0.0183 的 3.9 倍，整段更像一次市场状态切换（两段各自 |t|>2 而符号相反的 6 条维里有 4 条是对照的短窗动量类）；要定价得等代理段攒到 100 天以上重跑同一条命令，判据与代码都不用改。②代理化对 `vwap` 派生的实际形状比原措辞更危险：2026-09-16 起 `amount = close×volume(手)×100` ⇒ 每股 VWAP **精确等于 close**。装配跨口径时（`$vwap` 留 raw、`$close` 走 hfq，见 KI-DATA-005）该段 VWAP0 恒等于 100/复权因子、日内截面标准差 0，成为复权因子的纯替身（mean_IC −0.0663、NW t −1.97，在该段 158 维里名次 49）；同口径装配（KI-DATA-005 已修并重装配）之后它在该段精确塌成 1.0，24 天里 23 天截面零方差 ⇒ IC 判不出、只剩 1 个有效日。退化不是『这一维变弱』，是『变成另一个变量的替身』。q 要按比较集说：面板官方 184 维 BH 给它 q=0.127（**不过线**），早前一版记的 0.049 是 27 维小比较集探针的 q——BH 的 q 依赖比较集，两个数不是同一判据"
     guard: "NONE"
     owner: "jiuben"
     due: "2026-11-30"
@@ -1300,13 +1300,13 @@ issues:
         path: "scripts/alpha158_ic_panel.py"
         pattern: "per_share"
         note: "装配里不再有『按股 + 按当日因子 rebase 到 hfq』的 vwap 派生 ⇒ 跨口径回归，VWAP0 又会变成因子替身"
-    impact: "2026-11-04 取证：`build_code_panel` 原先写 `px['vwap'] = raw['amount'] / raw['volume']`，而 px 的价格列来自 hfq 帧 ⇒ 恒等式 VWAP0 = (raw_vwap/raw_close)/hfq_factor 在面板 769,828 行上**逐行成立（占比 1.0000）**。两件事叠在一起：① 日线 volume 的单位是**手**，amount/volume 是每股价的 100 倍（实测 amount/(volume×100) 落在当日 [low, high] 的天数占比 0.9999，5 只票 22,844 个有成交的交易日）；② 分母换了口径。每只票的 VWAP0 中位数因此从 0.077 铺到 127.0（1,199 只里等于 1.0 的是 0 只），而真正的日内位置信息截面标准差只有 0.94（相对 0.94%）⇒ 截面排序由复权因子主导：日内 corr(VWAP0, 1/hfq_factor) 中位 0.949，656 天全部 >0.9。后果是可测量的：现口径 mean_IC −0.0025 / NW_t −0.32 / q 0.753（不过 BH），同一张面板同一判据只换分子口径 = +0.0129 / +2.16 / q 0.031（过 BH 且反号）——一条本来有信号的维被装配缺陷压成『看起来没信号』。代理段（2026-09-16 起）更坏：amount 是代理值 ⇒ 每股 VWAP 精确等于 close ⇒ VWAP0 恒等于 100/因子（日内截面标准差 0），而这条纯因子替身在该段 q=0.049 过 BH。形状是『变成另一个变量的替身并且看起来显著』，不是变弱"
+    impact: "2026-11-04 取证：`build_code_panel` 原先写 `px['vwap'] = raw['amount'] / raw['volume']`，而 px 的价格列来自 hfq 帧 ⇒ 恒等式 VWAP0 = (raw_vwap/raw_close)/hfq_factor 在面板 769,828 行上**逐行成立（占比 1.0000）**。两件事叠在一起：① 日线 volume 的单位是**手**，amount/volume 是每股价的 100 倍（实测 amount/(volume×100) 落在当日 [low, high] 的天数占比 0.9999，5 只票 22,844 个有成交的交易日）；② 分母换了口径。每只票的 VWAP0 中位数因此从 0.077 铺到 127.0（1,199 只里等于 1.0 的是 0 只），而真正的日内位置信息截面标准差只有 0.94（相对 0.94%）⇒ 截面排序由复权因子主导：日内 corr(VWAP0, 1/hfq_factor) 中位 0.949，656 天全部 >0.9。后果是可测量的：修复前装配在面板官方 184 维 BH 下给 mean_IC −0.0025 / NW_t −0.32 / q 0.753（不过线，且是 158 维里最弱的一维，名次 158/158）；同口径装配后是 +0.0129 / +2.16 / q 0.038（过 BH 且反号，名次 140/158）——一条本来有信号的维被装配缺陷压成『看起来没信号』。代理段（2026-09-16 起）更坏：amount 是代理值 ⇒ 每股 VWAP 精确等于 close，跨口径装配时 VWAP0 恒等于 100/因子（日内截面标准差 0）、在该段 158 维里名次 49（mean_IC −0.0663、NW t −1.97、官方 q 0.127 不过线；探针在 27 维小比较集里给的 0.049 过 BH 是**另一个比较集**的数，不可与官方混引）；同口径装配后它在该段精确塌成 1.0，24 天里 23 天截面零方差 ⇒ IC 判不出、只剩 1 个有效日（proxy_sensitivity 的 uncomparable 由 2 变 3）。形状是『变成另一个变量的替身』，不是变弱"
     guard: "tests/test_alpha158_ic_panel.py"
     test: "tests/test_alpha158_ic_panel.py"
     owner: "jiuben"
     due: "2026-11-30"
     exemption: "NONE"
-    fix_hint: "装配已修（2026-11-04）：per_share = amount/(volume×100)，factor = hfq close / raw close（raw close=0 落 NaN），vwap = per_share×factor ⇒ VWAP0 与 $close 同口径、对复权因子是不变量（用例第二条断言因子 ×2→×3 值不变），零成交日仍为 NaN。**未完成的一半**：两个窗口（主段与代理段）的面板仍是修复前装配的，本文 §3.2/§3.5/§3.6/§3.7 里 VWAP0 相关行按现产物保留，重装配（各约 32 分钟，带内存上限的临时 scope，输出到独立 --out-dir 以免覆盖现有产物）后逐表刷新——改口径会牵动已入库数字，不做『顺手改掉』"
+    fix_hint: "装配已修（2026-11-04）：per_share = amount/(volume×100)，factor = hfq close / raw close（raw close=0 落 NaN），vwap = per_share×factor ⇒ VWAP0 与 $close 同口径、对复权因子是不变量（用例第二条断言因子 ×2→×3 值不变），零成交日仍为 NaN。已完成的一半（2026-11-04 当日补齐）：两个窗口都按 `--out-dir data/alpha158_ic_vwapfix` 重装配（主段 1,931 s、代理段同一命令，均在 MemoryMax=12G 的临时 scope 里），研究文档 §3.1–§3.8 与 §4/§5 所有 VWAP0 相关数已逐表刷新，§3.9 末尾留有新旧差值清单（132→133 过 BH、parity −0.221→+0.047、跨集合中位 0.65→0.64、集合内独立 57→56、现役净新增 8→9 等）。修复前那套产物仍在 data/alpha158_ic/ 同 tag 在场——改口径牵动已入库数字，所以留两套而不是覆盖"
 
   - id: KI-SILENT-003
     title: "研究脚本用命令行默认值而非数据自身决定产物 tag：--from-panel 换时段会原地覆盖另一轮的 IC/汇总/报告"
@@ -1329,4 +1329,27 @@ issues:
     owner: "jiuben"
     due: "2026-11-04"
     exemption: "NONE"
-    fix_hint: "已完成：新增 `panel_window(dates, start=..., end=...)`，复用分支读面板后立即用它派生 start/end，与命令行不一致时打一行 ⚠️ 并**以面板为准**（tag 跟着数据走）；装配路径不变（start/end 仍是输入）。接线本身有用例钉住（inspect 判据：复用分支必须真的调用 panel_window），只测函数不测接线等于允许下一版把这行删掉"
+    fix_hint: "已完成：新增 `panel_window(dates, start=..., end=...)`，复用分支读面板后立即用它派生 start/end，与命令行不一致时打一行 ⚠️ 并**以面板为准**（tag 跟着数据走）；装配路径不变（start/end 仍是输入）。接线本身有用例钉住（inspect 判据：复用分支必须真的调用 panel_window），只测函数不测接线等于允许下一版把这行删掉。同一处又收了一层：面板被请求窗口**包住**时保留请求窗口——主段面板首行是 2024-01-02（01-01 休市），照首末行改名会凭空多出第二套 `2024-01-02_*` 产物，那不是越界；判据是「只有越出请求窗口才改名」"
+
+  - id: KI-DATA-006
+    title: "同一张面板的两条路径给出两套 IC：装配路径用内存 float64、复用路径用落盘 float32，tie-heavy 维的一日 IC 实测差 0.15"
+    theme: silent-failure
+    severity: P1
+    status: FIXED
+    first_seen: "2026-11-04"
+    last_seen: "2026-11-04"
+    seen_count: 1
+    sources: ["VWAP0 重装配后的新旧产物比对（data/alpha158_ic vs data/alpha158_ic_vwapfix）：除 VWAP0 外 181/184 维的 mean_ic 也动了，但面板逐格相同"]
+    locations: ["scripts/alpha158_ic_panel.py"]
+    detect:
+      - kind: absent
+        path: "scripts/alpha158_ic_panel.py"
+        pattern: "报告的口径 = 面板**落盘后**的表示"
+        note: "aggregate_and_write 不再先按落盘 dtype 折一遍 ⇒ 装配路径回到 float64，两条路径又会给两套数"
+    impact: "面板落盘是 float32（有意为之，40 分钟的装配结果要能反复读），而装配路径在**同一次调用里**先算 IC 再折 dtype——它算的是内存里的 float64。Spearman 看的是并列秩，float32 会把间隔小于 6e-8 的值并成精确等值：tie-heavy 的维因此不是「精度损失」而是**秩结构变了**。实测某天（2024-02-05）`SUMD5` 的 1,153 行在落盘口径里只剩 367 个唯一值、众数占 66.8%，那一天的 IC 两条路径差 0.15；全表 654/656 天有差。后果：任何人拿 parquet 复算得到的都是复用口径的数，而文档引用的若是装配那次跑出来的，就是**第二套**——差异不会报错，只在最后一两位上出现，最容易读成「样本变了」。2026-11-04 做 VWAP0 重装配时正是靠新旧逐格比对才发现的（面板除 VWAP0 外完全相同，IC 却大面积微移）"
+    guard: "tests/test_alpha158_ic_panel.py"
+    test: "tests/test_alpha158_ic_panel.py"
+    owner: "jiuben"
+    due: "2026-11-04"
+    exemption: "NONE"
+    fix_hint: "已完成：`aggregate_and_write` 在算 IC 前把特征列与全部标签列（含现算的 `label_hN`）折成落盘 dtype ⇒ 两条路径同一口径，报告可被拿 parquet 的人逐格复算。用例造了一个 float64 严格递增、float32 全并成常数的维（步长要小于半个 ulp≈6e-8，1e-9 仍会翻出第二个值）：撤掉折算是 IC=+0.48、折上则是 NaN（整列常数=不知道）。本文 §3 的既有数字本来就是复用路径（float32）出的，因此这次修正**不改**已入库的结论，改的是装配路径那份报告"
