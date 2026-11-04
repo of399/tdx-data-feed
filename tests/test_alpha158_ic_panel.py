@@ -280,6 +280,48 @@ def test_parity_rows_tolerate_a_dead_pair():
     assert row["note"] == "样本/方差不足"
 
 
+def test_redundancy_separates_same_day_twins_from_independent_signals():
+    """158 维"打赢"26 维不等于信息多——同一族维度在同一天一起响。
+
+    `ic_redundancy` 用逐日 IC 序列之间的相关来量这件事。用例构造两对：一对完全同日
+    （corr=1），一对逐日反号（corr=-1），并取走每维与他集合的最大绝对相关——实现若
+    改成取平均或只看同集合，这两条都会红。
+    """
+    mod = _panel_module()
+    days = pd.date_range("2026-01-05", periods=40, freq="D").strftime("%Y-%m-%d")
+    rng = np.random.default_rng(11)
+    base = rng.normal(size=40)
+    daily = pd.DataFrame({
+        "A1": base, "A2": base * 2 + 1,          # 与 A1 同日同序 ⇒ corr = 1
+        "F1": -base, }, index=days)              # 与 A1 反号 ⇒ corr = -1
+    out = mod.ic_redundancy(daily, ["A1", "A2"], ["F1"])
+    assert out["dup_within_alpha158"] == pytest.approx(1.0, abs=1e-9)
+    best = {r["feature"]: r["max_abs_corr"] for r in out["cross"]}
+    assert best["A1"] == pytest.approx(1.0, abs=1e-6), (
+        f"A1 与 F1 逐日反号，绝对相关就是 1：{best}")
+    assert out["cross_median"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_redundancy_survives_a_dim_with_no_ic():
+    """整列没有 IC 的维（常数维/未覆盖维）不能把可算的重叠度拖成 NaN。
+
+    实测踩过：面板里 is_st 恒 0 ⇒ 它的 IC 全是 NaN ⇒ pandas 的相关给 NaN ⇒
+    一个 NaN 进 mean/median，"Alpha158 内部 0.35" 整片变 nan。NaN 一旦吞掉平均值，
+    报告就只剩下没有数字的段落。
+    """
+    mod = _panel_module()
+    days = pd.date_range("2026-01-05", periods=40, freq="D").strftime("%Y-%m-%d")
+    rng = np.random.default_rng(12)
+    base = rng.normal(size=40)
+    other = rng.normal(size=40)
+    daily = pd.DataFrame({"A1": base, "A2": other, "DEAD": [np.nan] * 40}, index=days)
+    out = mod.ic_redundancy(daily, ["A1", "A2", "DEAD"], ["A1"])
+    assert np.isfinite(out["dup_within_alpha158"]), "死维把重叠度拖成 NaN 了"
+    assert "DEAD" not in [r["feature"] for r in out["cross"]], (
+        "给不出 IC 的维不该出现在跨集合对照里——它没有可比的序列")
+    assert out["dims_without_ic"] == ["DEAD"], "没进表的维要单独点名，不能默默少算"
+
+
 def test_json_safe_writes_strict_json():
     """run_meta 里的 NaN 必须写成 null：jq 见到裸 NaN 会当场失败。
 
@@ -327,3 +369,33 @@ def test_report_names_both_sets_and_the_contamination():
     assert "avg_amount_5d" in text and "VWAP0" in text
     assert "| Alpha158 | 2 |" in text and "| FEAT26 | 2 |" in text
     assert "已排除" in text
+
+
+def test_report_noise_scale_comes_from_the_data():
+    """「差多少不算结论」这个门槛必须由本表的 HAC 标准误算出来，不能写死。
+
+    上一版报告里印着「均值噪声尺度 0.002」——那个数是我手写的，跟本样本对不上：
+    实测各维 `nw_se` 的中位是 0.0092，最小值才 0.0021。写死的数字会随样本漂，
+    而且漂的时候没人发现（它不参与任何计算，只出现在读法那句话里）。
+    现在这条用例把两件事钉住：门槛取自 `median(nw_se)`，且换一批 `nw_se` 就跟着变。
+    """
+    mod = _panel_module()
+    idx = ["A", "B"]
+    base = dict(n_days=[656, 656], mean_ic=[0.05, 0.03], ic_std=[0.1] * 2,
+                icir=[0.5, 0.3], pos_rate=[0.7, 0.6], nw_t=[5.0, 3.0],
+                nw_p=[1e-6, 1e-3], q_value=[1e-6, 1e-3], reject=[True, True])
+    meta = {"tag": "t", "codes_built": 3, "days": 656, "rows": 100,
+            "sample_requested": 3, "skipped": {}, "horizon": 5, "min_codes": 2,
+            "alpha": 0.05, "elapsed_sec": 1.0, "include_proxy": False,
+            "proxy_caliber_start": "2026-09-16", "feat26_amount_dims": [],
+            "alpha158_vwap_dims": [], "codes_per_day_median": 3.0}
+
+    wide = pd.DataFrame({**base, "nw_se": [0.010, 0.012]}, index=idx)
+    text_wide = "\n".join(mod.report_lines(wide, ["A"], ["B"], meta))
+    assert "0.0110" in text_wide, "读法里的门槛应等于 median(nw_se)"
+    assert "0.002" not in text_wide, "写死的旧门槛不得残留"
+
+    thin = pd.DataFrame({**base, "nw_se": [0.002, 0.004]}, index=idx)
+    text_thin = "\n".join(mod.report_lines(thin, ["A"], ["B"], meta))
+    assert "0.0030" in text_thin, "门槛要随 nw_se 变——同一个字面量就是没接数据"
+    assert text_wide != text_thin

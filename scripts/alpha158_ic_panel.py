@@ -197,6 +197,58 @@ def build_code_panel(raw: pd.DataFrame, hfq: pd.DataFrame, code: str, *,
     return out.dropna(subset=["label"]).reset_index(drop=True)
 
 
+def ic_redundancy(daily: pd.DataFrame, a158: Sequence[str],
+                  f26: Sequence[str]) -> dict:
+    """两套信号的**信息重叠**：逐日 IC 序列之间的相关。
+
+    为什么单列这一层：158 维里 QTLD60/MA60/MIN60/VMA60 是同一件事的不同写法，它们的
+    IC 会在同一天一起响。"多少维显著"因此不等于"多少条独立信息"，跨集合比较必须
+    同时报重叠度，否则读者会把 132/158 与 18/26 当成信息量的比。
+
+    用 Pearson（不是 Spearman）量 IC 序列：这里问的是"两天的信号强度是否线性同行"，
+    序列本身已经是相关的估计值，再排一次秩会把弱同号关系读成强关系。
+    """
+    cols = [c for c in daily.columns]
+    corr = daily[cols].corr()
+    a = [c for c in a158 if c in corr.columns]
+    f = [c for c in f26 if c in corr.columns]
+    # 整列没有 IC 的维（常数维、未覆盖维）不参与相关：pandas 会给 NaN，而 NaN 一旦进了
+    # mean/median，"重叠度 0.35" 就变成 "重叠度 nan"——把可算的量弄丢了。
+    dead = [c for c in cols if int(daily[c].notna().sum()) < 3]
+
+    def mean_abs_within(names: list[str]) -> tuple[float, int]:
+        if len(names) < 2:
+            return float("nan"), 0
+        m = np.abs(corr.loc[names, names].to_numpy())
+        iu = np.triu_indices(len(names), k=1)
+        vals = m[iu]
+        vals = vals[np.isfinite(vals)]
+        return (float(vals.mean()) if vals.size else float("nan")), int(vals.size)
+
+    dup_a, pairs_a = mean_abs_within(a)
+    dup_f, pairs_f = mean_abs_within(f)
+
+    cross = []
+    for set_name, src, other in (("Alpha158", a, f), ("FEAT26", f, a)):
+        if not other:
+            continue
+        for c in src:
+            vals = corr.loc[c, other].abs().dropna()
+            if vals.empty:
+                continue
+            cross.append({"feature": c, "set": set_name,
+                          "nearest": str(vals.idxmax()),
+                          "max_abs_corr": float(vals.max())})
+    maxima = [r["max_abs_corr"] for r in cross]
+    return {"dup_within_alpha158": dup_a, "dup_within_feat26": dup_f,
+            "pairs_used": {"alpha158": pairs_a, "feat26": pairs_f},
+            "dims_without_ic": dead,
+            "cross": cross,
+            "cross_median": float(np.median(maxima)) if maxima else float("nan"),
+            "cross_ge_08": int(sum(1 for v in maxima if v >= 0.8)),
+            "cross_n": len(maxima)}
+
+
 def json_safe(obj):
     """递归把 NaN/Inf 换成 null。
 
@@ -331,6 +383,7 @@ def aggregate_and_write(panel: pd.DataFrame, args: argparse.Namespace,
         "days_with_ic": len(daily),
         "days_dropped_thin": int(panel["date"].nunique() - len(daily)),
         "parity": parity_rows(panel, PARITY_PAIRS),
+        "redundancy": ic_redundancy(daily, a158_names, list(FEAT26_ORDER)),
         **extra,
     }
     if write_panel:
@@ -403,8 +456,26 @@ def report_lines(summary: pd.DataFrame, a158: list[str], f26: list[str],
                   "与现役 `ret_5d`（现价 ÷ 过去价）方向相反：这一维的 IC 符号与"
                   "\"N 日涨幅\"的直觉相反。读下面的排行时必须先确认方向，否则会把"
                   "\"过去跌得多\"读成\"过去涨得多\"。"]
+    red = meta.get("redundancy") or {}
+    if red:
+        lines += ["", "## 信息重叠：为什么「多少维显著」不等于「多少条独立信息」", "",
+                  f"- Alpha158 内部：逐日 IC 序列两两 |corr| 均值 "
+                  f"**{red['dup_within_alpha158']:.2f}**"
+                  f"（{red['pairs_used']['alpha158']} 对）；FEAT26 内部 "
+                  f"**{red['dup_within_feat26']:.2f}**"
+                  f"（{red['pairs_used']['feat26']} 对）——1 表示这些维在同一天一起响",
+                  f"- 跨集合：每维在另一集合里最近的 |corr|，中位 "
+                  f"**{red['cross_median']:.2f}**，"
+                  f"其中 {red['cross_ge_08']}/{red['cross_n']} 维 ≥ 0.8"
+                  f"——这些维在另一套里已经有一个同日同行的替身",
+                  f"- 没进这张表的维：{len(red.get('dims_without_ic', []))} 个"
+                  f"（{red.get('dims_without_ic', [])}）整列给不出 IC，"
+                  f"常数维与未覆盖维属「没验」，不算重叠也不算独立", ""]
+    noise = s["nw_se"].median()
     lines += ["", "读法：`n_days` 远小于天数的维度，其均值由少数几天给出，不能与满覆盖",
-              "的维度并列排序；`|IC|` 差小于 0.002（本样本的均值噪声尺度）时不要读成结论。"]
+              f"的维度并列排序；本表 `mean_IC` 的 HAC 标准误中位是 {noise:.4f}，"
+              f"两个维度的 `|IC|` 相差不到 {2 * noise:.4f}（2×SE）时不要读成结论"
+              "——这个门槛由本表算出，换样本就换数。"]
     return lines
 
 
