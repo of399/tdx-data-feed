@@ -22,6 +22,7 @@ from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  
 # 审计 P1 修复 (2026-10-17): 原顶层 `from plan_e_backtest import DSR_N_TRIALS, ...`
 # 造成循环导入: plan_e_backtest -> quant.multifactor.__init__ -> engine -> plan_e_backtest
 # (后者初始化未完成, DSR_N_TRIALS 尚未定义)。改为函数内延迟 import, 调用方不受影响。
+from . import cv_utils  # noqa: E402  # _rank_ic 转发用：按属性取，patch 才穿透
 from .cost_model import CostConfig, portfolio_turnover_cost  # noqa: E402
 from .cv_utils import (  # noqa: E402  # P0-1 补完
     ic_by_year,
@@ -202,13 +203,14 @@ def apply_lot_rounding(w: np.ndarray, prices: np.ndarray, nav: float,
 
 
 def _rank_ic(a, b):
-    """审计 P1-3-4 补注: 因子值与前瞻收益的 Spearman Rank IC。"""
-    a = pd.to_numeric(a, errors="coerce")
-    b = pd.to_numeric(b, errors="coerce")
-    m = a.notna() & b.notna()
-    if m.sum() < 5:
-        return np.nan
-    return float(pd.Series(a[m]).corr(pd.Series(b[m]), method="spearman"))
+    """审计 P1-3-4 补注: 因子值与前瞻收益的 Spearman Rank IC。
+
+    单源转发：实现只在 `cv_utils.rank_ic` 一处（步骤③的 IC 核共用它）。按属性取而
+    不是 `from .cv_utils import rank_ic`，是为了让 patch 能穿透——守卫
+    tests/test_alpha158_ic.py::test_rank_ic_promoted_to_public_helper 就是改内核
+    行为必须能打到这里的绊线。
+    """
+    return cv_utils.rank_ic(a, b)
 
 
 # --------------------------------------------------------------------------

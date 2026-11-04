@@ -52,6 +52,26 @@ def ic_by_year(ic_records: list[dict]) -> pd.DataFrame:
     return out
 
 
+def rank_ic(a, b) -> float:
+    """因子值与前瞻收益的 Spearman Rank IC（单对，横截面内）。
+
+    有效对不足 5 对返回 **NaN**，不是 0 也不是抛：调用方靠 NaN 判「这天/这列不算」。
+    给 0 会把「没有数据」伪装成「无信号」，直接压低 IC 均值并虚增 ICIR 的分母。
+    非数值与 NaN 先 coerce 再成对剔除——两列的缺失位置不同时要按交集算，
+    否则一侧的 NaN 会把另一侧的有效样本一起废掉。
+
+    这里是全仓 Rank IC 的唯一实现：`quant/multifactor/engine._rank_ic` 转发到它，
+    `tdxfeed/alpha158/ic.py` 的逐日横截面也用它（守卫
+    tests/test_alpha158_ic.py::test_rank_ic_promoted_to_public_helper）。
+    """
+    x = pd.to_numeric(pd.Series(a), errors="coerce")
+    y = pd.to_numeric(pd.Series(b), errors="coerce")
+    m = x.notna() & y.notna()
+    if int(m.sum()) < 5:
+        return float("nan")
+    return float(x[m].corr(y[m], method="spearman"))
+
+
 def icir(ic_series: pd.Series) -> float:
     """IC 信息比率 = mean/std，样本不足返回 0。"""
     s = ic_series.dropna()
