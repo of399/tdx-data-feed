@@ -18,7 +18,12 @@ import pandas as pd
 import pytest
 
 from quant.multifactor import cv_utils
-from tdxfeed.alpha158.ic import IcConfig, daily_ic, summarize_ic
+from tdxfeed.alpha158.ic import (
+    IcConfig,
+    daily_ic,
+    independent_subset,
+    summarize_ic,
+)
 
 NEEDS_DATA = False
 
@@ -174,3 +179,116 @@ def test_rank_ic_promoted_to_public_helper():
     finally:
         monkey.undo()
     assert calls, "engine._rank_ic 没有委托给 cv_utils.rank_ic——那是第二份实现"
+
+
+# ------------------------------------------------------------------ 去重：独立信息计数 #
+def _basis(n: int = 400, k: int = 4, seed: int = 7) -> np.ndarray:
+    """一组标准正交的 IC 序列基底。
+
+    为什么要费劲造正交基：这组用例要的是**解析相关系数**（0.85 就是 0.85），
+    随机序列的两两相关只有近似值，阈值判据会随种子漂。加常数不改变协方差，
+    所以每条序列的均值可以单独设、与两两相关互不干扰——这正是「效应量序」与
+    「冗余序」两个旋钮必须分开的地方。
+    """
+    rng = np.random.default_rng(seed)
+    q, r = np.linalg.qr(rng.standard_normal((n, k)))
+    return q * np.sign(np.diag(r))
+
+
+def _daily(spec: dict[str, tuple[float, np.ndarray]]) -> pd.DataFrame:
+    days = len(next(iter(spec.values()))[1])
+    idx = [f"d{i:03d}" for i in range(days)]
+    return pd.DataFrame({name: m + v for name, (m, v) in spec.items()}, index=idx)
+
+
+def test_dedup_collapses_twins_and_keeps_independent_signals():
+    """完全反号的两维是**同一个信号的两种写法**，必须合成一条。
+
+    只看正相关的去重会把 `x` 与 `-x` 当成两条独立信息，而模型里它们是同一个自由度
+    （符号由系数吸收）。所以判据取 |corr|。
+    """
+    u = _basis()
+    daily = _daily({"sig": (0.20, u[:, 0]),
+                    "twin": (0.05, -u[:, 0]),
+                    "indep": (0.10, u[:, 1])})
+    out = independent_subset(daily, ["sig", "twin", "indep"], threshold=0.8)
+    assert out["kept"] == ["sig", "indep"], f"实得 {out}"
+    assert out["dropped"]["twin"]["by"] == "sig"
+    assert out["dropped"]["twin"]["abs_corr"] == pytest.approx(1.0, abs=1e-9)
+
+
+def test_dedup_representative_is_the_strongest_dim_not_the_first_name():
+    """留谁必须有规则：同簇里 |mean_IC| 最大的那条。按名字序会留下弱的那条并把强的丢掉。"""
+    u = _basis()
+    daily = _daily({"AAA": (0.05, -u[:, 0]), "BBB": (0.20, u[:, 0])})
+    assert daily["AAA"].abs().mean() < daily["BBB"].abs().mean()
+    assert sorted(daily.columns)[0] == "AAA", "构造没生效：名字序与效应量序必须相反"
+    out = independent_subset(daily, ["AAA", "BBB"], threshold=0.8)
+    assert out["kept"] == ["BBB"], f"实得 {out}"
+    assert out["dropped"]["AAA"]["by"] == "BBB"
+
+
+def test_dedup_counts_are_monotone_in_the_threshold():
+    """阈值越高留得越多；三档并报，是为了让「独立维数」不被读成一个阈值 artifact。"""
+    u = _basis()
+    a, b = u[:, 0], 0.85 * u[:, 0] + 0.5267 * u[:, 1]
+    c = 0.85 * b + 0.527 * u[:, 2]          # corr(a,c)=0.72、corr(b,c)=0.85（解析值）
+    daily = _daily({"A": (0.20, a), "B": (0.15, b), "C": (0.10, c)})
+    assert daily["A"].corr(daily["B"]) == pytest.approx(0.85, abs=0.01)
+    assert daily["A"].corr(daily["C"]) == pytest.approx(0.72, abs=0.01)
+
+    counts = {thr: len(independent_subset(daily, ["A", "B", "C"],
+                                          threshold=thr)["kept"])
+              for thr in (0.7, 0.8, 0.9)}
+    assert counts == {0.7: 1, 0.8: 2, 0.9: 3}, f"实得 {counts}"
+    assert counts[0.7] <= counts[0.8] <= counts[0.9]
+
+
+def test_dedup_with_seed_drops_dims_the_other_set_already_covers():
+    """跨集合去重才是「切特征集值不值」的判据：现役已有的信号，借来的替身不算新增。"""
+    u = _basis()
+    daily = _daily({"S": (0.30, u[:, 0]),
+                    "dup_of_S": (0.20, 0.85 * u[:, 0] + 0.5267 * u[:, 1]),
+                    "fresh": (0.15, u[:, 2])})
+    out = independent_subset(daily, ["dup_of_S", "fresh"], seed=["S"], threshold=0.8)
+    assert out["kept"] == ["fresh"], f"实得 {out}"
+    assert out["dropped"]["dup_of_S"]["by"] == "S"
+    assert out["seed"] == ["S"]
+
+
+def test_dedup_reports_dims_that_never_gave_an_ic_separately():
+    """整列无 IC 的维既不该被当成独立信息，也不该出现在 dropped 里——它是「没验」。"""
+    u = _basis()
+    daily = _daily({"sig": (0.20, u[:, 0]), "dead": (0.0, u[:, 1])})
+    daily["dead"] = np.nan
+    thin = daily["sig"].copy()
+    thin.iloc[2:] = np.nan                     # 只有 2 个有效日：< min_days
+    daily["thin"] = thin
+    out = independent_subset(daily, ["sig", "dead", "thin"], threshold=0.8)
+    assert out["kept"] == ["sig"]
+    assert sorted(out["no_ic"]) == ["dead", "thin"], f"实得 {out['no_ic']}"
+    assert "dead" not in out["dropped"] and "thin" not in out["dropped"]
+
+
+def test_dedup_rejects_an_impossible_threshold():
+    """threshold=1.0 意思是「永不合并」，等于关掉去重——这种数只能显式报错。"""
+    u = _basis()
+    daily = _daily({"a": (0.2, u[:, 0]), "b": (0.1, u[:, 1])})
+    for bad in (0.0, 1.0, 1.5):
+        with pytest.raises(ValueError):
+            independent_subset(daily, ["a", "b"], threshold=bad)
+
+
+def test_dedup_does_not_invent_a_relation_it_cannot_measure():
+    """两条维没有共同有效日 ⇒ 相关根本判不了。不合并，但必须**记账**。
+
+    静默保留会让「独立维数」把「没法比」也算成独立；`uncomparable` 计数就是为了让
+    这个数不冒充证据。真实面板里所有维共用同一批交易日，这一项应当是 0。
+    """
+    u = _basis(400, 2)
+    daily = _daily({"a": (0.2, u[:, 0]), "b": (0.2, u[:, 0])})
+    daily.loc[daily.index[:200], "a"] = np.nan
+    daily.loc[daily.index[200:], "b"] = np.nan
+    out = independent_subset(daily, ["a", "b"], threshold=0.8)
+    assert sorted(out["kept"]) == ["a", "b"]
+    assert out["uncomparable"] == 1, f"实得 {out}"

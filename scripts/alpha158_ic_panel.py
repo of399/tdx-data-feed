@@ -61,7 +61,13 @@ import pandas as pd  # noqa: E402
 
 from tdxfeed import adjusted, paths  # noqa: E402
 from tdxfeed.alpha158.eval import evaluate_frame  # noqa: E402
-from tdxfeed.alpha158.ic import IcConfig, daily_ic, summarize_ic  # noqa: E402
+from tdxfeed.alpha158.ic import (  # noqa: E402
+    DEDUP_THRESHOLD,
+    IcConfig,
+    daily_ic,
+    independent_subset,
+    summarize_ic,
+)
 from tdxfeed.amount_fix import PROXY_CALIBER_START  # noqa: E402  # 单源，不在此重述日期
 from tdxfeed.atomic import atomic_write_frame, atomic_write_text  # noqa: E402  # SEM001
 from tdxfeed.features_5d import compute_window_features_extended  # noqa: E402
@@ -249,6 +255,83 @@ def ic_redundancy(daily: pd.DataFrame, a158: Sequence[str],
             "cross_n": len(maxima)}
 
 
+# 主口径 = 判据核的默认阈值（单源，不在这里重述 0.8）：报告里点名到维的清单只出一版，
+# 三档并报的是「独立维数」，不是三张清单——否则读者会挑最有利的那档。
+DEDUP_PRIMARY = DEDUP_THRESHOLD
+DEDUP_THRESHOLDS = (0.7, DEDUP_PRIMARY, 0.9)
+
+
+def _fmt_ic(x: float) -> str:
+    """效应量印成 4 位小数；NaN 印「—」而不是 `nan`——后者在表里读起来像一个值。"""
+    return "—" if not np.isfinite(x) else f"{x:.4f}"
+
+
+def _kept_stats(summary: pd.DataFrame, dims: list[str]) -> dict:
+    """留下的这批维的效应量：中位 |IC|、过 BH 的条数、最大 |t|。
+
+    只给「还剩几维」是不够的——去重的意义在于**独立的那几条还剩多少力**，
+    条数与力必须并排看，否则会把「去掉冗余后中位 |IC| 反而上升」读成变好了。
+    """
+    rows = summary.loc[[d for d in dims if d in summary.index]]
+    if rows.empty:
+        return {"kept": 0, "kept_dims": [], "median_abs_ic": float("nan"),
+                "reject": 0, "max_abs_t": float("nan")}
+    ab = rows["mean_ic"].abs().to_numpy(dtype=float)
+    t = rows["nw_t"].abs().to_numpy(dtype=float)
+    return {"kept": len(rows), "kept_dims": list(rows.index),
+            "median_abs_ic": float(np.median(ab)),
+            "reject": int(rows["reject"].sum()),
+            "max_abs_t": float(np.nanmax(t)) if np.isfinite(t).any() else float("nan")}
+
+
+def _dedup_view(daily: pd.DataFrame, summary: pd.DataFrame, dims: list[str], *,
+                threshold: float, seed: list[str]) -> dict:
+    """一个方向的去重，并把「被谁丢掉」拆成 seed（另一套已有）与集内（同套重复）。
+
+    被 seed 挡掉的那批**也带效应量**（`blocked_median_abs_ic`）：只有「净新增 vs 被挡」
+    并排，才能判现役覆盖的到底是弱维还是强维。少这个数，读者会默认挡掉的都是杂讯——
+    而本面板实测挡掉的 28 条里含 KLEN/STD5/STD10 这几条全表前列的维。
+    """
+    res = independent_subset(daily, dims, threshold=threshold, seed=seed)
+    out = _kept_stats(summary, res["kept"])
+    seed_set = set(res["seed"])
+    blocked = [d for d, v in res["dropped"].items() if v["by"] in seed_set]
+    rows = summary.loc[[d for d in blocked if d in summary.index]]
+    ab = rows["mean_ic"].abs().to_numpy(dtype=float)
+    out.update(dropped_by_seed=len(blocked),
+               dropped_within=len(res["dropped"]) - len(blocked),
+               blocked_median_abs_ic=float(np.median(ab)) if ab.size else float("nan"),
+               no_ic=len(res["no_ic"]),
+               uncomparable=res["uncomparable"])
+    return out
+
+
+def dedup_views(daily: pd.DataFrame, summary: pd.DataFrame,
+                a158: Sequence[str], f26: Sequence[str],
+                thresholds: Sequence[float] = DEDUP_THRESHOLDS) -> dict:
+    """去重后的独立信息：集合内条数 + 两个方向的**净新增**，三档阈值并报。
+
+    「158 维带来多少独立信息」的答案不是「集合内剩 K 条」，而是
+    `net_new`：先把现役 26 维里独立的那几条当 seed，再数 158 维还能留下几条。
+    `reverse` 是同一判据的反方向（现役相对 158 维净新增几条）——只问单边就等于
+    预先假设了借来的那套更划算。阈值三档并报，是为了让「独立维数」不被读成
+    某一个 0.8 的 artifact。
+    """
+    a158_l, f26_l = list(a158), list(f26)
+    out: dict[float, dict] = {}
+    for thr in thresholds:
+        within_a = _dedup_view(daily, summary, a158_l, threshold=thr, seed=[])
+        within_f = _dedup_view(daily, summary, f26_l, threshold=thr, seed=[])
+        out[float(thr)] = {
+            "within": {"Alpha158": within_a, "FEAT26": within_f},
+            "net_new": _dedup_view(daily, summary, a158_l,
+                                   threshold=thr, seed=within_f["kept_dims"]),
+            "reverse": _dedup_view(daily, summary, f26_l,
+                                   threshold=thr, seed=within_a["kept_dims"]),
+        }
+    return out
+
+
 def json_safe(obj):
     """递归把 NaN/Inf 换成 null。
 
@@ -384,6 +467,7 @@ def aggregate_and_write(panel: pd.DataFrame, args: argparse.Namespace,
         "days_dropped_thin": int(panel["date"].nunique() - len(daily)),
         "parity": parity_rows(panel, PARITY_PAIRS),
         "redundancy": ic_redundancy(daily, a158_names, list(FEAT26_ORDER)),
+        "dedup": dedup_views(daily, summary, a158_names, list(FEAT26_ORDER)),
         **extra,
     }
     if write_panel:
@@ -471,6 +555,45 @@ def report_lines(summary: pd.DataFrame, a158: list[str], f26: list[str],
                   f"- 没进这张表的维：{len(red.get('dims_without_ic', []))} 个"
                   f"（{red.get('dims_without_ic', [])}）整列给不出 IC，"
                   f"常数维与未覆盖维属「没验」，不算重叠也不算独立", ""]
+    ded = meta.get("dedup") or {}
+    if ded:
+        primary = DEDUP_PRIMARY if DEDUP_PRIMARY in ded else sorted(ded)[0]
+        lines += ["", "## 去重之后还剩多少独立信号", "",
+                  "| 阈值 | Alpha158 独立维 | FEAT26 独立维 | 158 维净新增 |"
+                  " 净新增 \\|IC\\| 中位 | 被挡 \\|IC\\| 中位 | 其中过 BH | 现役净新增 |",
+                  "|---|---|---|---|---|---|---|---|"]
+        for thr in sorted(ded):
+            v = ded[thr]
+            nn = v["net_new"]
+            lines.append(f"| {thr:.2f} | {v['within']['Alpha158']['kept']} | "
+                         f"{v['within']['FEAT26']['kept']} | {nn['kept']} | "
+                         f"{_fmt_ic(nn['median_abs_ic'])} | "
+                         f"{_fmt_ic(nn['blocked_median_abs_ic'])} | "
+                         f"{nn['reject']} | {v['reverse']['kept']} |"
+                         + (" ← 主口径" if thr == primary else ""))
+        nn = ded[primary]["net_new"]
+        lines += ["", f"净新增的维（阈值 {primary:.2f}，按 |IC| 序，最多列 12 条）：", ""]
+        if nn["kept"]:
+            lines += ["| 维度 | n_days | mean_IC | ICIR | NW_t | q | q<α |",
+                      "|---|---|---|---|---|---|---|"]
+            sub = summary.loc[[d for d in nn["kept_dims"] if d in summary.index]].copy()
+            sub["abs_ic"] = sub["mean_ic"].abs()
+            for f, r in sub.sort_values("abs_ic", ascending=False).head(12).iterrows():
+                lines.append(f"| {f} | {r['n_days']:.0f} | {r['mean_ic']:+.4f} | "
+                             f"{r['icir']:+.2f} | {r['nw_t']:+.2f} | {r['q_value']:.3g} | "
+                             f"{'✓' if r['reject'] else ''} |")
+        else:
+            lines.append("（空——158 维里没有一条是现役 26 维之外的独立信号）")
+        lines += ["", "读法：**「集合内独立维数」说的是那一套自己有多冗余，"
+                  "「净新增」才是切特征集的量纲**——后者已经把现役已有的信号扣掉了。"
+                  f"并集 = 现役独立 {ded[primary]['within']['FEAT26']['kept']} + "
+                  f"净新增 {nn['kept']} = "
+                  f"{ded[primary]['within']['FEAT26']['kept'] + nn['kept']} 条独立信号"
+                  "（两套的维名不重叠，所以可以直接相加）。"
+                  f"被 seed 挡掉的维 {ded[primary]['net_new']['dropped_by_seed']} 条、"
+                  f"集内自重复 {ded[primary]['net_new']['dropped_within']} 条；"
+                  "两维没有共同有效日而无法判定的对数记在 `uncomparable`，"
+                  "它不该被算进「独立」。"]
     noise = s["nw_se"].median()
     lines += ["", "读法：`n_days` 远小于天数的维度，其均值由少数几天给出，不能与满覆盖",
               f"的维度并列排序；本表 `mean_IC` 的 HAC 标准误中位是 {noise:.4f}，"

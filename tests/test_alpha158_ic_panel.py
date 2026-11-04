@@ -399,3 +399,87 @@ def test_report_noise_scale_comes_from_the_data():
     text_thin = "\n".join(mod.report_lines(thin, ["A"], ["B"], meta))
     assert "0.0030" in text_thin, "门槛要随 nw_se 变——同一个字面量就是没接数据"
     assert text_wide != text_thin
+
+
+# ------------------------------------------------------------------ 去重后的独立信息 #
+def _dedup_inputs():
+    """三条 Alpha158 维 + 两条 FEAT26 维，关系全是解析值：K1≡F1、K2=−K1、K3 独立。"""
+    rng = np.random.default_rng(11)
+    q, r = np.linalg.qr(rng.standard_normal((300, 3)))
+    u = q * np.sign(np.diag(r))
+    idx = [f"d{i:03d}" for i in range(300)]
+    daily = pd.DataFrame({
+        "F1": 0.25 + u[:, 0],
+        "F2": 0.10 + u[:, 1],
+        "K1": 0.20 + u[:, 0],                 # 与 F1 同一个信号（跨集合孪生）
+        "K2": 0.05 - u[:, 0],                 # 与 K1 反号孪生
+        "K3": 0.15 + u[:, 2],                 # 真独立
+    }, index=idx)
+    summary = pd.DataFrame({
+        "n_days": [300] * 5,
+        "mean_ic": [0.25, 0.10, 0.20, 0.05, 0.15],
+        "ic_std": [0.1] * 5, "icir": [2.5] * 5, "pos_rate": [0.9] * 5,
+        "nw_t": [9.0, 4.0, 7.0, 2.0, 6.0], "nw_p": [1e-18, 1e-4, 1e-14, 0.05, 1e-10],
+        "nw_se": [0.009] * 5,
+        "q_value": [1e-17, 2e-4, 4e-14, 0.05, 5e-10],
+        "reject": [True, True, True, False, True],
+    }, index=["F1", "F2", "K1", "K2", "K3"])
+    return daily, summary
+
+
+def test_dedup_views_separate_within_set_from_net_new():
+    """「剩几维独立」与「净新增几维」是两个数，必须分开报。
+
+    K1/K2 与现役 F1 是同一个信号：集合内看 Alpha158 剩 2 条（K1、K3），
+    但扣掉现役已有的之后**净新增只有 1 条**（K3）。只看前者就会把替身当新增，
+    那正是「切特征集值不值」这个问题上最贵的一次误读。
+    """
+    from tdxfeed.alpha158.ic import DEDUP_THRESHOLD
+
+    mod = _panel_module()
+    daily, summary = _dedup_inputs()
+    out = mod.dedup_views(daily, summary, ["K1", "K2", "K3"], ["F1", "F2"])
+    prim = out[DEDUP_THRESHOLD]
+    assert prim["within"]["Alpha158"]["kept"] == 2
+    assert prim["within"]["FEAT26"]["kept"] == 2
+    assert prim["net_new"]["kept_dims"] == ["K3"], f"实得 {prim['net_new']}"
+    assert prim["net_new"]["dropped_by_seed"] == 2
+    assert prim["net_new"]["median_abs_ic"] == pytest.approx(0.15, abs=0.01)
+    assert prim["net_new"]["reject"] == 1
+    # 被挡掉的那批也必须有效应量：只有「净新增 vs 被挡」并排，才能判
+    # 「现役覆盖的是弱维还是强维」。漏掉这个数，读者会默认挡掉的都是杂讯。
+    assert prim["net_new"]["blocked_median_abs_ic"] == pytest.approx(0.125, abs=0.01)
+    # 反向视图：现役相对 158 维的净新增。F2 与 K1/K3 都正交，所以它不是空集——
+    # 「谁替身谁」必须两个方向都算，只问单边会得出「借来的一定划算」。
+    assert prim["reverse"]["kept_dims"] == ["F2"], f"实得 {prim['reverse']}"
+    assert prim["reverse"]["dropped_by_seed"] == 1
+
+
+def test_dedup_views_report_every_threshold():
+    """三档阈值并报：独立维数不能读成一个阈值的 artifact。"""
+    mod = _panel_module()
+    daily, summary = _dedup_inputs()
+    out = mod.dedup_views(daily, summary, ["K1", "K2", "K3"], ["F1", "F2"])
+    assert sorted(out) == [0.7, 0.8, 0.9], f"实得 {sorted(out)}"
+    counts = [out[t]["net_new"]["kept"] for t in (0.7, 0.8, 0.9)]
+    assert counts[0] <= counts[1] <= counts[2], f"阈值越高净新增不该变少：{counts}"
+
+
+def test_report_renders_the_dedup_table():
+    """报告里必须同时出现「独立维数」「净新增维数」和点名到维的净新增清单。"""
+    mod = _panel_module()
+    daily, summary = _dedup_inputs()
+    a158, f26 = ["K1", "K2", "K3"], ["F1", "F2"]
+    meta = {"tag": "t", "codes_built": 3, "days": 300, "rows": 900,
+            "sample_requested": 3, "skipped": {}, "horizon": 5, "min_codes": 2,
+            "alpha": 0.05, "elapsed_sec": 1.0, "include_proxy": False,
+            "proxy_caliber_start": "2026-09-16", "feat26_amount_dims": [],
+            "alpha158_vwap_dims": [], "codes_per_day_median": 3.0,
+            "dedup": mod.dedup_views(daily, summary, a158, f26)}
+    text = "\n".join(mod.report_lines(summary, a158, f26, meta))
+    assert "净新增" in text and "独立信号" in text
+    assert "K3" in text, f"净新增清单没点到维名：{text[:200]}"
+    # 并集必须由代码加好：让读者自己加两个表里的数，就会把「集合内独立」与
+    # 「净新增」两种口径加错组合（2+2、57+15 之类），得出一个谁都没算过的数。
+    assert "并集 = 现役独立 2 + 净新增 1 = 3 条独立信号" in text
+    assert "被挡" in text, "被 seed 挡掉的那批没有效应量列，读者会默认它是杂讯"

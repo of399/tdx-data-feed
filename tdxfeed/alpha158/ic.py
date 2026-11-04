@@ -116,4 +116,62 @@ def summarize_ic(daily: pd.DataFrame, cfg: IcConfig | None = None) -> pd.DataFra
     return out.set_index("feature")
 
 
-__all__ = ["IcConfig", "daily_ic", "summarize_ic"]
+DEDUP_THRESHOLD = 0.8
+
+
+def independent_subset(daily: pd.DataFrame, dims: Sequence[str], *,
+                       threshold: float = DEDUP_THRESHOLD,
+                       seed: Sequence[str] = (),
+                       min_days: int = 3) -> dict[str, Any]:
+    """把 IC 序列**同一天一起响**的维合成一条，返回留下的独立维。
+
+    为什么要有这一层：`132/158 维过 BH` 读起来像「158 维带来了 132 条信息」，但
+    QTLD60/MA60/MIN60 这些维在同一天一起动，本来就是同一个自由度。独立信息的条数
+    必须按 IC 序列之间的相关去数，而不是按维数。
+
+    三条不能靠直觉的口径：
+
+    ① 判据取 **|corr|**：`x` 与 `-x` 在模型里是同一个自由度（符号由系数吸收），
+       只看正相关会把反号孪生当成两条独立信息。
+    ② 每簇留 **|mean_IC| 最大**的那条，序也按它走。按名字序会系统性地留下弱的那条、
+       把强的当成冗余丢掉——那正是本层要回答的问题的反面。
+    ③ 相关判不了（两维没有共同有效日 ⇒ NaN）时**不合并**，但计入 `uncomparable`：
+       宁可不合并，也不凭空丢一维；同时不让「没法比」冒充「确实独立」。
+
+    `seed` 是跨集合去重的入口：把另一套已经留下的维当既有信息，本套与 seed 撞上
+    的维同样被丢弃。这样 `kept` 就是**净新增**的独立信号条数。
+    """
+    if not 0.0 < threshold < 1.0:
+        raise ValueError(f"threshold 必须落在 (0, 1)，实得 {threshold}")
+    dims_l = list(dict.fromkeys(dims))
+    seed_l = list(dict.fromkeys(seed))
+    need = list(dict.fromkeys([*seed_l, *dims_l]))
+    missing = [c for c in need if c not in daily.columns]
+    if missing:
+        raise KeyError(f"日频 IC 表里没有这些维：{missing}")
+
+    valid = {c: int(daily[c].notna().sum()) for c in need}
+    no_ic = [c for c in dims_l if valid[c] < min_days]
+    seed_ok = [c for c in seed_l if valid[c] >= min_days]
+    corr = daily[need].corr().abs()
+
+    order = sorted((c for c in dims_l if c not in no_ic),
+                   key=lambda c: (-abs(float(daily[c].dropna().mean())), c))
+    kept: list[str] = []
+    dropped: dict[str, dict[str, Any]] = {}
+    uncomparable = 0
+    for c in order:
+        reps = [*seed_ok, *kept]
+        vals = corr.loc[c, reps]
+        hit = [r for r in reps if float(vals[r]) >= threshold]
+        if hit:
+            best = max(hit, key=lambda r: (float(vals[r]), r))
+            dropped[c] = {"by": best, "abs_corr": float(vals[best])}
+            continue
+        uncomparable += sum(1 for r in reps if not np.isfinite(float(vals[r])))
+        kept.append(c)
+    return {"threshold": float(threshold), "seed": seed_ok, "kept": kept,
+            "dropped": dropped, "no_ic": no_ic, "uncomparable": int(uncomparable)}
+
+
+__all__ = ["IcConfig", "daily_ic", "independent_subset", "summarize_ic"]
