@@ -3,8 +3,12 @@ Description=Run annual Obsidian report archive on Jan 1
 Documentation=file://@TDX_HOME@/docs/archive/obsidian_upgrade_plan_20261015.md
 
 [Timer]
-# 每年 1/1 凌晨 01:00
-OnCalendar=*-01-01T01:00:00
+# 每年 1/1 凌晨 01:00。日期与时间之间必须是**空格**：systemd 的日历语法不接受 ISO 的 `T`
+# 分隔符，写成 `*-01-01T01:00:00` 时 systemd 259 在加载阶段报
+# "Failed to parse calendar specification, ignoring"——单元被静默丢空，
+# `Next elapse` 恒为空、timer 永远不触发（2026-11-04 实测：`systemd-analyze calendar`
+# 对旧写法返回「无效的参数」，对下面的写法归一化为 `*-01-01 01:00:00`）。
+OnCalendar=*-01-01 01:00:00
 # 持久化：若系统关机错过，开机后补跑
 Persistent=true
 # 避免与其它 timer 抢锁，加 30s 随机延迟
