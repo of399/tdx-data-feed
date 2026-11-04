@@ -1132,7 +1132,7 @@ issues:
     first_seen: "2026-11-03"
     last_seen: "2026-11-03"
     seen_count: 1
-    sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md"]
+    sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md", "docs/research/2026-11-04-alpha158-vs-feat26-ic.md"]
     locations: ["tdxfeed/sources/sina_source.py", "tdxfeed/amount_fix.py", "tdxfeed/features_5d.py", "data/.state/amount_estimated.json"]
     detect:
       - kind: absent
@@ -1144,7 +1144,7 @@ issues:
         paths: ["tdxfeed/sources/sina_source.py"]
         min_count: 1
         note: "新浪日 K 结构性不返回 amount（2026-11-03 实测 6/6 根 amount=0.0），写盘时按缺口补齐成代理值"
-    impact: "实测断点在 2026-09-16：08-24 真实额/(close×volume×100) 中位 1.0012（p5–p95 0.987~1.018）、09-15 中位 1.0074，而 09-16 起 **100% 的行精确等于公式**（中位 1.000000）⇒ amount 从观测量变成 close 与 volume 的确定性函数。下游全部建在这条列上：avg_amount_5d / vol_ratio_t1 / amount_surge_3d / amt_per_price / amihud_20，以及 18 维模型输入的 turnover_proxy（features_5d.py:176 = amount/volume）——2026-11-02 生产榜 4923/4923 行 turnover_proxy 恰等于 close×100、与 close 的相关系数为 1.0，该维已退化成价格的复制品；训练样本跨 09-16 ⇒ 存在未登记的口径断点。daban 流动性闸门 min_avg_amount_5d=5e7 比的也是代理值。旁路清单 amount_estimated.json 同一 symbol 整段替换、只保留最后一次写入的日期，所以现在只列 10-29/10-30/11-02 三天，容易被读成「只有三天坏」"
+    impact: "实测断点在 2026-09-16：08-24 真实额/(close×volume×100) 中位 1.0012（p5–p95 0.987~1.018）、09-15 中位 1.0074，而 09-16 起 **100% 的行精确等于公式**（中位 1.000000）⇒ amount 从观测量变成 close 与 volume 的确定性函数。下游全部建在这条列上：avg_amount_5d / vol_ratio_t1 / amount_surge_3d / amt_per_price / amihud_20，以及 18 维模型输入的 turnover_proxy（features_5d.py:176 = amount/volume）——2026-11-02 生产榜 4923/4923 行 turnover_proxy 恰等于 close×100、与 close 的相关系数为 1.0，该维已退化成价格的复制品；训练样本跨 09-16 ⇒ 存在未登记的口径断点。daban 流动性闸门 min_avg_amount_5d=5e7 比的也是代理值。旁路清单 amount_estimated.json 同一 symbol 整段替换、只保留最后一次写入的日期，所以现在只列 10-29/10-30/11-02 三天，容易被读成「只有三天坏」。2026-11-04 另测得（1,199 只 / 656 天日频横截面，标签 t→t+5 hfq 收益）：avg_amount_5d 是全表最强单维（mean_IC −0.0825、NW t −6.25、BH q 2.8e-09），而它正是被代理改写成 close×volume 量级的那一维 ⇒ 这条从「数据卫生」升级为「信号风险」，②（真 amount 回填）的优先级高于原判断"
     guard: "NONE"
     owner: "jiuben"
     due: "2026-11-30"
