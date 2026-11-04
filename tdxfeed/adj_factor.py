@@ -15,7 +15,6 @@ date 是 date32[day]（pandas 里是 datetime.date），不是 string 也不是 
 from __future__ import annotations
 
 import os
-import socket
 import sys
 import time
 from collections import Counter
@@ -24,13 +23,22 @@ from pathlib import Path
 
 import pandas as pd
 
+from tdxfeed.baostock_session import (
+    LOGIN_ATTEMPTS,
+    apply_query_timeout,
+    describe_failure,
+    login_with_retry,
+)
+from tdxfeed.factor_run_state import HEARTBEAT_EVERY, write_progress
 from tdxfeed.freshness import CN_HOLIDAYS, last_trading_day
 from tdxfeed.paths import adj_factor_dir, adj_factor_files
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
 
-socket.setdefaulttimeout(30)
+# 逐只查询的紧上限（30 秒）；登录另给宽上限——两个数单源在 tdxfeed/baostock_session.py，
+# 别在这里再写一遍 socket.setdefaulttimeout 字面量。
+apply_query_timeout()
 
 COLUMNS = ["code", "date", "adj_factor", "qfq_close", "raw_close"]
 
@@ -244,11 +252,19 @@ def main(argv=None) -> int:
         print("❌ 没有可更新的复权因子文件", file=sys.stderr)
         return 1
 
-    lg = bs.login()
-    if lg.error_code != "0":
-        print(f"❌ baostock 登录失败: {lg.error_msg}", file=sys.stderr)
-        return 1
+    started_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    target = len(codes)
     ok = skip = fail = rebase = added = 0
+    processed = 0
+    # 先落一条「本轮开始了、目标 N 只」再登录：登录彻底失败时这份心跳就是
+    # finished=false / processed=0 / unfinished=N 的形状，事后能看出整轮没跑成。
+    write_progress("adj_factor", today=args.today, started_at=started_at, target=target,
+                   processed=processed, ok=ok, skip=skip, fail=fail)
+
+    lg_ok, lg_msg = login_with_retry(bs)
+    if not lg_ok:
+        print(f"❌ {describe_failure(LOGIN_ATTEMPTS, lg_msg)}", file=sys.stderr)
+        return 1
     consec = 0
     relogin = 0
     aborted = False
@@ -257,8 +273,8 @@ def main(argv=None) -> int:
             r = update_one(bs, code, out_dir, args.today)
             if _session_lost(r) and relogin < MAX_RELOGIN:
                 relogin += 1
-                lg = bs.login()
-                if lg.error_code == "0":
+                re_ok, _ = login_with_retry(bs)
+                if re_ok:
                     print(f"  ↻ baostock 会话中断，已重连（第 {relogin} 次）：{code}",
                           flush=True)
                     r = update_one(bs, code, out_dir, args.today)
@@ -282,16 +298,23 @@ def main(argv=None) -> int:
                           file=sys.stderr)
                     aborted = True
                     break
-            if i % 200 == 0:
+            processed = i
+            if i % HEARTBEAT_EVERY == 0:
                 print(f"  [{i}/{len(codes)}] ok={ok} rebase={rebase} "
                       f"skip={skip} fail={fail}", flush=True)
+                write_progress("adj_factor", today=args.today, started_at=started_at,
+                               target=target, processed=processed, ok=ok, skip=skip,
+                               fail=fail, rebase=rebase, added_rows=added)
             if args.code:
                 print(f"{code}: {r}", flush=True)
     finally:
         bs.logout()
 
+    write_progress("adj_factor", today=args.today, started_at=started_at, target=target,
+                   processed=processed, ok=ok, skip=skip, fail=fail, rebase=rebase,
+                   added_rows=added, finished=True, aborted=aborted)
     print(f"完成：ok={ok} rebase={rebase} skip={skip} fail={fail} "
-          f"新增行={added} 截止={args.today}")
+          f"新增行={added} 截止={args.today} 未跑={max(target - processed, 0)}")
     if aborted:
         return 1
     return exit_code(ok, skip, fail)

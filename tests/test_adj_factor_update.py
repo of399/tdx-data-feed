@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from tdxfeed.adj_factor import (
     COLUMNS,
@@ -14,6 +15,18 @@ from tdxfeed.adj_factor import (
     update_one,
     write_atomic,
 )
+
+
+@pytest.fixture(autouse=True)
+def _keep_state_out_of_real_data(monkeypatch, tmp_path):
+    """`main()` 会落进度心跳；不重定向就写进真实 `data/.state/factor_run.json`。
+
+    本模块的承诺是"不碰 data/"，心跳也算副作用。判据在
+    `tests/test_baostock_login_retry.py::test_main_level_tests_redirect_state`。
+    """
+    import tdxfeed.paths as _paths
+
+    monkeypatch.setattr(_paths, "factor_run_path", lambda: tmp_path / "factor_run.json")
 
 
 def _old_df():

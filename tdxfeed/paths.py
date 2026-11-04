@@ -159,6 +159,16 @@ def amount_ledger_path() -> Path:
     return state_dir() / "amount_estimated.json"
 
 
+def factor_run_path() -> Path:
+    """因子任务（adj / hfq）的进度心跳落点。
+
+    为什么要有这份：`ExecStartPost=-` 会把后置任务的失败吞成 `Finished`，而
+    `TimeoutStartSec` 截断整轮时后半段一个完成标记都不留（KI-OPS-004）。有这份
+    心跳，「跑到第几只断的、还剩多少只」事后能查；没这份就只能翻日志末行。
+    """
+    return state_dir() / "factor_run.json"
+
+
 def read_path(path: Path) -> Path:
     """存在性守卫：把「路径算错」变成立刻可见的异常，而不是空表。"""
     if not Path(path).exists():
