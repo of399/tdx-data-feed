@@ -233,6 +233,70 @@ def test_is_st_is_degenerate_from_this_entry_point():
     assert "is_st" in FEAT26_ORDER
 
 
+def test_parity_rows_expose_the_sign_convention():
+    """qlib 的 ROC* 写成 `Ref($close,N)/$close`（过去价除现价），与现役 ret_5d 反向。
+
+    `parity_rows` 的全部意义就在这条：两套里"看起来同名"的维，符号约定可能相反。
+    读 IC 的人按直觉把 ROC5 当"5 日涨幅"，结论会整体反过来。
+    """
+    mod = _panel_module()
+    panel = pd.DataFrame([
+        {"date": d, "code": f"{i:06d}", "a": float(i), "b": float(i) * 2, "inv": -float(i)}
+        for d in ("2026-01-05", "2026-01-06") for i in range(20)])
+    rows = {(r["left"], r["right"]): r
+            for r in mod.parity_rows(panel, [("a", "b"), ("a", "inv")], min_codes=5)}
+    assert rows[("a", "b")]["mean_corr"] == pytest.approx(1.0)
+    assert rows[("a", "inv")]["mean_corr"] == pytest.approx(-1.0), (
+        f"反向关系必须现出负号：{rows[('a', 'inv')]}")
+    assert rows[("a", "inv")]["note"] == "反向", "标注没跟上符号，报告里会被读成正向"
+    assert rows[("a", "b")]["n_days"] == 2
+
+
+def test_parity_rows_are_within_day_not_pooled():
+    """日内同序、跨天水位相反：pooled 被量级水位主导，本函数必须给 +1。
+
+    面板里 avg_amount_5d 是千万量级、VWAP0 在 1 附近——pooled 相关跟两维的语义没关系。
+    这与 tdxfeed/alpha158/ic.py 的逐日判据是同一个坑，在这里也钉一遍。
+    """
+    mod = _panel_module()
+    shift = {"2026-01-05": 0.0, "2026-01-06": 1000.0}
+    panel = pd.DataFrame([
+        {"date": d, "code": f"{i:06d}", "a": float(i) + shift[d], "b": float(i)}
+        for d in shift for i in range(20)])
+    row = mod.parity_rows(panel, [("a", "b")], min_codes=5)[0]
+    assert row["mean_corr"] == pytest.approx(1.0), (
+        f"日内该是 +1，实得 {row['mean_corr']}——退化成 pooled 了")
+    pooled = panel["a"].corr(panel["b"], method="spearman")
+    assert pooled < 0.6, f"对照组失真（pooled 也高说明构造没生效）：{pooled:.3f}"
+
+
+def test_parity_rows_tolerate_a_dead_pair():
+    """某一列整列缺失（未覆盖的维）时给 NaN 并保留这一行：漏掉一对等于宣称它没关系。"""
+    mod = _panel_module()
+    panel = pd.DataFrame({"date": ["2026-01-05"] * 20,
+                          "a": [np.nan] * 20, "b": list(range(20))})
+    row = mod.parity_rows(panel, [("a", "b")], min_codes=5)[0]
+    assert np.isnan(row["mean_corr"]) and row["n_days"] == 0
+    assert row["note"] == "样本/方差不足"
+
+
+def test_json_safe_writes_strict_json():
+    """run_meta 里的 NaN 必须写成 null：jq 见到裸 NaN 会当场失败。
+
+    台账与巡检脚本都用 jq 取字段，`json.dumps` 默认却写出 `NaN`（Python 能读回，
+    严格解析器不能）。这条把"能被 jq 读"钉成判据，而不是等下次巡检报错才发现。
+    """
+    import json as _json
+
+    mod = _panel_module()
+    obj = {"a": float("nan"), "b": [float("inf"), 1.0, {"c": float("-inf")}],
+           "d": "文本", "e": 3}
+    cleaned = mod.json_safe(obj)
+    assert cleaned["a"] is None and cleaned["b"][0] is None and cleaned["b"][2]["c"] is None
+    assert cleaned["b"][1] == 1.0 and cleaned["d"] == "文本" and cleaned["e"] == 3
+    _json.dumps(cleaned, allow_nan=False)      # 不抛才算过
+
+
 def test_atomic_write_parquet_leaves_no_temp(tmp_path):
     mod = _panel_module()
     p = tmp_path / "panel_x.parquet"

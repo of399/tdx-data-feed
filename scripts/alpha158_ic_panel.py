@@ -88,6 +88,53 @@ def vwap_dims_from_artifact(payload: dict) -> list[str]:
     return [f["name"] for f in payload["features"] if "$vwap" in f["expr"]]
 
 
+# 两套清单里"语义上最接近"的维度对。列出来不是为了合并它们，而是为了暴露**符号约定**：
+# qlib 的 ROC* 写成 `Ref($close,N)/$close`（过去价 ÷ 现价），和现役 ret_5d
+# （现价 ÷ 过去价）是倒数关系。按直觉把 ROC5 读成"N 日涨幅"的人，IC 符号会整个反过来。
+PARITY_PAIRS = [("ret_5d", "ROC5"), ("volatility_5d", "STD5"),
+                ("max_5d_pct", "MAX5"), ("close_pos_5d", "MIN5"),
+                ("avg_amount_5d", "VWAP0")]
+
+
+def parity_rows(panel: pd.DataFrame, pairs: Sequence[tuple[str, str]], *,
+                date_col: str = "date", min_codes: int = 10) -> list[dict]:
+    """每对维度的**日内横截面**相关，按天平均——不是把整张面板堆一起算。
+
+    这正是 `tdxfeed/alpha158/ic.py` 里那条判据的同一个坑：面板里 `avg_amount_5d` 是
+    几千万的量级、`VWAP0` 是 1 附近的比值，pooled 相关会被"哪只票、哪天"的水位差主导，
+    给出一个与语义无关的数（实测 pooled 给 -0.72，日内给 ~0）。逐日算完再平均，量纲与
+    水位都消掉了，剩下的才是两维在同一批票上的同向程度。
+
+    整列缺失或当天方差为 0 时给 NaN 并**保留这一行**：漏掉一对比给不出数更糟——读者会
+    以为这两维没关系，其实是没验。
+    """
+    rows = []
+    for left, right in pairs:
+        if left not in panel.columns or right not in panel.columns:
+            rows.append({"left": left, "right": right, "n_days": 0, "n_rows": 0,
+                         "mean_corr": float("nan"), "note": "缺列"})
+            continue
+        per_day = []
+        for _, sub in panel.groupby(date_col, sort=True):
+            s = sub[[left, right]].dropna()
+            if len(s) < min_codes or s.nunique().max() < 2:
+                continue
+            r = s[left].corr(s[right], method="spearman")
+            if pd.notna(r):
+                per_day.append(float(r))
+        if not per_day:
+            rows.append({"left": left, "right": right, "n_days": 0,
+                         "n_rows": len(panel), "mean_corr": float("nan"),
+                         "note": "样本/方差不足"})
+            continue
+        mean_corr = float(np.mean(per_day))
+        rows.append({"left": left, "right": right, "n_days": len(per_day),
+                     "n_rows": len(panel), "mean_corr": mean_corr,
+                     "note": "反向" if mean_corr < -0.2
+                     else ("同向" if mean_corr > 0.2 else "无关")})
+    return rows
+
+
 def select_codes(sample: int, seed: int) -> list[str]:
     """确定性抽样：股票池（唯一入口）∩ 日线在场 ∩ hfq 因子文件在场。
 
@@ -150,6 +197,21 @@ def build_code_panel(raw: pd.DataFrame, hfq: pd.DataFrame, code: str, *,
     return out.dropna(subset=["label"]).reset_index(drop=True)
 
 
+def json_safe(obj):
+    """递归把 NaN/Inf 换成 null。
+
+    `json.dumps` 默认会写出裸 `NaN`——Python 读得回来，jq 和任何严格 JSON 解析器都会
+    当场失败。台账与巡检脚本都用 jq 取字段，所以落盘前先洗干净。
+    """
+    if isinstance(obj, float) and not np.isfinite(obj):
+        return None
+    if isinstance(obj, dict):
+        return {k: json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [json_safe(v) for v in obj]
+    return obj
+
+
 def atomic_write_parquet(df: pd.DataFrame, path: Path) -> Path:
     """tmp → os.replace 写 parquet（SEM001）。
 
@@ -175,6 +237,14 @@ def run(args: argparse.Namespace) -> int:
     if overlap:
         print(f"❌ 两套清单重名 {sorted(overlap)}：宽表会互相覆盖，必须先加前缀", file=sys.stderr)
         return 1
+
+    if args.from_panel:
+        # 装配一次几十分钟，报告的措辞与判据参数要能反复改：从落盘面板直接出 IC。
+        panel = pd.read_parquet(args.from_panel)
+        print(f"从面板复用：{Path(args.from_panel).name} → {panel.shape}", flush=True)
+        return aggregate_and_write(panel, args, payload,
+                                   extra={"reused_panel": str(args.from_panel)},
+                                   write_panel=False)
 
     codes = select_codes(args.sample, args.seed)
     if args.limit:
@@ -215,9 +285,30 @@ def run(args: argparse.Namespace) -> int:
         return 1
     panel = pd.concat(chunks, ignore_index=True)
     chunks.clear()
-    feature_cols = a158_names + list(FEAT26_ORDER)
     print(f"面板 {panel.shape}（{panel['date'].nunique()} 天 × "
           f"{panel['code'].nunique()} 只）· 跳过 {dict(skipped)}", flush=True)
+    return aggregate_and_write(
+        panel, args, payload,
+        extra={"skipped": dict(skipped), "error_count": dict(_ERROR_COUNT),
+               "sample_requested": args.sample,
+               "elapsed_sec": round(time.perf_counter() - t0, 1)})
+
+
+def aggregate_and_write(panel: pd.DataFrame, args: argparse.Namespace,
+                        payload: dict, *, extra: dict,
+                        write_panel: bool = True) -> int:
+    """从面板出 IC、汇总、落盘、写报告。
+
+    单独成一个函数是为了 `--from-panel`：装配一次 40 分钟，而报告的读法、符号约定、
+    污染维标注这些是要反复改的——改措辞不该重跑特征。
+    """
+    a158_names = [f["name"] for f in payload["features"]]
+    feature_cols = a158_names + list(FEAT26_ORDER)
+    missing = [c for c in feature_cols if c not in panel.columns]
+    if missing:
+        print(f"❌ 面板缺 {len(missing)} 列（如 {missing[:5]}）：与当前清单不同源，"
+              f"别拿它出 IC，重跑装配", file=sys.stderr)
+        return 1
 
     cfg = IcConfig(label_col="label", min_codes=args.min_codes,
                    maxlags=args.horizon, alpha=args.alpha)
@@ -228,22 +319,27 @@ def run(args: argparse.Namespace) -> int:
     tag = f"{args.start}_{args.end}_h{args.horizon}_n{args.sample}_s{args.seed}"
     meta = {
         "tag": tag, "start": args.start, "end": args.end, "horizon": args.horizon,
-        "sample_requested": args.sample, "codes_built": int(panel["code"].nunique()),
+        "codes_built": int(panel["code"].nunique()),
         "days": int(panel["date"].nunique()), "rows": len(panel),
         "codes_per_day_median": float(panel.groupby("date")["code"].count().median()),
         "seed": args.seed, "min_codes": args.min_codes, "alpha": args.alpha,
-        "skipped": dict(skipped), "error_count": dict(_ERROR_COUNT),
         "include_proxy": args.include_proxy,
         "proxy_caliber_start": PROXY_DATE.isoformat(),
         "feat26_amount_dims": FEAT26_AMOUNT_DIMS,
         "alpha158_vwap_dims": vwap_dims_from_artifact(payload),
-        "elapsed_sec": round(time.perf_counter() - t0, 1),
+        "days_in_panel": int(panel["date"].nunique()),
+        "days_with_ic": len(daily),
+        "days_dropped_thin": int(panel["date"].nunique() - len(daily)),
+        "parity": parity_rows(panel, PARITY_PAIRS),
+        **extra,
     }
-    atomic_write_parquet(panel.astype({c: "float32" for c in [*feature_cols, "label"]}),
-                         out_dir / f"panel_{tag}.parquet")
+    if write_panel:
+        atomic_write_parquet(panel.astype({c: "float32" for c in [*feature_cols, "label"]}),
+                             out_dir / f"panel_{tag}.parquet")
     atomic_write_parquet(daily.reset_index(names="date"), out_dir / f"daily_ic_{tag}.parquet")
     atomic_write_text(out_dir / f"run_meta_{tag}.json",
-                      json.dumps(meta, ensure_ascii=False, indent=2, sort_keys=True))
+                      json.dumps(json_safe(meta), ensure_ascii=False,
+                                 indent=2, sort_keys=True, allow_nan=False))
     atomic_write_frame(summary.reset_index(), out_dir / f"ic_summary_{tag}.csv")
     print(json.dumps(meta, ensure_ascii=False, sort_keys=True), flush=True)
 
@@ -261,14 +357,19 @@ def report_lines(summary: pd.DataFrame, a158: list[str], f26: list[str],
         f"# Alpha158 × FEAT26 日频 IC 对照 · {meta['tag']}",
         "",
         f"- 样本 {meta['codes_built']} 只 / {meta['days']} 天 / {meta['rows']} 行"
-        f"（请求 {meta['sample_requested']} 只，跳过 {meta['skipped']}）"
+        f"（请求 {meta.get('sample_requested', '—')} 只，"
+        f"跳过 {meta.get('skipped', '复用已落盘面板')}）"
         f"，每天中位 {meta['codes_per_day_median']:.0f} 只",
         f"- 标签 t→t+{meta['horizon']} 的 **hfq** 收盘收益；`min_codes={meta['min_codes']}`，"
         f"BH α={meta['alpha']}，HAC `maxlags={meta['horizon']}`（重叠标签的自相关长度）",
-        f"- 耗时 {meta['elapsed_sec']:.0f}s",
+        f"- 横截面够天的 {meta.get('days_with_ic', '—')} 天出 IC，"
+        f"太薄被丢弃 {meta.get('days_dropped_thin', '—')} 天"
+        f"（丢弃不是补 0：那是「没验到」，不是「无信号」）",
+        f"- 耗时 {meta.get('elapsed_sec', 0.0):.0f}s"
+        + (f"（复用面板 {meta['reused_panel']}）" if meta.get("reused_panel") else ""),
         "",
         f"成交额代理段自 {meta['proxy_caliber_start']} 起（KI-DATA-001）：本次"
-        f"{'**在样本内**' if meta['include_proxy'] else '**已排除'}。受污染维："
+        f"{'**在样本内**' if meta['include_proxy'] else '**已排除**'}。受污染维："
         f"Alpha158 的 {meta['alpha158_vwap_dims']}（用 $vwap），FEAT26 的 "
         f"{meta['feat26_amount_dims']}（用 amount）",
         "",
@@ -289,6 +390,19 @@ def report_lines(summary: pd.DataFrame, a158: list[str], f26: list[str],
             lines.append(f"| {f} | {r['n_days']:.0f} | {r['mean_ic']:+.4f} | "
                          f"{r['icir']:+.2f} | {r['nw_t']:+.2f} | {r['nw_p']:.3g} | "
                          f"{r['q_value']:.3g} | {'✓' if r['reject'] else ''} |")
+    lines += ["", "## 两套里语义最接近的维度：日内横截面相关（按天平均）", ""]
+    if meta.get("parity"):
+        lines += ["| 现役维 | Alpha158 维 | 参与天数 | 日均日内相关 | 方向 |",
+                  "|---|---|---|---|---|"]
+        for r in meta["parity"]:
+            lines.append(f"| {r['left']} | {r['right']} | {r['n_days']} | "
+                         f"{r['mean_corr']:+.3f} | {r['note']} |")
+        lines += ["", "算法与 IC 一致：逐日在同一批票上算 Spearman，再对天平均——pooled "
+                  "相关会被『哪只票、哪天』的量级水位主导，跟两维的语义没关系。", "",
+                  "qlib 的 `ROC*` 写成 `Ref($close,N)/$close`（过去价 ÷ 现价），"
+                  "与现役 `ret_5d`（现价 ÷ 过去价）方向相反：这一维的 IC 符号与"
+                  "\"N 日涨幅\"的直觉相反。读下面的排行时必须先确认方向，否则会把"
+                  "\"过去跌得多\"读成\"过去涨得多\"。"]
     lines += ["", "读法：`n_days` 远小于天数的维度，其均值由少数几天给出，不能与满覆盖",
               "的维度并列排序；`|IC|` 差小于 0.002（本样本的均值噪声尺度）时不要读成结论。"]
     return lines
@@ -314,6 +428,7 @@ def main(argv=None) -> int:
                     help="单日横截面最少标的数，不足则该天丢弃")
     ap.add_argument("--alpha", type=float, default=0.05)
     ap.add_argument("--limit", type=int, help="只跑前 N 只（冒烟）")
+    ap.add_argument("--from-panel", help="复用已落盘的 panel_*.parquet，不重新装配特征")
     ap.add_argument("--out-dir", default=str(paths.DATA_ROOT / "alpha158_ic"))
     args = ap.parse_args(argv)
 
