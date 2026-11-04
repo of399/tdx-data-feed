@@ -217,6 +217,22 @@ def test_amount_registry_names_exist_in_feat26():
 
 
 # ------------------------------------------------------------- 产物与原子写 #
+def test_is_st_is_degenerate_from_this_entry_point():
+    """从 `compute_window_features_extended` 直接建面板时，`is_st` 恒为 0。
+
+    它的名字要调用方给（`get_limit(code, name=...)`），而日频面板没有逐日的股票名，
+    所以这一维在本面板里没有信息。生产事件表里的 is_st 是另一条链（find_double_up 那侧）
+    填的，两边都见过 True——所以这不是生产的缺陷，是**本面板的已知局限**，报告里
+    is_st 的 IC 要按"没验"读。把它钉成用例，是为了让下一个人不会去解读这一维的数字。
+    """
+    mod = _panel_module()
+    raw, hfq = _frames()
+    panel = _build(mod, raw, hfq)
+    assert set(panel["is_st"].unique()) == {0}, (
+        f"is_st 突然有值了：说明入口开始带名字，报告口径要跟着改")
+    assert "is_st" in FEAT26_ORDER
+
+
 def test_atomic_write_parquet_leaves_no_temp(tmp_path):
     mod = _panel_module()
     p = tmp_path / "panel_x.parquet"

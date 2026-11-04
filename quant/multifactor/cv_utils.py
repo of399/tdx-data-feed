@@ -69,6 +69,11 @@ def rank_ic(a, b) -> float:
     m = x.notna() & y.notna()
     if int(m.sum()) < 5:
         return float("nan")
+    # 常数列先挡掉：scipy 的 spearmanr 对它抛 ConstantInputWarning 再给 NaN。数值一样，
+    # 但 158 维 × 数百天的循环里这条警告会刷十万次，把真异常埋了（守卫
+    # tests/test_alpha158_ic.py::test_constant_input_is_nan_without_a_warning）。
+    if int(x[m].nunique()) < 2 or int(y[m].nunique()) < 2:
+        return float("nan")
     return float(x[m].corr(y[m], method="spearman"))
 
 

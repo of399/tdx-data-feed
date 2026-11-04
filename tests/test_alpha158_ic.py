@@ -33,6 +33,20 @@ def _panel(dates: list[str], codes: list[str], **cols) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def test_constant_input_is_nan_without_a_warning():
+    """一侧是常数（未覆盖的维、停牌日集合）就是没有秩相关：给 NaN，且不许刷 warning。
+
+    pandas 对常数列做 spearman 会抛 ConstantInputWarning 再给 NaN。数值本来就对，
+    但 158 维 × 660 天的循环里这条警告会以十万计刷屏——真异常看不见了。
+    """
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")            # 任何警告都变成失败
+        assert np.isnan(cv_utils.rank_ic([1.0] * 20, list(range(20))))
+        assert np.isnan(cv_utils.rank_ic(list(range(20)), [3.0] * 20))
+
+
 def test_daily_ic_is_cross_sectional_not_pooled():
     """当日内 f 与标签严格同序 ⇒ 每日 IC=1；但每天都有一个远大于截面间距的整体冲击
     ⇒ 把整张面板堆一起做 pooled Spearman，冲击成了主导方差，相关被冲成 ~0。
