@@ -15,14 +15,17 @@ is_positive/hypothetical_pnl + 26 维）扩展为 Optuna 可用的宽表：
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 
 import polars as pl
 
 from .adjusted import MIN_FACTOR_COV, frame as adj_frame
+from .alpha158.eval import evaluate_frame, load_payload
 from .factors_candidates import CANDIDATE_NAMES, compute_candidate_features
 from .factors_polars import compute_window_features_extended_polars
 from .paths import daily_dir
@@ -45,6 +48,67 @@ FEAT26_ORDER = [
 ]
 
 
+def resolve_alpha158_cols(spec: str) -> list[str]:
+    """把「要哪些 Alpha158 列」这句话解析成列名清单。
+
+    三种写法，一个入口：`"all"` 取工件全集；逗号串取显式名单；指到 union 工件
+    （`config/alpha158_union.json`）取它的 `alpha158_net_new`。之所以不许调用方自己
+    `json.load(...)[\"union\"]`：判据视图的名单是导出来的，抄一次就会在代码里留下第二套
+    口径，而面板重跑后它不会报错，只会悄悄不是同一批列。守卫
+    `tests/test_stage1_wide_table_alpha158.py::test_reader_takes_the_column_list_from_the_union_artifact`。
+    """
+    names = [f["name"] for f in load_payload()["features"]]
+    known = set(names)
+    spec = spec.strip()
+    if spec.lower() == "all":
+        return names
+    if spec.endswith(".json"):
+        path = Path(spec)
+        if not path.exists():
+            raise ValueError(f"名单工件不存在: {path}")
+        body = json.loads(path.read_text(encoding="utf-8"))
+        cols = list(body.get("alpha158_net_new", []))
+        if not cols:
+            raise ValueError(f"{path} 里没有 alpha158_net_new 字段")
+        stray = [c for c in cols if c not in known]
+        if stray:
+            raise ValueError(f"{path.name} 里有不在 158 清单工件的维: {stray}")
+        return cols
+    cols = [c.strip() for c in spec.split(",") if c.strip()]
+    stray = [c for c in cols if c not in known]
+    if stray:
+        raise ValueError(f"这些名字不在 158 清单工件里，拒绝静默丢列: {stray}")
+    return cols
+
+
+def _alpha158_frame(raw: pl.DataFrame, hfq: pl.DataFrame):  # -> pandas.DataFrame
+    """按面板同一套装配把 158 维算出来：价格取 hfq，vwap 由 raw amount/volume 推再 rebase。
+
+    三处口径都写过缺陷或踩过坑，都写在 `scripts/alpha158_ic_panel.py::build_code_panel`
+    的同一段里，这里与它**逐字同形**——宽表与面板对同一只票同一根 bar 必须给同一个数，
+    否则「IC 判过的那一维」和「模型吃到的那一列」是两回事：
+
+    ① 日线 `volume` 的单位是**手**（÷100 才是每股价，KI-DATA-005）；
+    ② `$vwap` 必须与 `$close` 同口径（再 ×当日因子，同上）；
+    ③ 停牌日（volume=0）用 `np.nan` 而不是 `pd.NA`：后者把列变成 object 可空类型，
+       下游任何一次 `float()` / `to_numpy(dtype=float)` 都对 `NAType` 抛 TypeError，
+       症状不是「这一维缺值」而是**整只票**被失败记账丢掉——2026-11-04 全量装配
+       第一次跑就丢了 10 只，而行数、列名、其余值全都正常。守卫
+       `tests/test_stage1_wide_table_alpha158.py::test_suspended_day_yields_nan_not_a_dropped_code`。
+    """
+    import numpy as np  # 只在这里要：停牌日的 NaN 语义要落在 float 列上
+
+    raw_pd = raw.to_pandas()
+    hfq_pd = hfq.to_pandas()
+    px = hfq_pd[["date", "open", "high", "low", "close", "volume"]].copy()
+    for col in ("open", "high", "low", "close", "volume"):
+        px[col] = px[col].astype(float)
+    per_share = raw_pd["amount"].astype(float) / (raw_pd["volume"].astype(float).replace(0, np.nan) * 100.0)
+    factor = hfq_pd["close"].astype(float) / raw_pd["close"].astype(float).replace(0, np.nan)
+    px["vwap"] = per_share * factor
+    return evaluate_frame(px.reset_index(drop=True))
+
+
 def _norm_date(df: pl.DataFrame) -> pl.DataFrame:
     if df["date"].dtype == pl.Date:
         return df
@@ -63,8 +127,25 @@ def build_wide_table(
     sample_codes: int | None = None,
     verify_parity: bool = True,
     price_basis: str = "raw",
+    alpha158_cols: Sequence[str] | str | None = None,
 ) -> dict:
-    """装配宽表。按 code 分组，每股票读一次 parquet，对其每个 signal_date 计算特征。"""
+    """装配宽表。按 code 分组，每股票读一次 parquet，对其每个 signal_date 计算特征。
+
+    `alpha158_cols` 给了就在**同一根锚点 bar**（`sig_idx-1`）上附 158 维的若干列；
+    这条路要求 `price_basis="hfq"`——158 条表达式吃的价格列必须是读侧权威那一帧，
+    raw 帧上算出来的是一整套没复权的价格比率，形状正常但除权处全错。
+    """
+    # str 也是 Sequence，所以必须先判 str——否则 "all" 会被拆成 ['a','l','l']
+    if not alpha158_cols:
+        cols_a158 = []
+    elif isinstance(alpha158_cols, str):
+        cols_a158 = resolve_alpha158_cols(alpha158_cols)
+    else:
+        cols_a158 = list(alpha158_cols)
+    if cols_a158 and price_basis != "hfq":
+        raise ValueError(
+            f"alpha158_cols 要配 price_basis='hfq'（当前 {price_basis!r}）："
+            "158 维的 $close/$open/$high/$low 必须走 hfq 读侧权威，工件口径 ③")
     if price_basis != "raw" and verify_parity:
         log.info("price_basis=%s：CSV 里是 raw 特征，parity 检查自动关闭", price_basis)
         verify_parity = False
@@ -88,6 +169,7 @@ def build_wide_table(
     n_diff_big = 0
     n_diff_rel = 0
     n_hfq_skip = 0
+    n_alpha158_fail = 0
 
     for code in codes:
         fp = DAILY / f"{code}.parquet"
@@ -107,6 +189,22 @@ def build_wide_table(
             if (frame_hfq.height != df.height
                     or frame_hfq["date"].to_list() != df["date"].to_list()):
                 n_hfq_skip += int((base.get_column("code") == code).sum())
+                continue
+        a158 = None
+        if cols_a158:
+            # 一票一次算完 158 条（表达式有共享子树，求值面内部已带缓存），下面按锚点取行。
+            # 失败要连这只票的行数一起记账：静默 continue 会让「这一维没进宽表」长得
+            # 和「这一维全是 0」一模一样。
+            try:
+                a158 = _alpha158_frame(df, frame_hfq)  # type: ignore[arg-type]
+            except Exception as e:  # SEM002：计数并跳过整只，不静默少列
+                n_alpha158_fail += int((base.get_column("code") == code).sum())
+                log.warning("Alpha158 装配失败 %s: %s: %s", code, type(e).__name__, str(e)[:80])
+                continue
+            missing_a = [c for c in cols_a158 if c not in a158.columns]
+            if missing_a:
+                n_alpha158_fail += int((base.get_column("code") == code).sum())
+                log.warning("Alpha158 缺列 %s: %s", code, missing_a[:5])
                 continue
         dates = df["date"].to_list()
         sub = base.filter(pl.col("code") == code)
@@ -156,6 +254,11 @@ def build_wide_table(
                 rec[k] = float(f26[k])
             for k in CANDIDATE_NAMES:
                 rec[k] = float(cands[k])
+            if a158 is not None:
+                # 与 26 维同一根锚点 bar（sig_idx-1）：错位一根就是把信号日当天的收盘喂进特征
+                row = a158.iloc[anchor]
+                for k in cols_a158:
+                    rec[k] = float(row[k])
 
             if verify_parity:
                 for k in FEAT26_ORDER:
@@ -188,13 +291,19 @@ def build_wide_table(
     out.write_parquet(out_parquet)
     log.warning("最差 parity 项: diff=%.4e feature=%s code=%s signal_date=%s", *worst)
     log.info(
-        "完成: n_ok=%d 缺失文件=%d 缺失日期=%d 计算失败=%d 缺因子跳过=%d parity_max=%.3e",
-        n_ok, n_missing_file, n_missing_date, n_compute_fail, n_hfq_skip, parity_max,
+        "完成: n_ok=%d 缺失文件=%d 缺失日期=%d 计算失败=%d 缺因子跳过=%d "
+        "Alpha158失败=%d parity_max=%.3e",
+        n_ok, n_missing_file, n_missing_date, n_compute_fail, n_hfq_skip,
+        n_alpha158_fail, parity_max,
     )
-    print(f"\n宽表写出: {out_parquet}  rows={out.height}")
+    print(f"\n宽表写出: {out_parquet}  rows={out.height}  cols={out.width}")
     print(f"  26维 parity_max(有限值对) = {parity_max:.3e}")
     print(f"  缺失文件={n_missing_file}  缺失日期={n_missing_date}  计算失败(数据异常跳过)={n_compute_fail}")
     print(f"  缺因子整只跳过={n_hfq_skip}")
+    if cols_a158:
+        nan_cells = sum(1 for r in records for c in cols_a158 if not math.isfinite(r[c]))
+        print(f"  Alpha158 附加列={len(cols_a158)}  装配失败整只跳过={n_alpha158_fail}  "
+              f"非有限单元={nan_cells}")
     print(f"  非有限单元={n_nonfinite}  其中与CSV不一致(疑似bug)={n_asym_nonfinite}")
     print(f"  特征漂移: 绝对差>1 的单元={n_diff_big}  相对差>1e-3 的单元={n_diff_rel}")
     return {
@@ -203,6 +312,8 @@ def build_wide_table(
         "n_nonfinite": n_nonfinite, "n_asym_nonfinite": n_asym_nonfinite,
         "n_diff_big": n_diff_big, "n_diff_rel": n_diff_rel,
         "n_hfq_skip": n_hfq_skip,
+        "n_alpha158_fail": n_alpha158_fail,
+        "alpha158_cols": list(cols_a158),
         "parity_max": parity_max, "out": str(out_parquet),
     }
 
@@ -217,9 +328,11 @@ if __name__ == "__main__":
     ap.add_argument("--out", type=str, default=str(OUT_PARQUET))
     ap.add_argument("--no-parity", action="store_true")
     ap.add_argument("--price-basis", choices=["raw", "hfq"], default="raw")
+    ap.add_argument("--alpha158", type=str, default=None,
+                    help="附 Alpha158 列：'all' | 逗号名单 | union 工件路径（要配 --price-basis hfq）")
     a = ap.parse_args()
     build_wide_table(
         src_csv=Path(a.src), out_parquet=Path(a.out),
         sample_codes=a.sample, verify_parity=not a.no_parity,
-        price_basis=a.price_basis,
+        price_basis=a.price_basis, alpha158_cols=a.alpha158,
     )
