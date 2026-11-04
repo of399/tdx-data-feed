@@ -31,7 +31,9 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = CACHE_DIR / "math_cache.sqlite"
 
 DEFAULT_TTL_S = 604800  # 7 天
-SCHEMA_VERSION = 1
+# 2026-11-04：加 lookup_stats（命中率分母）。建表走 CREATE TABLE IF NOT EXISTS，
+# 老库连上即自动补表，不需要迁移脚本；版本号只作「库里该有这张表」的记账。
+SCHEMA_VERSION = 2
 
 _conn_lock = Lock()
 
@@ -77,6 +79,15 @@ def _init_schema(conn: sqlite3.Connection):
 
         CREATE INDEX IF NOT EXISTS idx_expires ON cache(expires_at);
         CREATE INDEX IF NOT EXISTS idx_action ON cache(action);
+
+        -- 命中率的唯一分母来源：一次查表只能记到 hits 或 misses 其中一边。
+        -- 不用 cache 表的 per-entry hits 列——那条每存一条就先记 1，累加起来会
+        -- 大于行数（实测 353 hits / 190 entries = 1.858），相除不是任何可解释的量。
+        CREATE TABLE IF NOT EXISTS lookup_stats (
+            action TEXT PRIMARY KEY,
+            hits INTEGER NOT NULL DEFAULT 0,
+            misses INTEGER NOT NULL DEFAULT 0
+        );
     """)
     conn.execute(
         "INSERT OR IGNORE INTO schema_meta (key, value) VALUES (?, ?)",
@@ -99,6 +110,22 @@ def cache_key(latex_a: str, latex_b: str = "", action: str = "equiv") -> str:
     return h.hexdigest()[:32]
 
 
+def _record_lookup(conn: sqlite3.Connection, action: str, hit: bool) -> None:
+    """把一次查表的成败持久化进 `lookup_stats`（命中率的分子/分母来源）。
+
+    写失败**不往上抛**：观测面不得改变控制流（同 `math_sympy_http.py` 里 P0-2
+    「静默吞错改留痕」那条对 /metrics 的约定）。
+    """
+    with contextlib.suppress(sqlite3.DatabaseError):
+        conn.execute(
+            """INSERT INTO lookup_stats (action, hits, misses) VALUES (?, ?, ?)
+               ON CONFLICT(action) DO UPDATE
+                 SET hits = hits + excluded.hits,
+                     misses = misses + excluded.misses""",
+            (action, 1 if hit else 0, 0 if hit else 1),
+        )
+
+
 def get_cached(latex_a: str, latex_b: str = "", action: str = "equiv") -> dict | None:
     key = cache_key(latex_a, latex_b, action)
     conn = _get_conn()
@@ -108,15 +135,23 @@ def get_cached(latex_a: str, latex_b: str = "", action: str = "equiv") -> dict |
             (key, time.time()),
         ).fetchone()
     except sqlite3.DatabaseError:
+        # 库不可用：连计数器也写不进去，这里不记。记成 miss 会把「库坏了」
+        # 伪装成「缓存失效」，两者要的处置完全不同。
         return None
     if not row:
+        _record_lookup(conn, action, hit=False)
         return None
     with contextlib.suppress(sqlite3.DatabaseError):
         conn.execute("UPDATE cache SET hits = hits + 1 WHERE cache_key=?", (key,))
     try:
-        return json.loads(row["result"])
+        value = json.loads(row["result"])
     except json.JSONDecodeError, TypeError:
+        # 读不出来就没服务到这次请求 ⇒ miss。旧代码在这里已经把 per-entry
+        # hits 加过一次，所以那一列本身也在往「命中」里掺水（本函数不动它）。
+        _record_lookup(conn, action, hit=False)
         return None
+    _record_lookup(conn, action, hit=True)
+    return value
 
 
 def set_cached(
@@ -150,9 +185,23 @@ def cache_stats() -> dict:
         row = conn.execute(
             "SELECT COUNT(*) AS total, COALESCE(SUM(hits), 0) AS hits FROM cache"
         ).fetchone()
+        lookup = conn.execute(
+            "SELECT COALESCE(SUM(hits), 0), COALESCE(SUM(misses), 0) FROM lookup_stats"
+        ).fetchone()
+        lookup_hits = int(lookup[0]) if lookup else 0
+        lookup_misses = int(lookup[1]) if lookup else 0
+        lookups = lookup_hits + lookup_misses
         return {
             "total_entries": row["total"] if row else 0,
             "total_hits": row["hits"] if row else 0,
+            # 命中率只由查表次数定义；`total_entries`/`total_hits` 是历史遗留的
+            # 条目侧计数，留着给既有消费者，但**不再**拿来相除。
+            "lookups": lookups,
+            "lookup_hits": lookup_hits,
+            "lookup_misses": lookup_misses,
+            # 从没查过表 ⇒ None（没测），不是 0（全不中）：0 会被看板与
+            # prometheus-alerts 里 `cache_hit_ratio < 0.5` 那条读成缓存彻底失效。
+            "hit_ratio": round(lookup_hits / lookups, 4) if lookups else None,
             "db_path": str(DB_PATH),
             "size_mb": DB_PATH.stat().st_size / 1024 / 1024 if DB_PATH.exists() else 0,
         }

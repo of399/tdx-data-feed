@@ -18,7 +18,7 @@ import json
 import sqlite3
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 SIDECAR_DIR = Path(__file__).resolve().parents[1] / "cache" / "derivation_sidecar"
@@ -55,6 +55,16 @@ def _init_schema(conn: sqlite3.Connection):
     """)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_target_hash ON derivation_cache(target_hash)
+    """)
+    # 命中率的唯一分母来源（与 math_cache.lookup_stats 同一口径）。旧写法把
+    # per-entry hits 除以 total（还取错了键名，`cache_stats()` 根本没有 total 这个键），
+    # 于是 /health 报出过 hit_ratio=199.0 这种数。
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS lookup_stats (
+            scope TEXT PRIMARY KEY,
+            hits INTEGER NOT NULL DEFAULT 0,
+            misses INTEGER NOT NULL DEFAULT 0
+        )
     """)
     conn.commit()
 
@@ -155,6 +165,23 @@ def save_dag(
     return str(sidecar_path)
 
 
+def _record_lookup(conn: sqlite3.Connection, hit: bool) -> None:
+    """把一次查表的成败持久化进 `lookup_stats`（命中率分母）。
+
+    写失败不往上抛：观测面不得改变控制流（同 `math_sympy_http.py` 里 P0-2
+    「静默吞错改留痕」那条约定）。调用方必须把**已持有 `_INIT_LOCK` 的 conn** 传进来——
+    `_INIT_LOCK` 不是可重入锁，这里再走 `_connect()` 会自锁。
+    """
+    with suppress(sqlite3.DatabaseError):
+        conn.execute(
+            """INSERT INTO lookup_stats (scope, hits, misses) VALUES (?, ?, ?)
+               ON CONFLICT(scope) DO UPDATE
+                 SET hits = hits + excluded.hits,
+                     misses = misses + excluded.misses""",
+            ("derivation", 1 if hit else 0, 0 if hit else 1),
+        )
+
+
 def get_cached(
     start_latex: str,
     target_latex: str,
@@ -173,6 +200,7 @@ def get_cached(
         ).fetchone()
 
         if row is None:
+            _record_lookup(conn, hit=False)
             return None
 
         dag_json, _hits, created_at = row
@@ -186,6 +214,8 @@ def get_cached(
                 """,
                 (start_hash, target_hash, var_key),
             )
+            # 过期 ⇒ 这次请求没被服务到，记 miss；不记就会让 TTL 一过命中率虚高。
+            _record_lookup(conn, hit=False)
             return None
 
         conn.execute(
@@ -197,6 +227,7 @@ def get_cached(
             (time.time(), start_hash, target_hash, var_key),
         )
 
+        _record_lookup(conn, hit=True)
         return json.loads(dag_json)
 
 
@@ -218,10 +249,24 @@ def cache_stats() -> dict:
         except Exception:
             size_mb = 0
 
+        lookup = conn.execute(
+            "SELECT COALESCE(SUM(hits), 0), COALESCE(SUM(misses), 0) FROM lookup_stats"
+        ).fetchone()
+        lookup_hits = int(lookup[0]) if lookup else 0
+        lookup_misses = int(lookup[1]) if lookup else 0
+        lookups = lookup_hits + lookup_misses
+
         return {
             "total_entries": total,
             "success_entries": success_count,
             "total_hits": total_hits,
+            # 命中率只由查表次数定义。旧写法是 `total_hits / max(cache.get("total",0),1)`，
+            # 而本函数返回的键名从来就是 `total_entries` ⇒ 分母恒 0，被 max(...,1) 兜成 1，
+            # 于是 199 次命中直接印成 hit_ratio=199.0。
+            "lookups": lookups,
+            "lookup_hits": lookup_hits,
+            "lookup_misses": lookup_misses,
+            "hit_ratio": round(lookup_hits / lookups, 4) if lookups else None,
             "sidecar_files": sidecar_count,
             "size_mb": round(size_mb, 4),
             "sidecar_dir": str(SIDECAR_DIR),

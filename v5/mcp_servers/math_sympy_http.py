@@ -147,26 +147,66 @@ async def root():
     }
 
 
+def _append_cache_hit_ratio(lines: list[str]) -> None:
+    """把两份缓存的命中率写成 gauge；口径与 `/health` 逐字一致（都读 `hit_ratio`）。
+
+    旧写法在这里另算一遍除法，还各自读错分母/键名 —— 于是 `/health` 报 1.858 与 199.0，
+    而 `derivation` 那条 gauge 因为 `if d_total > 1`（`d_total` 恒为 1）永远不导出。
+    """
+    ratios: list[tuple[str, float]] = []
+    for cache, getter in (("math", math_cache.cache_stats), ("derivation", derivation_cache_stats)):
+        try:
+            ratio = getter().get("hit_ratio")
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
+            continue
+        if ratio is not None:
+            ratios.append((cache, ratio))
+
+    if ratios:
+        lines.append("# HELP cache_hit_ratio Cache hit ratio (0-1); denominator = lookups")
+        lines.append("# TYPE cache_hit_ratio gauge")
+        lines.extend(
+            f'cache_hit_ratio{{cache="{cache}"}} {round(ratio, 4)}' for cache, ratio in ratios
+        )
+
+
+def _cache_health_block(stats: dict) -> dict:
+    """把一份 cache_stats() 收成 /health 的形状。
+
+    这里**不做任何除法**：命中率的定义在缓存模块里（`lookup_hits / lookups`），
+    两处各算一次就是这次缺陷的成因 —— 旧写法一个把分母取成 `total_entries`
+    （于是报 1.858），一个读错键名 `total`（`cache_stats()` 从来没这个键，恒 0，
+    被 `max(...,1)` 兜成 1，于是报 199.0）。
+    """
+    return {
+        "total_entries": stats.get("total_entries", 0),
+        "total_hits": stats.get("total_hits", 0),
+        "lookups": stats.get("lookups", 0),
+        "lookup_hits": stats.get("lookup_hits", 0),
+        "lookup_misses": stats.get("lookup_misses", 0),
+        # None = 还没查过表（没测），不是 0（全不中）。
+        "hit_ratio": stats.get("hit_ratio"),
+    }
+
+
 @app.get("/health")
 async def health():
     """健康检查（M3 W3 增强）：含 cache + fallback + error_rate"""
     with _metrics_lock:
         total_calls = sum(sum(v.values()) for v in _tool_calls_total.values())
         total_ok = sum(v.get("ok", 0) for v in _tool_calls_total.values())
-        # math_cache（注意字段名是 total_entries 不是 total）
+        # 两份缓存各自单源；取不到就整块给 None 形状，不本地造数
         try:
-            m_cache = math_cache.cache_stats()
-            m_total = m_cache.get("total_entries", 0)
-            m_hits = m_cache.get("total_hits", 0)
-        except Exception:
-            m_total = m_hits = 0
-        # derivation_cache
+            m_stats = math_cache.cache_stats()
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
+            m_stats = {}
         try:
-            d_cache = derivation_cache_stats()
-            d_total = d_cache.get("total", 0)
-            d_hits = d_cache.get("total_hits", 0)
-        except Exception:
-            d_total = d_hits = 0
+            d_stats = derivation_cache_stats()
+        except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
+            print(f"[WARN] swallowed: {e!r}")
+            d_stats = {}
         return {
             "status": "ok",
             "tool_count": len(TOOL_NAMES),
@@ -175,16 +215,8 @@ async def health():
             "total_ok": total_ok,
             "error_rate": round(1 - (total_ok / total_calls if total_calls else 0), 3),
             "cache": {
-                "math_cache": {
-                    "total_entries": m_total,
-                    "total_hits": m_hits,
-                    "hit_ratio": round(m_hits / max(m_total, 1), 3),
-                },
-                "derivation_cache": {
-                    "total": d_total,
-                    "total_hits": d_hits,
-                    "hit_ratio": round(d_hits / max(d_total, 1), 3),
-                },
+                "math_cache": _cache_health_block(m_stats),
+                "derivation_cache": _cache_health_block(d_stats),
             },
             "fallback": {
                 "primary_strategy_distribution": dict(_fallback_strategy_used),
@@ -242,24 +274,10 @@ async def metrics():
         for strat, count in _fallback_attempts_total.items():
             lines.append(f'fallback_attempts_total{{strategy="{strat}"}} {count}')
 
-    # cache_hit_ratio（从 math_cache + derivation_cache 读取）
-    try:
-        m_cache = math_cache.cache_stats()
-        m_total = max(m_cache.get("total_entries", 0), 1)
-        m_hits = m_cache.get("total_hits", 0)
-        lines.append("# HELP cache_hit_ratio Cache hit ratio (0-1)")
-        lines.append("# TYPE cache_hit_ratio gauge")
-        lines.append(f'cache_hit_ratio{{cache="math"}} {round(m_hits / m_total, 4)}')
-    except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
-        print(f"[WARN] swallowed: {e!r}")
-    try:
-        d_cache = derivation_cache_stats()
-        d_total = max(d_cache.get("total", 0), 1)
-        d_hits = d_cache.get("total_hits", 0)
-        if d_total > 1:  # 避免全部为 0 时显示
-            lines.append(f'cache_hit_ratio{{cache="derivation"}} {round(d_hits / d_total, 4)}')
-    except Exception as e:  # P0-2 2026-10-17: 静默吞错改留痕, 控制流不变
-        print(f"[WARN] swallowed: {e!r}")
+    # cache_hit_ratio —— 与 /health 同一单源口径（分母 = 查表次数）。
+    # 从没查过表的缓存**不导出**该 label：报 0 会被 `prometheus-alerts.yml` 里
+    # `cache_hit_ratio{cache="math"} < 0.5` 读成「缓存彻底失效」。
+    _append_cache_hit_ratio(lines)
 
     # M3 W5: Canary 灰度 metrics（从 canary_state.json + audit 读）
     try:
