@@ -25,12 +25,14 @@ PURE = ROOT / "tests" / "test_plan_e_random_timing.py"
 # 无数据环境里**唯一**允许被收集期跳过的模块集合。新增一条数据依赖测试时
 # 必须显式登记到这里；反过来，任何静态守卫都不许悄悄从这个集合外消失。
 DATA_DEPENDENT_MODULES = {
+    "test_alpha158_union.py",
     "test_daban_mcp.py",
     "test_daily_history_depth_no_cap_truncation.py",
     "test_hfq_factor_monotone.py",
     "test_pnl_label_recompute.py",
     "test_stage1_candidates.py",
     "test_stage1_factors_parity.py",
+    "test_stage1_union_configs.py",
     "test_stage1_wide_table.py",
     "test_wide_table_label_source.py",
 }

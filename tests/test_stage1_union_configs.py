@@ -25,6 +25,11 @@ GEN = ROOT / "scripts" / "stage1_union_configs.py"
 BASE_CONTRACT = ROOT / "data" / "double_up" / "stage1_selected_features_hfq_20261030.json"
 UNION_ARTIFACT = ROOT / "config" / "alpha158_union.json"
 
+# 本模块最后一条用例读 data/double_up 的冻结契约（data/ 不在 git 里）。路径是
+# `ROOT / "data" / ...` 这种分段写法，`conftest._needs_data` 的 "data/" 字样匹配不到，
+# 所以按它自己的约定显式 opt-in（零缩进），并登记进 tests/test_ci_data_skip.py 的集合。
+NEEDS_DATA = True
+
 _spec = importlib.util.spec_from_file_location("stage1_union_configs", GEN)
 gen = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gen)  # type: ignore[union-attr]
@@ -112,6 +117,10 @@ def test_cli_writes_three_configs_and_check_is_idempotent(tmp_path):
     written = sorted(p.name for p in out_dir.glob("*.json"))
     assert written == ["stage1_contract_b0.json", "stage1_contract_b1.json",
                        "stage1_contract_b2.json"], written
+    # mkstemp 出来是 0600；契约必须回到 umask 下的常规权限，否则落到 config/ 时
+    # 会出现"同一份工件、两种权限"这种看不见的差
+    for p in out_dir.glob("*.json"):
+        assert p.stat().st_mode & 0o777 == 0o644, (p.name, oct(p.stat().st_mode & 0o777))
     again = gen.main(["--base", str(bp), "--union", str(up), "--out-dir", str(out_dir),
                       "--check"])
     assert again == 0, "重跑必须逐字复现（幂等），否则产物不可复核"

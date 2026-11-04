@@ -140,6 +140,9 @@ def _atomic_write(path: Path, text: str) -> None:
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(text)
+    # mkstemp 固定 0600，而 `open(...,'w')` 走 umask（本机 0644）。契约文件若哪天落到
+    # config/ 这类跟踪目录，权限差会变成看不见的行为差——写完显式回到 0644。
+    os.chmod(tmp, 0o644)
     os.replace(tmp, path)
 
 
