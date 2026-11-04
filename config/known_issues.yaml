@@ -1031,31 +1031,32 @@ issues:
 
   # ---------------- 同步链预算与数据可见性（2026-11-02 实测登记）----------------
   - id: KI-OPS-004
-    title: "tdx-sync 三条串行后置任务共享一个 TimeoutStartSec，实测 292 分钟只剩 68 分钟余量"
+    title: "tdx-sync 三条串行后置任务共享一个 TimeoutStartSec；2026-11-04 已提到 8h，共享与无进度计数仍在"
     theme: ops
     severity: P1
     status: OPEN
     first_seen: "2026-11-02"
-    last_seen: "2026-11-02"
-    seen_count: 1
+    last_seen: "2026-11-04"
+    seen_count: 2
     sources: ["docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md"]
     locations: ["systemd/system/tdx-sync.service", "tdxfeed/adj_factor.py", "tdxfeed/hfq_factor.py"]
     detect:
       - kind: grep
-        pattern: "^TimeoutStartSec=21600$"
+        pattern: "^TimeoutStartSec=28800$"
         paths: ["systemd/system/tdx-sync.service"]
         min_count: 1
+        note: "值本身不是问题；它仍是整条串行链共享的唯一上限"
       - kind: grep
         pattern: "^ExecStartPost=-"
         paths: ["systemd/system/tdx-sync.service"]
         min_count: 3
         note: "三条 best-effort 后置任务串行在同一次 activation 内；拆成独立单元后本条翻假"
-    impact: "单元注释与 AGENTS.md 仍写「5221 只 × 约 0.6 秒 / 全量约 60 分钟」，实测 adj 1.41 秒/只（122 分）、hfq 1.47 秒/只（128 分），低估 2.4 倍；成本由 rebase（整表重拉）驱动，今晚 61 次≈多花 70 分钟，即每次约 69 秒——余量只够约 59 次 rebase，上游批量因子修订成簇时会在 TimeoutStartSec 处被杀，表变成半新半旧且没有任何「还剩多少只没跑」的计数（未完成标的下一轮按自身 last_date 续，不丢历史）"
-    guard: "NONE"
+    impact: "2026-11-04 按实测重排了预算：超时 21600→28800，单元注释与 AGENTS.md 里「5221 只 × 约 0.6 秒 / 全量约 60 分钟」的措辞已改写，tests/test_sync_post_jobs.py 从钉字面值改成断下界。实测口径（三条都能在场复核）：adj 1.41 秒/只 = 122.6 分（11-02，rebase=61）/ 124.9 分（11-04，rebase=50），hfq 1.47 秒/只 = 128 分，full_sync 40→73 分，整轮 journal 记账 11-02 = 4h51m59s、11-03 = 5h19m20s；旧 6 小时在 11-04 只剩不到 30 分钟。仍未解的是两件事：① 三段共享一次 activation 的一个超时，被杀时后半段没有任何完成标记、也没有「还剩多少只没跑」的计数（未完成标的下一轮按自身 last_date 续，不丢历史）——8 小时下退避余量约够 130 次 rebase（每次约 69 秒）；② `-` 前缀吞失败：2026-11-04 adj 于 19:52 跑完后 hfq 因 baostock 登录失败 exit 1，单元仍记 `Finished`、OnFailure 不响，只能从日志末行与 hfq 表末日期反推"
+    guard: "tests/test_sync_post_jobs.py"
     owner: "jiuben"
     due: "2026-11-25"
     exemption: "NONE"
-    fix_hint: "评估见 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §1.4：推荐把 adj/hfq 拆成独立 oneshot + 各自 timer（每段自带超时与 OnFailure），TimeoutStartSec 调大只作一次性缓冲；不做多会话并行（baostock 单会话+限流）。与 KI-OPS-003（缺 TimeoutStartSec，已修）同主题不同位置"
+    fix_hint: "方案 A 已落地（提超时 + 措辞按实测更正 + 守卫改下界断言）。仍推荐 docs/OPS_SYNC_CHAIN_BUDGET_AND_FRESHNESS.md §1.4 的方案 B：把 adj/hfq 拆成独立 oneshot + 各自 timer（每段自带超时与 OnFailure，并补「本轮未完成只数」的落盘计数）；不做多会话并行（baostock 单会话+限流）。与 KI-OPS-003（缺 TimeoutStartSec，已修）同主题不同位置"
 
   - id: KI-OPS-005
     title: "表级新鲜度只看 30 只抽样的末日期中位数，部分落后/后置连挂/坏值进表都不可见"

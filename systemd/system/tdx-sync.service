@@ -19,7 +19,17 @@ ExecStartPost=-@TDX_HOME@/venv/bin/python -m tdxfeed.adj_factor
 ExecStartPost=-@TDX_HOME@/venv/bin/python -m tdxfeed.hfq_factor
 StandardOutput=append:@TDX_HOME@/logs/tdx-systemd.log
 StandardError=append:@TDX_HOME@/logs/tdx-systemd.log
-# 6 小时 = full_sync + adj 全市场约 60 分钟 + hfq 全市场约 60 分钟 + 退避/重试余量。
-# 两个后置任务各自 5221 只 × 约 0.6 秒且都打 baostock，3 小时的原值在源变慢时会把
-# oneshot 拖到 TimeoutStartSec 被杀——后半段会被截断且没有任何完成标记。
-TimeoutStartSec=21600
+# 预算按 2026-11 三个交易日的实测串行墙钟重排。旧注释写的"adj / hfq 全市场各约 60 分钟"
+# 已被否证，实际数是 122–128 分钟（5221 只逐只打 baostock，除权日还要整表重拉）：
+#   full_sync   40 分钟（11-02）→ 73 分钟（11-04）
+#   indicators   1.1 分钟（11-02）→ 3.7 分钟（11-03）→ 2.0 分钟（11-04）
+#   adj_factor 122.6 分钟（11-02，rebase=61）/ 124.9 分钟（11-04，rebase=50）
+#   hfq_factor 128 分钟（11-02，19:14:46 → 21:22:51）
+#   整轮 journal 记账：11-02 = 4h51m59s，11-03 = 5h19m20s（都是跑完的）
+# 取各任务实测最坏值并向上取整（90 + 10 + 150 + 150 = 400 分钟 ≈ 6h40m），再给
+# baostock 会话重连（单轮上限 30 次）留退避余量 → 8 小时。
+# 原来的 6 小时在 11-04 只剩不到 30 分钟余量：任一环节变慢就会被 TimeoutStartSec 截断，
+# 而截断时后半段没有任何完成标记，`-` 前缀还会把单元记成 Finished——所以 6 小时不是
+# "安全上限"，是"跑完刚好没余量"。也别压回 3 小时（源变慢时会把 oneshot 拖到被杀）。
+# 下一档触发点是次日 16:30，8 小时最晚到 00:30，不会与下一轮撞车。
+TimeoutStartSec=28800

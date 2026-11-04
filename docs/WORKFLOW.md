@@ -38,7 +38,7 @@
 | `scripts/download_universe.py` | 沪深 A 股代码清单/补全 | pytdx 枚举 + Sina 日 K | `data/all_a_stocks.json` | 手动 |
 | `scripts/analyze_one.py` | 单只股多因子分析（技术面）| parquet/daily + adj_factor | dict（落库） | 单股触发 |
 | `tdxfeed/full_sync.py` | **实际生产全量同步**（systemd 调用）：Sina 源日K + akshare 清单 + 财务增量（**2026-10-26 起接入腾讯源分页深取**）。**不产复权因子**（`grep -n adj tdxfeed/full_sync.py tdxfeed/writers.py` 零命中）| Sina/akshare/baostock/腾讯 | `data/parquet/daily/*.parquet`（5,236）+ `sh\|sz/lday/*.day`（增量双写）| 系统级 `tdx-sync.timer` 工作日 16:30 |
-| `tdxfeed/adj_factor.py` | **复权因子增量更新**（2026-10-29 新增）：baostock 前复权/不复权双序列 → 重叠日校验 → 除权后整表重拉；`date` 保持 `date32[day]` | baostock | `data/adj_factor/*.parquet`（5,221）| `tdx-sync.service` 的 `ExecStartPost`（工作日 16:30 同步成功后；全量约 60 分钟）|
+| `tdxfeed/adj_factor.py` | **复权因子增量更新**（2026-10-29 新增）：baostock 前复权/不复权双序列 → 重叠日校验 → 除权后整表重拉；`date` 保持 `date32[day]` | baostock | `data/adj_factor/*.parquet`（5,221）| `tdx-sync.service` 的 `ExecStartPost`（工作日 16:30 同步成功后；实测 122.6–124.9 分钟，非旧记的约 60 分钟）|
 | `tdxfeed/hfq_factor.py` | **后复权因子增量更新**（2026-10-29 新增）：baostock adjustflag=1 后复权 / 3 不复权双序列 → 重叠日 `hfq_close` 校验 → 源修订才整表重拉；旧表把不复权当后复权（实际存的是 1/前复权因子），已按真后复权重写 | baostock | `data/hfq_factor/*.parquet`（5,221，schema `code,date,hfq_factor,raw_close,hfq_close`）| `tdx-sync.service` 的第三条 `ExecStartPost`（同步成功后；日常增量只查 1 天窗口，从零全量重建要 3 小时以上——每只两条全历史查询）|
 | `tdxfeed/precompute/indicators.py` | **派生表预计算**（MA/MACD/KDJ/RSI/BOLL + 形态 + 相似K线）| parquet/daily | `data/parquet/derived/*_indicators.parquet`（5,211）| `tdx-sync.service` 的 `ExecStartPost`（`--incremental`，全市场约 1 分钟）|
 | `tdxfeed/cli.py` | `sync` 子命令：单标的拉取双写（**仅手动单只，非全量**）| Sina/akshare/tencent | 同上 | 手动 |
@@ -488,7 +488,7 @@ tdx-data-feed/
 | 任务 | 自动触发 | 手动触发 | 触发器 |
 |---|---|---|---|
 | 行情同步 | ✅ | - | 系统级 systemd timer `tdx-sync.timer` (工作日 16:30) |
-| 复权因子增量 | ✅ | ✅ | `tdx-sync.service` 的 `ExecStartPost`（同步成功后，全量约 60 分钟）/ `make data-adj` |
+| 复权因子增量 | ✅ | ✅ | `tdx-sync.service` 的 `ExecStartPost`（同步成功后，实测约 123–125 分钟）/ `make data-adj` |
 | 派生表增量（indicators）| ✅ | ✅ | `tdx-sync.service` 的 `ExecStartPost`（`--incremental`，约 1 分钟）/ `python -m tdxfeed.precompute.indicators --incremental` |
 | 训练健康检查 | ✅ | - | systemd timer `trainsh-health.timer` (5min) |
 | 翻倍样本重建 | ✅ | ✅ | `plan-e-double-up.timer`（18:30）/ `make analyze-double-up` |

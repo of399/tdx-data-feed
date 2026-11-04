@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 from pathlib import Path
 
 from scripts.render_systemd_units import render_text
@@ -55,5 +56,19 @@ def test_all_post_jobs_are_optional():
 
 
 def test_timeout_covers_both_full_market_post_jobs():
-    """adj 与 hfq 各自全市场约 60 分钟，3 小时的原值会在源变慢时把 oneshot 拖超时。"""
-    assert "TimeoutStartSec=21600" in _unit_text()
+    """超时上限必须罩得住「full_sync + 三条串行后置」整条链的实测最坏值。
+
+    2026-11-04 按实测重排预算（旧断言钉的是 `TimeoutStartSec=21600`，且注释/AGENTS 都写
+    「adj 与 hfq 各自约 60 分钟」——那个数是错的）：整轮串行墙钟 11-02 = 4h51m59s、
+    11-03 = 5h19m20s；单任务实测 adj 122.6/124.9 分钟、hfq 128 分钟、full_sync 40→73 分钟。
+    现值 28800（8 小时）= 各任务最坏值取整 400 分钟 + baostock 重连退避余量。
+
+    这里断**下界**而不是字面值：将来因为又变长而调大不该让这条红，压小才该红——
+    钉死字面值的守卫会把「按实测重排」这件事本身变成一次次的改测试。
+    """
+    match = re.search(r"^TimeoutStartSec\s*=\s*(\d+)\s*$", _unit_text(), re.M)
+    assert match, "tdx-sync.service 缺显式 TimeoutStartSec（三条后置共享一次 activation，不能落到默认值）"
+    timeout_sec = int(match.group(1))
+    assert timeout_sec >= 28800, (
+        f"TimeoutStartSec={timeout_sec} 罩不住实测整轮 5h19m20s + 退避余量（下界 28800s = 8h）"
+    )
