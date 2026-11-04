@@ -455,6 +455,32 @@ def test_dedup_views_separate_within_set_from_net_new():
     assert prim["reverse"]["dropped_by_seed"] == 1
 
 
+def test_dedup_view_names_the_dims_blocked_within_the_set():
+    """集内换位也要点名：只点名「被现役挡」会让『离开净新增』读起来像信号消失。
+
+    h=5 的 47 条在别的窗口少了 8–11 条，其中大多数不是变弱，而是**同族里另一条当了代表**
+    （`SUMN60` 与 `SUMP60` 的 `|corr|` 恰为 1.0）。这一层看不见，读者就会把「清单换人」
+    读成「信息丢了」，而那正好是候选集取舍上最贵的一次误读。
+    """
+    mod = _panel_module()
+    daily, summary = _dedup_inputs()
+    # K4 与 K3 是同一个自由度（差一个常数 ⇒ |corr|=1），但与现役两套都正交：
+    # 它只能被**集内**的 K3 吸收，落不进 seed 那份清单。
+    daily["K4"] = daily["K3"] - 0.03
+    summary.loc["K4"] = [300, 0.12, 0.1, 2.0, 0.9, 5.0, 1e-9, 0.009, 3e-6, True]
+    dims = ["K1", "K2", "K3", "K4"]
+    prim = mod.dedup_views(daily, summary, dims, ["F1", "F2"])[mod.DEDUP_PRIMARY]
+    nn = prim["net_new"]
+    assert [t["dim"] for t in nn["blocked_by_seed"]] == ["K1", "K2"], \
+        f"K1/K2 是现役 F1 的替身，该进 seed 那份清单：{nn}"
+    twin = nn["blocked_within"]
+    assert [t["dim"] for t in twin] == ["K4"], f"K4 只能被集内的 K3 吸收：{twin}"
+    assert twin[0]["by"] == "K3" and twin[0]["abs_corr"] > 0.99, f"没点到挡它的那条同族维：{twin[0]}"
+    # 两份清单合起来 = 全部被挡掉的维，且互不重叠（谁挡的要能被唯一归因）
+    assert nn["dropped_by_seed"] == 2 and nn["dropped_within"] == 1
+    assert not ({t["dim"] for t in nn["blocked_by_seed"]} & {t["dim"] for t in twin})
+
+
 def test_dedup_views_report_every_threshold():
     """三档阈值并报：独立维数不能读成一个阈值的 artifact。"""
     mod = _panel_module()
@@ -463,6 +489,26 @@ def test_dedup_views_report_every_threshold():
     assert sorted(out) == [0.7, 0.8, 0.9], f"实得 {sorted(out)}"
     counts = [out[t]["net_new"]["kept"] for t in (0.7, 0.8, 0.9)]
     assert counts[0] <= counts[1] <= counts[2], f"阈值越高净新增不该变少：{counts}"
+
+
+def test_dedup_view_names_the_dims_blocked_by_seed():
+    """被 seed 挡掉的维要**点名到「谁挡的」**，不能只给条数与中位 |IC|。
+
+    「现役已经覆盖了哪几条」是这套比较里最容易被糊成一句的结论：条数只说「挡掉 28 条」，
+    读者会以为是 28 条一一对应；只有点到 `K1 ← F1` 这种程度，才能核对挡掉的到底是同一个
+    自由度、还是名义上相关的两条。（条数与中位 |IC| 继续留着：那是强度，名字是身份。）
+    """
+    mod = _panel_module()
+    daily, summary = _dedup_inputs()
+    out = mod.dedup_views(daily, summary, ["K1", "K2", "K3"], ["F1", "F2"])
+    blocked = out[mod.DEDUP_PRIMARY]["net_new"]["blocked_by_seed"]
+    assert isinstance(blocked, list), f"实得 {type(blocked)}：要的是记录清单"
+    assert [b["dim"] for b in blocked] == ["K1", "K2"], \
+        f"被现役挡的该是 K1、K2 两条替身（按 |mean_IC| 序）：{blocked}"
+    assert all(b["by"] == "F1" and b["abs_corr"] > 0.99 for b in blocked), \
+        f"没点到挡它们的那条 seed 维：{blocked}"
+    assert out[mod.DEDUP_PRIMARY]["net_new"]["dropped_by_seed"] == len(blocked), \
+        "条数与清单必须一致"
 
 
 def test_report_renders_the_dedup_table():
@@ -483,3 +529,442 @@ def test_report_renders_the_dedup_table():
     # 「净新增」两种口径加错组合（2+2、57+15 之类），得出一个谁都没算过的数。
     assert "并集 = 现役独立 2 + 净新增 1 = 3 条独立信号" in text
     assert "被挡" in text, "被 seed 挡掉的那批没有效应量列，读者会默认它是杂讯"
+
+
+# ------------------------------------------------------------------ 多 horizon #
+def test_label_formula_is_single_sourced():
+    """标签算式只能有一份：装配侧必须调用 `forward_return`，不许自己再写 shift。
+
+    多 horizon 的全部前提就是「换 horizon 只换标签列」。装配侧与 relabel 侧各写
+    一份 shift 的话，两者会在尾段悄悄分叉——而尾段正是最容易写错的地方。
+    """
+    mod = _panel_module()
+    src = inspect.getsource(mod.build_code_panel)
+    assert "forward_return(" in src, "装配侧没有走共享的标签算式"
+    assert ".shift(-" not in src, "装配侧自己又写了一份 shift：两处口径会分叉"
+
+    close = pd.Series([10.0, 11.0, 12.1, 12.1])
+    got = mod.forward_return(close, 1).to_numpy()
+    assert got[0] == pytest.approx(0.1) and got[1] == pytest.approx(0.1)
+    assert got[2] == pytest.approx(0.0)
+    assert np.isnan(got[3]), "尾部不足 horizon 天必须是 NaN，不是 0"
+
+
+def test_attach_horizon_labels_reproduces_the_primary_label():
+    """复用面板加标签列时，主 horizon 那一列必须逐格重现面板里已有的 label。
+
+    这条不是「顺便测一下」：它是 relabel 路径与装配路径唯一的咬合点。日期没对齐、
+    用了 raw 价而不是 hfq、shift 的轴错了——都会在这里红，而下游每个数都靠它。
+    """
+    mod = _panel_module()
+    raw, hfq = _frames()
+    panel = _build(mod, raw, hfq, horizon=5)
+    closes = {"600000": hfq.assign(date=hfq["date"].astype(str)).set_index("date")["close"]
+              .astype(float).sort_index()}
+
+    out, stats = mod.attach_horizon_labels(panel, closes, horizons=(5, 10, 20))
+
+    assert len(out) == len(panel), "加标签列不许丢行：丢行会悄悄改变横截面"
+    assert {"label", "label_h5", "label_h10", "label_h20"} <= set(out.columns)
+    assert stats["mismatch"] == 0, f"主 horizon 与面板 label 不一致：{stats}"
+    np.testing.assert_allclose(out["label_h5"].to_numpy(dtype=float),
+                               panel["label"].to_numpy(dtype=float),
+                               rtol=1e-12, equal_nan=True)
+    # 手工复算中间一行：t→t+10 的 hfq 收盘收益
+    series = closes["600000"]
+    pos_of = {dd: i for i, dd in enumerate(series.index)}
+    d = out["date"].iloc[50]
+    pos = pos_of[d]
+    assert out["label_h10"].iloc[50] == pytest.approx(
+        series.iloc[pos + 10] / series.iloc[pos] - 1.0)
+    # 尾部缺不缺，判据是「t+N 在不在价格帧里」——面板建的时候按 h=5 已经丢过一批行，
+    # 所以「NaN 的格数」不等于 N，只能逐行对着帧的位置算。
+    for h in (5, 10, 20):
+        expect_nan = np.array([pos_of[dd] + h >= len(series) for dd in out["date"]])
+        assert (out[f"label_h{h}"].isna().to_numpy() == expect_nan).all(), (
+            f"h={h} 的缺失位置与帧内位置不吻合")
+
+
+def test_attach_horizon_labels_counts_unmatched_rows_instead_of_ignoring_them():
+    """面板里有、价格帧里没有的那一天：给 NaN 并**计数**，不许静默对齐错位。"""
+    mod = _panel_module()
+    raw, hfq = _frames()
+    panel = _build(mod, raw, hfq, horizon=5)
+    s = (hfq.assign(date=hfq["date"].astype(str)).set_index("date")["close"]
+         .astype(float).sort_index())
+    s = s.drop(s.index[10])                       # 抽掉一天
+    out, stats = mod.attach_horizon_labels(panel, {"600000": s}, horizons=(5,))
+    assert stats["unmatched_rows"] == 1, f"实得 {stats}"
+    assert int(out["label_h5"].isna().sum()) == 1
+    # 抽掉一天，代价不止那一天：帧尾 5 行从此失去 t+5 伙伴，面板里它们却仍带 label。
+    # mismatch = 1 + horizon 就是这个算术——帧不完整时尾段标签不可信，必须被抓住。
+    assert stats["mismatch"] == 1 + 5, f"实得 {stats}"
+
+
+def test_attach_horizon_labels_is_nan_not_zero_when_a_code_has_no_frame():
+    """整只票没有价格帧：标签全 NaN + 计数，绝不填 0（0 是「知道没有」）。"""
+    mod = _panel_module()
+    raw, hfq = _frames()
+    panel = _build(mod, raw, hfq, horizon=5)
+    out, stats = mod.attach_horizon_labels(panel, {}, horizons=(5, 10))
+    assert stats["codes_without_frame"] == 1, f"实得 {stats}"
+    assert out["label_h5"].isna().all() and out["label_h10"].isna().all()
+    assert len(out) == len(panel)
+
+
+# ---------------------------------------------------------- 多 horizon 与逐年衰减（分析层） #
+def _multi_panel(mod):
+    """一个小面板：12 只票 × 40 天、两天一维、跨年，标签按 h1/h5 在尾部留 NaN。
+
+    码数必须 ≥ 8 左右：`rank_ic` 要 5 对以上有效样本才给数，3 只票的横截面会让每一天
+    都是 NaN——那样测的是构造，不是判据。
+    """
+    n_days, n_codes = 40, 12
+    days = [date(2024, 12, 30) + timedelta(days=i) for i in range(n_days)]
+    rng = np.random.default_rng(3)
+    rows = []
+    for k in range(n_codes):
+        px = 10.0 * np.cumprod(1 + rng.normal(0.0005, 0.02, n_days))
+        for j, d in enumerate(days):
+            rows.append({
+                "date": str(d), "code": f"6000{k:02d}",
+                "label_h1": px[j + 1] / px[j] - 1.0 if j + 1 < n_days else np.nan,
+                "label_h5": px[j + 5] / px[j] - 1.0 if j + 5 < n_days else np.nan,
+                "F1": (k * 7 + j) % 11, "F2": (k * 3 + 2 * j) % 9,
+                "A1": -((k * 5 + j) % 13),
+            })
+    return pd.DataFrame(rows)
+
+
+def test_horizon_block_runs_the_same_judgment_per_horizon():
+    """每个 horizon 都走同一套判据，只是换标签列与 HAC 滞后。
+
+    `maxlags` 必须跟着 horizon 走：h=1 的标签不重叠，套 h=5 的滞后是在给不存在的
+    自相关留余量；反过来 h=20 用 5 会低估标准误。
+    """
+    mod = _panel_module()
+    panel = _multi_panel(mod)
+    out = mod.horizon_block(panel, ["F1", "F2", "A1"], ["A1"], ["F1", "F2"],
+                            horizon=5, min_codes=2, alpha=0.05)
+    assert out["horizon"] == 5
+    assert out["days_with_ic"] > 0
+    for key in ("median_abs_ic", "reject", "within", "net_new", "reverse"):
+        assert key in out, f"缺 {key}：{sorted(out)}"
+    assert set(out["median_abs_ic"]) == {"Alpha158", "FEAT26"}
+    assert out["net_new"]["kept"] + out["net_new"]["dropped_by_seed"]
+    # h=1 与 h=5 是两个独立的块：标签列不同，数字也该不同
+    out1 = mod.horizon_block(panel, ["F1", "F2", "A1"], ["A1"], ["F1", "F2"],
+                             horizon=1, min_codes=2, alpha=0.05)
+    assert out1["days_with_ic"] >= out["days_with_ic"]
+
+
+def test_yearly_decay_reports_median_abs_ic_and_sign_agreement():
+    """逐年衰减要给两个数：那一年的 IC 中位绝对值，以及**与全样本同号的维占比**。
+
+    只报均值会掩盖「一半维在换向」；同号率才是衰减的形状。年份从日期字符串取，
+    所以跨年面板要能分开。
+    """
+    from tdxfeed.alpha158.ic import daily_ic
+
+    mod = _panel_module()
+    panel = _multi_panel(mod)
+    cfg = mod.IcConfig(label_col="label_h5", min_codes=2, maxlags=5, alpha=0.05)
+    daily = daily_ic(panel, ["F1", "F2", "A1"], cfg)
+    summary = mod.summarize_ic(daily, cfg)
+    groups = {"全部": ["F1", "F2", "A1"], "净新增": ["F1"]}
+    out = mod.yearly_decay(daily, summary, groups, maxlags=5)
+    assert sorted(out["years"]) == ["2024", "2025"], f"实得 {out['years']}"
+    g = out["groups"]["全部"]
+    assert set(g["median_abs_ic"]) <= set(out["years"])
+    assert set(g["median_abs_ic"]) == set(g["sign_agreement"]) == set(g["n_dims"])
+    for y in g["median_abs_ic"]:
+        assert 0.0 <= g["sign_agreement"][y] <= 1.0
+        assert g["n_dims"][y] > 0, "没有维的年份不该出现"
+    nn = out["groups"]["净新增"]
+    assert nn["n_dims"], "净新增组一个年份都没出：聚合层把有数的维丢了"
+    assert all(v == 1 for v in nn["n_dims"].values()), f"单维组该每年 1 条：{nn['n_dims']}"
+
+
+def test_horizon_block_persists_both_blocker_lists():
+    """每个 horizon 的块要落两份「被谁挡」清单，报告与文档的换位结论才不用一次性脚本。
+
+    块里只有条数的话，「47 条在 h=20 少了几条」就没法回答是现役覆盖还是同族换位——
+    而那正是这份研究交付的结论之一。
+    """
+    mod = _panel_module()
+    panel = _multi_panel(mod)
+    out = mod.horizon_block(panel, ["F1", "F2", "A1"], ["A1"], ["F1", "F2"],
+                            horizon=5, min_codes=2, alpha=0.05)
+    nn = out["net_new"]
+    for key in ("blocked_by_seed", "blocked_within"):
+        assert key in nn, f"块里缺 {key}：{sorted(nn)}"
+        assert all(set(r) == {"dim", "by", "abs_corr"} for r in nn[key]), f"{key} 记录形状不对"
+    dims = [r["dim"] for r in nn["blocked_by_seed"]] + [r["dim"] for r in nn["blocked_within"]]
+    assert len(dims) == len(set(dims)) == nn["dropped_by_seed"] + nn["dropped_within"], \
+        "两份清单该不重不漏地拼成全部被挡掉的维"
+
+
+def test_yearly_decay_persists_the_per_year_noise_scale():
+    """逐年表也要有「该年该组自己的」门槛：171 天的那段与 656 天不是一把尺子。
+
+    报告里 3.7 那张「比值 = 中位 |IC| ÷ 该年该组 2×SE」的表必须能从产物复核；如果
+    `yearly_decay` 不落这个数，它就只存在于一次性脚本里，下一轮重跑就没了。
+    `maxlags` 由调用方给（与主口径同一判据），函数自己不猜。
+    """
+    from tdxfeed.alpha158.ic import daily_ic
+
+    mod = _panel_module()
+    panel = _multi_panel(mod)
+    cfg = mod.IcConfig(label_col="label_h5", min_codes=2, maxlags=5, alpha=0.05)
+    daily = daily_ic(panel, ["F1", "F2", "A1"], cfg)
+    summary = mod.summarize_ic(daily, cfg)
+    groups = {"全部": ["F1", "F2", "A1"]}
+    out = mod.yearly_decay(daily, summary, groups, maxlags=5)
+    g = out["groups"]["全部"]
+    assert set(g["noise_scale"]) == set(out["years"]), "门槛要逐年出"
+    checked = 0
+    for y in out["years"]:
+        sub = daily.loc[[d for d in daily.index if str(d).startswith(y)], groups["全部"]]
+        vals = [mod.cv_utils.ic_newey_west(sub[c], maxlags=5)["se_hac"]
+                for c in groups["全部"]]
+        expect = float(np.nanmedian(vals)) if any(np.isfinite(vals)) else float("nan")
+        got = g["noise_scale"][y]
+        if np.isfinite(expect):
+            assert got == pytest.approx(expect), f"{y} 年门槛不是该年该组的数"
+            checked += 1
+        else:
+            # 那一年不足 10 天：HAC 给 NaN，这里也必须 NaN——编一个门槛比缺门槛更坏
+            assert np.isnan(got), f"{y} 年样本不足却给出了门槛 {got}"
+    assert checked >= 1, "一年都没算出门槛：这个字段等于没实现"
+
+
+def test_horizon_block_persists_its_own_noise_scale():
+    """每个 horizon 的噪声门槛要跟着块落盘：HAC 标准误是随 maxlags 变的数。
+
+    h=1 的标签不重叠、h=20 的重叠 19 天，同一张日频 IC 表算出的 `nw_se` 中位差一截。
+    拿主口径那一条门槛去判其他 horizon 的差值，等于用一个本块不存在的门槛；而块里
+    没有这个数，报告的门槛列就只能写死一个常量。
+    """
+    mod = _panel_module()
+    panel = _multi_panel(mod)
+    cols = ["F1", "F2", "A1"]
+    out = mod.horizon_block(panel, cols, ["A1"], ["F1", "F2"],
+                            horizon=5, min_codes=2, alpha=0.05)
+    cfg = mod.IcConfig(label_col="label_h5", min_codes=2, maxlags=5, alpha=0.05)
+    expect = float(mod.summarize_ic(mod.daily_ic(panel, cols, cfg), cfg)["nw_se"].median())
+    assert out["noise_scale"] == pytest.approx(expect), "门槛不是本块 summary 的中位 SE"
+    out1 = mod.horizon_block(panel, cols, ["A1"], ["F1", "F2"],
+                             horizon=1, min_codes=2, alpha=0.05)
+    assert out1["noise_scale"] > 0, "门槛给成 0/NaN：报告里 2×SE 会变成「什么都能分开」"
+
+
+def test_report_noise_column_is_per_horizon():
+    """多 horizon 表里每一行的门槛是该块自己的 2×SE，不是主口径那一条。
+
+    判据只能钉在「那一行的那一格」上：0.0250 这种数在本表别处也会出现（FEAT26 的
+    |IC| 中位就是它），整篇文本 `in` 判断会给出假通过。
+    """
+    mod = _panel_module()
+    idx = ["A1", "F1", "F2"]
+    summary = pd.DataFrame({
+        "n_days": [35] * 3, "mean_ic": [0.04, 0.03, -0.02], "ic_std": [0.1] * 3,
+        "icir": [0.4] * 3, "pos_rate": [0.6] * 3, "nw_t": [4.0, 3.0, -2.0],
+        "nw_p": [1e-4] * 3, "nw_se": [0.01] * 3, "q_value": [3e-4] * 3,
+        "reject": [True, True, False]}, index=idx)
+    meta = _multi_meta(mod)
+    meta["horizons"]["1"]["noise_scale"] = 0.0050
+    meta["horizons"]["5"]["noise_scale"] = 0.0125
+    text = "\n".join(mod.report_lines(summary, ["A1"], ["F1", "F2"], meta))
+    assert "2×SE" in text, "没给判定门槛：读者会把 0.004 的差当成结论"
+
+    def _row(h):
+        lines = [ln for ln in text.splitlines() if ln.startswith(f"| {h} | ")]
+        assert len(lines) == 1, f"多 horizon 表里 h={h} 的行不唯一/缺失：{lines}"
+        return lines[0]
+
+    def _threshold(h):
+        # 门槛是倒数第二格（最后一格是「被现役挡」的点名，长度会变，别按末位取）
+        cells = [c.strip() for c in _row(h).strip("|").split("|")]
+        return cells[-2]
+
+    assert _threshold(1) == "0.0100", f"h=1 行的门槛格不是自己的 2×SE：{_row(1)}"
+    assert _threshold(5) == "0.0250", f"h=5 行的门槛格不是自己的 2×SE：{_row(5)}"
+
+
+def test_report_read_note_follows_the_actual_day_counts():
+    """读法要由天数派生：四块同基时还写「天数会随 h 变短」就是凭空提醒。"""
+    mod = _panel_module()
+    idx = ["A1", "F1", "F2"]
+    summary = pd.DataFrame({
+        "n_days": [35] * 3, "mean_ic": [0.04, 0.03, -0.02], "ic_std": [0.1] * 3,
+        "icir": [0.4] * 3, "pos_rate": [0.6] * 3, "nw_t": [4.0, 3.0, -2.0],
+        "nw_p": [1e-4] * 3, "nw_se": [0.01] * 3, "q_value": [3e-4] * 3,
+        "reject": [True, True, False]}, index=idx)
+    same = _multi_meta(mod)
+    for blk in same["horizons"].values():
+        blk["days_with_ic"] = 39
+    text = "\n".join(mod.report_lines(summary, ["A1"], ["F1", "F2"], same))
+    assert "同一批天" in text and "39" in text, f"同基要说同基：{text[-900:]}"
+    diff = _multi_meta(mod)
+    text2 = "\n".join(mod.report_lines(summary, ["A1"], ["F1", "F2"], diff))
+    assert "同一批天" not in text2, "天数不等还写同基：覆盖差被抹掉了"
+    assert "窗口尽头" in text2, "覆盖不等时要说明那是尾段窗口，不是信号消失"
+
+
+def test_report_reuse_line_does_not_claim_zero_seconds():
+    """复用面板时没有 `elapsed_sec`：印「耗时 0s」会被读成这一轮不花钱。
+
+    复用省下的是**装配**（几十分钟），标签列与判据那一轮仍然要跑。报告要么印实测
+    秒数，要么明说「装配未重跑」——不能拿缺省值 0 冒充一个测过的数。
+    """
+    mod = _panel_module()
+    idx = ["A1", "F1", "F2"]
+    summary = pd.DataFrame({
+        "n_days": [35] * 3, "mean_ic": [0.04, 0.03, -0.02], "ic_std": [0.1] * 3,
+        "icir": [0.4] * 3, "pos_rate": [0.6] * 3, "nw_t": [4.0, 3.0, -2.0],
+        "nw_p": [1e-4] * 3, "nw_se": [0.01] * 3, "q_value": [3e-4] * 3,
+        "reject": [True, True, False]}, index=idx)
+    meta = _multi_meta(mod)
+    meta.pop("elapsed_sec", None)
+    meta["reused_panel"] = "data/alpha158_ic/panel_x.parquet"
+    meta["label_attach_sec"] = 22.6
+    text = "\n".join(mod.report_lines(summary, ["A1"], ["F1", "F2"], meta))
+    assert "耗时 0s" not in text, f"缺省值被印成了实测：{text.splitlines()[5]}"
+    assert "22.6s" in text, "加标签列的实际秒数要出现在报告里"
+    meta.pop("label_attach_sec")
+    text2 = "\n".join(mod.report_lines(summary, ["A1"], ["F1", "F2"], meta))
+    assert "耗时" not in text2, "两个数都没测过时，宁可整条不写"
+
+
+def test_report_yearly_table_shows_ratio_to_that_years_threshold():
+    """逐年表的每一格要同时给「比值 = 中位 |IC| ÷ 该年 2×SE」，否则 0.0121 会被读成没了。
+
+    判据只能钉在行内容上：整篇文本里 0.0 开头的数字到处都是，`in` 判断会假通过。
+    """
+    mod = _panel_module()
+    idx = ["A1", "F1", "F2"]
+    summary = pd.DataFrame({
+        "n_days": [35] * 3, "mean_ic": [0.04, 0.03, -0.02], "ic_std": [0.1] * 3,
+        "icir": [0.4] * 3, "pos_rate": [0.6] * 3, "nw_t": [4.0, 3.0, -2.0],
+        "nw_p": [1e-4] * 3, "nw_se": [0.01] * 3, "q_value": [3e-4] * 3,
+        "reject": [True, True, False]}, index=idx)
+    meta = _multi_meta(mod)
+    meta["yearly"] = {"years": ["2024", "2025"],
+                      "groups": {"净新增": {
+                          "median_abs_ic": {"2024": 0.0400, "2025": 0.0100},
+                          "sign_agreement": {"2024": 1.0, "2025": 0.5},
+                          "n_dims": {"2024": 1, "2025": 1},
+                          # 2×SE：2024 = 0.0200、2025 = 0.0300 ⇒ 比值 2.00 与 0.33
+                          "noise_scale": {"2024": 0.0100, "2025": 0.0150}}}}
+    text = "\n".join(mod.report_lines(summary, ["A1"], ["F1", "F2"], meta))
+    rows = [ln for ln in text.splitlines() if ln.startswith("| 净新增")]
+    assert len(rows) == 3, f"该组应给出中位/比值/同号率三行：{rows}"
+    ratio = next(ln for ln in rows if "比值" in ln)
+    assert "2.00" in ratio and "0.33" in ratio, f"比值不是该年自己的门槛算的：{ratio}"
+
+
+def test_report_multihorizon_names_dims_blocked_by_current_set():
+    """多 horizon 表要按窗口点出「被现役挡掉的那几条」——跨窗口的覆盖关系会变。
+
+    只给条数就会漏掉一件要紧事：同一维可能只在某个窗口被现役覆盖（本面板实测
+    `STD60` 只在 h=20 被 `volatility_5d` 挡）。这一列也是「现役已经覆盖了什么」的
+    唯一逐窗证据，所以名字必须在产物里，而不是只活在一次性脚本的输出里。
+    """
+    mod = _panel_module()
+    idx = ["A1", "F1", "F2"]
+    summary = pd.DataFrame({
+        "n_days": [35] * 3, "mean_ic": [0.04, 0.03, -0.02], "ic_std": [0.1] * 3,
+        "icir": [0.4] * 3, "pos_rate": [0.6] * 3, "nw_t": [4.0, 3.0, -2.0],
+        "nw_p": [1e-4] * 3, "nw_se": [0.01] * 3, "q_value": [3e-4] * 3,
+        "reject": [True, True, False]}, index=idx)
+    meta = _multi_meta(mod)
+    meta["horizons"]["1"]["net_new"]["blocked_by_seed"] = []
+    meta["horizons"]["5"]["net_new"]["blocked_by_seed"] = [
+        {"dim": "A1", "by": "F1", "abs_corr": 0.93}]
+    text = "\n".join(mod.report_lines(summary, ["A1"], ["F1", "F2"], meta))
+
+    def _row(h):
+        return next(ln for ln in text.splitlines() if ln.startswith(f"| {h} | "))
+
+    assert "A1←F1" in _row(5), f"h=5 行没点出被现役挡的维：{_row(5)}"
+    assert "A1←F1" not in _row(1), "没挡就别写"
+
+
+def test_parse_horizons_includes_primary_and_rejects_nonpositive():
+    """主 horizon 必须在列表里（没有它就没有与主口径对齐的锚点）；h≤0 直接拒。"""
+    mod = _panel_module()
+    assert mod.parse_horizons("1,10,20", 5) == [1, 5, 10, 20]
+    assert mod.parse_horizons("", 5) == [5]
+    assert mod.parse_horizons(" 5 , 5 ", 5) == [5], "重复与空白要能吞掉"
+    for bad in ("0", "5,-3"):
+        with pytest.raises(ValueError):
+            mod.parse_horizons(bad, 5)
+    with pytest.raises(ValueError):
+        mod.parse_horizons("1", 0)
+
+
+def _multi_meta(mod):
+    return {"tag": "t", "codes_built": 3, "days": 40, "rows": 480,
+            "sample_requested": 3, "skipped": {}, "horizon": 5, "min_codes": 2,
+            "alpha": 0.05, "elapsed_sec": 1.0, "include_proxy": False,
+            "proxy_caliber_start": "2026-09-16", "feat26_amount_dims": [],
+            "alpha158_vwap_dims": [], "codes_per_day_median": 12.0,
+            "horizons": {
+                "1": {"horizon": 1, "days_with_ic": 39, "noise_scale": 0.0070,
+                      "median_abs_ic": {"Alpha158": 0.020, "FEAT26": 0.030},
+                      "reject": {"Alpha158": 1, "FEAT26": 1},
+                      "within": {"Alpha158": 1, "FEAT26": 2},
+                      "net_new": {"kept": 1, "reject": 0, "median_abs_ic": 0.02,
+                                  "blocked_median_abs_ic": 0.03, "dropped_by_seed": 0,
+                                  "dropped_within": 0, "kept_dims": ["A1"]},
+                      "reverse": {"kept": 2, "median_abs_ic": 0.03,
+                                  "kept_dims": ["F1", "F2"]}},
+                "5": {"horizon": 5, "days_with_ic": 35, "noise_scale": 0.0110,
+                      "median_abs_ic": {"Alpha158": 0.040, "FEAT26": 0.031},
+                      "reject": {"Alpha158": 1, "FEAT26": 2},
+                      "within": {"Alpha158": 1, "FEAT26": 2},
+                      "net_new": {"kept": 1, "reject": 1, "median_abs_ic": 0.04,
+                                  "blocked_median_abs_ic": 0.03, "dropped_by_seed": 0,
+                                  "dropped_within": 0, "kept_dims": ["A1"]},
+                      "reverse": {"kept": 2, "median_abs_ic": 0.03,
+                                  "kept_dims": ["F1", "F2"]}}},
+            "yearly": {"years": ["2024", "2025"],
+                       "groups": {"净新增": {"median_abs_ic": {"2024": 0.05, "2025": 0.02},
+                                             "sign_agreement": {"2024": 1.0, "2025": 0.5},
+                                             "n_dims": {"2024": 1, "2025": 1}}}}}
+
+
+def test_report_renders_multi_horizon_and_yearly_tables():
+    """两张表都要出现，且要带「天数随 h 变短」与「同号率换向」的读法。
+
+    多 horizon 表少一行就会被读成「只有两个窗口」；逐年表没有同号率就会被读成
+    「均值掉了就是变弱」，而换向与变弱的处置完全不同。
+    """
+    mod = _panel_module()
+    idx = ["A1", "F1", "F2"]
+    summary = pd.DataFrame({
+        "n_days": [35] * 3, "mean_ic": [0.04, 0.03, -0.02], "ic_std": [0.1] * 3,
+        "icir": [0.4] * 3, "pos_rate": [0.6] * 3, "nw_t": [4.0, 3.0, -2.0],
+        "nw_p": [1e-4] * 3, "nw_se": [0.01] * 3, "q_value": [3e-4] * 3,
+        "reject": [True, True, False]}, index=idx)
+    text = "\n".join(mod.report_lines(summary, ["A1"], ["F1", "F2"], _multi_meta(mod)))
+    assert "多 horizon" in text and "逐年衰减" in text
+    assert "| 1 | 39 |" in text and "| 5 | 35 |" in text, "两个 horizon 的行都要在"
+    assert "maxlags=h" in text, "没说清每块的 HAC 滞后跟着 h 走"
+    assert "净新增 同号率" in text and "0.50" in text
+    assert "换向" in text, "同号率的含义必须写在表旁边"
+
+
+def test_report_without_multi_horizon_omits_both_sections():
+    """没跑多 horizon 时不要出现空表——空表看起来像「结论是没有」。"""
+    mod = _panel_module()
+    summary = pd.DataFrame({
+        "n_days": [10] * 2, "mean_ic": [0.04, 0.03], "ic_std": [0.1] * 2,
+        "icir": [0.4] * 2, "pos_rate": [0.6] * 2, "nw_t": [4.0, 3.0],
+        "nw_p": [1e-4] * 2, "nw_se": [0.01] * 2, "q_value": [3e-4] * 2,
+        "reject": [True, True]}, index=["A1", "F1"])
+    meta = _multi_meta(mod)
+    meta.pop("horizons")
+    meta.pop("yearly")
+    text = "\n".join(mod.report_lines(summary, ["A1"], ["F1"], meta))
+    assert "多 horizon" not in text and "逐年衰减" not in text

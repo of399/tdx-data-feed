@@ -59,6 +59,7 @@ sys.path.insert(0, str(ROOT))
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from quant.multifactor import cv_utils  # noqa: E402  # 统计量单源，不在这里重写
 from tdxfeed import adjusted, paths  # noqa: E402
 from tdxfeed.alpha158.eval import evaluate_frame  # noqa: E402
 from tdxfeed.alpha158.ic import (  # noqa: E402
@@ -153,6 +154,63 @@ def select_codes(sample: int, seed: int) -> list[str]:
     return sorted(random.Random(seed).sample(sorted(codes), sample))
 
 
+def forward_return(close: pd.Series, horizon: int) -> pd.Series:
+    """t→t+horizon 的收盘收益。**标签算式只有这一份**。
+
+    装配侧（`build_code_panel`）与复用侧（`attach_horizon_labels`）都必须走它：
+    多 horizon 分析的全部前提就是「换 horizon 只换标签列、特征一格不动」，
+    两份 shift 会在尾段悄悄分叉。尾部不足 horizon 天自然是 NaN——不是 0。
+    """
+    return close.astype(float).shift(-int(horizon)) / close.astype(float) - 1.0
+
+
+def attach_horizon_labels(panel: pd.DataFrame, closes: dict[str, pd.Series], *,
+                          horizons: Sequence[int],
+                          primary: int | None = None) -> tuple[pd.DataFrame, dict]:
+    """给已有面板加 `label_h{N}` 列：只读价格帧，不重算 158+26 维特征。
+
+    三条记账（都是「错了不报错、只静默给可看数字」的地方）：
+
+    ① `mismatch`——面板已有的 `label` 与 `label_h{primary}` 不一致的格数。这是两条路径
+       唯一的咬合点：日期没对齐、拿成 raw 价、shift 轴错都会在这里红。容差按 float32
+       给（面板落盘是 float32），所以它抓的是**口径**不是精度。
+    ② `unmatched_rows`——面板里有这一天、价格帧里没有 ⇒ NaN 并计数，不静默错位对齐。
+    ③ `codes_without_frame`——整只票没有帧 ⇒ 标签整列 NaN + 计数；**不填 0、不丢行**。
+       丢行会悄悄改变横截面，填 0 是把「不知道」写成「知道没有」。
+    """
+    hs = [int(h) for h in horizons]
+    if not hs:
+        raise ValueError("horizons 为空：没有标签列的面板不能出 IC")
+    primary = min(hs) if primary is None else int(primary)
+    out = panel.copy()
+    for h in hs:
+        out[f"label_h{h}"] = np.nan
+    stats = {"mismatch": 0, "unmatched_rows": 0, "codes_without_frame": 0,
+             "primary": primary, "horizons": hs}
+    has_label = "label" in out.columns
+    tol = 1e-5                                  # 面板 label 落盘是 float32
+    for code, sub in out.groupby("code", sort=True):
+        s = closes.get(str(code))
+        if s is None or len(s) == 0:
+            stats["codes_without_frame"] += 1
+            continue
+        pos = s.index.get_indexer(sub["date"].astype(str))
+        base = pos >= 0
+        stats["unmatched_rows"] += int((~base).sum())
+        for h in hs:
+            fwd = forward_return(s, h).to_numpy()
+            vals = np.where(base, fwd[np.clip(pos, 0, len(fwd) - 1)], np.nan)
+            out.loc[sub.index, f"label_h{h}"] = vals
+        if has_label and primary in hs:
+            a = out.loc[sub.index, "label"].astype(float).to_numpy(dtype=float)
+            b = out.loc[sub.index, f"label_h{primary}"].to_numpy(dtype=float)
+            both_nan = np.isnan(a) & np.isnan(b)
+            differ = (np.isnan(a) != np.isnan(b)) | (
+                ~np.isnan(a) & ~np.isnan(b) & ~np.isclose(a, b, rtol=tol, atol=1e-9))
+            stats["mismatch"] += int((differ & ~both_nan).sum())
+    return out, stats
+
+
 def build_code_panel(raw: pd.DataFrame, hfq: pd.DataFrame, code: str, *,
                      start: str, end: str, horizon: int, payload: dict,
                      feat_cols: Sequence[str] | None = None) -> pd.DataFrame:
@@ -171,8 +229,7 @@ def build_code_panel(raw: pd.DataFrame, hfq: pd.DataFrame, code: str, *,
     px["vwap"] = raw["amount"].astype(float) / raw["volume"].replace(0, np.nan)
     a158 = evaluate_frame(px, payload=payload)
 
-    close_h = hfq["close"].astype(float)
-    fwd = close_h.shift(-horizon) / close_h - 1.0
+    fwd = forward_return(hfq["close"], horizon)
 
     keep: list[int] = []
     feats: list[dict] = []
@@ -296,10 +353,22 @@ def _dedup_view(daily: pd.DataFrame, summary: pd.DataFrame, dims: list[str], *,
     out = _kept_stats(summary, res["kept"])
     seed_set = set(res["seed"])
     blocked = [d for d, v in res["dropped"].items() if v["by"] in seed_set]
+    twin = [d for d, v in res["dropped"].items() if v["by"] not in seed_set]
     rows = summary.loc[[d for d in blocked if d in summary.index]]
     ab = rows["mean_ic"].abs().to_numpy(dtype=float)
+
+    def _pair(names: list[str]) -> list[dict]:
+        return [{"dim": d, "by": res["dropped"][d]["by"],
+                 "abs_corr": res["dropped"][d]["abs_corr"]} for d in names]
+
     out.update(dropped_by_seed=len(blocked),
-               dropped_within=len(res["dropped"]) - len(blocked),
+               # 「被谁挡」点名到维，两份分开：seed（另一套已经有）与集内（同一套的替身
+               # 换位）。条数答「挡了几条」，名字答「现役到底覆盖了什么」——少了名字，
+               # 「挡掉 28 条」会被读成 28 条一一对应，而清单换人也会从「同族换位」
+               # 被误读成「信息丢了」。
+               blocked_by_seed=_pair(blocked),
+               blocked_within=_pair(twin),
+               dropped_within=len(twin),
                blocked_median_abs_ic=float(np.median(ab)) if ab.size else float("nan"),
                no_ic=len(res["no_ic"]),
                uncomparable=res["uncomparable"])
@@ -330,6 +399,107 @@ def dedup_views(daily: pd.DataFrame, summary: pd.DataFrame,
                                    threshold=thr, seed=within_a["kept_dims"]),
         }
     return out
+
+
+def horizon_block(panel: pd.DataFrame, feature_cols: Sequence[str],
+                  a158: Sequence[str], f26: Sequence[str], *,
+                  horizon: int, min_codes: int, alpha: float) -> dict:
+    """一个 horizon 的完整判据块：IC → 汇总 → 去重，参数只有标签列与 HAC 滞后在变。
+
+    `maxlags=horizon` 是必须的：重叠标签的自相关长度就是 horizon，h=20 用 5 会低估
+    标准误，h=1 用 5 是给不存在的自相关留余量。跨年/跨 horizon 的比较只有在这一条
+    成立时才同类。
+    """
+    label_col = f"label_h{horizon}"
+    if label_col not in panel.columns:
+        raise KeyError(f"面板没有 {label_col}：先用 --extra-horizons 加标签列再出 IC")
+    cfg = IcConfig(label_col=label_col, min_codes=min_codes,
+                   maxlags=horizon, alpha=alpha)
+    daily = daily_ic(panel, feature_cols, cfg)
+    summary = summarize_ic(daily, cfg)
+    ded = dedup_views(daily, summary, a158, f26)
+    prim = ded[DEDUP_PRIMARY]
+
+    def _set_stat(cols: Sequence[str], col: str) -> float | int:
+        rows = summary.loc[[c for c in cols if c in summary.index]]
+        if col == "reject":
+            return int(rows["reject"].sum())
+        return float(rows["mean_ic"].abs().median()) if len(rows) else float("nan")
+
+    nn = prim["net_new"]
+    return {
+        "horizon": int(horizon), "label_col": label_col,
+        "days_with_ic": len(daily),
+        # 噪声门槛是本块自己的数：`maxlags=h` 变了，HAC 标准误就跟着变，
+        # 拿主口径那条 SE 去判别的 horizon 等于换一个不存在的尺子。
+        "noise_scale": float(summary["nw_se"].median()),
+        "median_abs_ic": {"Alpha158": _set_stat(a158, "median"),
+                          "FEAT26": _set_stat(f26, "median")},
+        "reject": {"Alpha158": _set_stat(a158, "reject"),
+                   "FEAT26": _set_stat(f26, "reject")},
+        "within": {"Alpha158": prim["within"]["Alpha158"]["kept"],
+                   "FEAT26": prim["within"]["FEAT26"]["kept"]},
+        "net_new": {"kept": nn["kept"], "reject": nn["reject"],
+                    "median_abs_ic": nn["median_abs_ic"],
+                    "blocked_median_abs_ic": nn["blocked_median_abs_ic"],
+                    "dropped_by_seed": nn["dropped_by_seed"],
+                    "blocked_by_seed": list(nn["blocked_by_seed"]),
+                    "blocked_within": list(nn["blocked_within"]),
+                    "dropped_within": nn["dropped_within"],
+                    "kept_dims": list(nn["kept_dims"])},
+        "reverse": {"kept": prim["reverse"]["kept"],
+                    "median_abs_ic": prim["reverse"]["median_abs_ic"],
+                    "kept_dims": list(prim["reverse"]["kept_dims"])},
+    }
+
+
+def yearly_decay(daily: pd.DataFrame, summary: pd.DataFrame,
+                 groups: dict[str, Sequence[str]], *,
+                 maxlags: int) -> dict:
+    """逐年衰减：每年给「该组维的 |mean IC| 中位」与「与全样本同号的占比」。
+
+    为什么两个都要：只报均值会把「一半维在换向」掩盖成一个略低的数；同号率掉下来
+    就说明这一组维的方向不稳，那它进候选集的风险和 |IC| 高低是两个问题。
+    年份按**字符串**做键——这份东西要落进 run_meta 的 JSON，整数键过一遍 JSON 就变
+    字符串，两种形状迟早让下游读错。
+
+    `noise_scale` 是**该年该组自己的** HAC 标准误中位（判据与全样本同一份
+    `cv_utils.ic_newey_west`，滞后由调用方给，函数不猜）。没有它，「2026 的中位 |IC|
+    掉到 0.0121」会被读成「信号没了」——而那一年只有 171 天，门槛本身比全样本大一截。
+    """
+    records = [{"date": d, "ic": float(v), "factor": f}
+               for f in daily.columns
+               for d, v in zip(daily.index, daily[f].to_numpy(), strict=True)
+               if np.isfinite(v)]
+    by_year = cv_utils.ic_by_year(records)
+    if by_year.empty:
+        return {"years": [], "groups": {}}
+    full = summary["mean_ic"]
+    out: dict[str, dict] = {}
+    years = sorted(int(y) for y in by_year.index)
+    for name, dims in groups.items():
+        cols = [c for c in dims if c in by_year.columns]
+        per: dict[str, dict] = {"median_abs_ic": {}, "sign_agreement": {},
+                                "n_dims": {}, "noise_scale": {}}
+        for y in years:
+            s = by_year.loc[y, cols].dropna()
+            if s.empty:
+                continue
+            base = full.reindex(s.index)
+            same = np.sign(s.to_numpy()) == np.sign(base.to_numpy())
+            key = str(y)
+            per["median_abs_ic"][key] = float(np.median(np.abs(s.to_numpy())))
+            per["sign_agreement"][key] = float(np.mean(same))
+            per["n_dims"][key] = int(s.size)
+            sub = daily.loc[[d for d in daily.index if str(d).startswith(key)], list(s.index)]
+            ses = [cv_utils.ic_newey_west(sub[c], maxlags=maxlags)["se_hac"]
+                   for c in s.index]
+            # 那年不足 10 天时 HAC 给 NaN：门槛就是 NaN，不要 `nanmedian` 全 NaN 切片
+            # （会打 RuntimeWarning，而且更坏的是它看起来像一个算出来的门槛）
+            per["noise_scale"][key] = (float(np.nanmedian(ses))
+                                       if any(np.isfinite(ses)) else float("nan"))
+        out[name] = per
+    return {"years": [str(y) for y in years], "groups": out}
 
 
 def json_safe(obj):
@@ -364,6 +534,30 @@ def atomic_write_parquet(df: pd.DataFrame, path: Path) -> Path:
     return path
 
 
+def parse_horizons(spec: str, primary: int) -> list[int]:
+    """把 `--extra-horizons` 的逗号串解析成**含 primary** 的升序去重列表。
+
+    primary 必须在里面：报告的多 horizon 表要跟主口径那一块对得上，缺了它就没有
+    「同一张特征表、同一个标签」的锚点。非正数直接拒——h=0 的标签是自己减自己，恒为 0。
+    """
+    try:
+        p = int(primary)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"primary horizon 不是整数：{primary!r}") from e
+    if p <= 0:
+        raise ValueError(f"primary horizon 必须是正整数，实得 {p}")
+    out = {p}
+    for part in str(spec or "").split(","):
+        token = part.strip()
+        if not token:
+            continue
+        n = int(token)
+        if n <= 0:
+            raise ValueError(f"horizon 必须是正整数，实得 {n}")
+        out.add(n)
+    return sorted(out)
+
+
 def run(args: argparse.Namespace) -> int:
     payload = json.loads((ROOT / "config" / "alpha158_expressions.json")
                          .read_text(encoding="utf-8"))
@@ -377,10 +571,51 @@ def run(args: argparse.Namespace) -> int:
         # 装配一次几十分钟，报告的措辞与判据参数要能反复改：从落盘面板直接出 IC。
         panel = pd.read_parquet(args.from_panel)
         print(f"从面板复用：{Path(args.from_panel).name} → {panel.shape}", flush=True)
-        return aggregate_and_write(panel, args, payload,
-                                   extra={"reused_panel": str(args.from_panel)},
-                                   write_panel=False)
+        extra: dict = {"reused_panel": str(args.from_panel)}
+        multi: list[int] = []
+        if str(args.extra_horizons or "").strip():
+            if args.limit:
+                print("❌ --limit 与 --extra-horizons 不能同用：抽样只对装配路径有意义",
+                      file=sys.stderr)
+                return 1
+            multi = parse_horizons(args.extra_horizons, args.horizon)
+            t0 = time.perf_counter()
+            closes: dict[str, pd.Series] = {}
+            for code in sorted(set(panel["code"].astype(str))):
+                try:
+                    hfq = adjusted.frame(code, kind="hfq")
+                except Exception as e:          # SEM002：计数并继续，不静默少一只
+                    _ERROR_COUNT["attach_horizon_labels"] += 1
+                    if _ERROR_COUNT["attach_horizon_labels"] <= 5:
+                        print(f"  ! {code}: {type(e).__name__}: {str(e)[:60]}",
+                              file=sys.stderr)
+                    continue
+                closes[code] = (hfq.assign(date=hfq["date"].astype(str))
+                                .set_index("date")["close"].astype(float).sort_index())
+            panel, stats = attach_horizon_labels(panel, closes, horizons=multi,
+                                                 primary=args.horizon)
+            if stats["mismatch"]:
+                # 两条路径的标签算式必须逐格吻合；不吻合就是日期/口径/轴其中一个错了，
+                # 下游每一个数都靠这个咬合点，宁可停下来。
+                print(f"❌ 复用侧 label_h{args.horizon} 与面板 label 不一致 "
+                      f"{stats['mismatch']} 格（unmatched_rows="
+                      f"{stats['unmatched_rows']}, codes_without_frame="
+                      f"{stats['codes_without_frame']}）：不要拿这张面板出多 horizon 结论",
+                      file=sys.stderr)
+                return 1
+            extra["label_stats"] = stats
+            extra["multi_horizons"] = multi
+            extra["label_attach_sec"] = round(time.perf_counter() - t0, 1)
+            print(f"标签列已加：{multi} · {extra['label_attach_sec']}s · "
+                  f"缺基准行 {stats['unmatched_rows']} · 无帧票 {stats['codes_without_frame']}",
+                  flush=True)
+        return aggregate_and_write(panel, args, payload, extra=extra,
+                                   write_panel=False, multi_horizons=multi)
 
+    if str(args.extra_horizons or "").strip():
+        print("❌ --extra-horizons 只配合 --from-panel 用：换标签列不该重算 158+26 维特征。"
+              "先装配一次，再带 --from-panel 加标签。", file=sys.stderr)
+        return 1
     codes = select_codes(args.sample, args.seed)
     if args.limit:
         codes = codes[: args.limit]
@@ -431,7 +666,8 @@ def run(args: argparse.Namespace) -> int:
 
 def aggregate_and_write(panel: pd.DataFrame, args: argparse.Namespace,
                         payload: dict, *, extra: dict,
-                        write_panel: bool = True) -> int:
+                        write_panel: bool = True,
+                        multi_horizons: Sequence[int] = ()) -> int:
     """从面板出 IC、汇总、落盘、写报告。
 
     单独成一个函数是为了 `--from-panel`：装配一次 40 分钟，而报告的读法、符号约定、
@@ -470,6 +706,18 @@ def aggregate_and_write(panel: pd.DataFrame, args: argparse.Namespace,
         "dedup": dedup_views(daily, summary, a158_names, list(FEAT26_ORDER)),
         **extra,
     }
+    if multi_horizons:
+        hs = sorted({int(h) for h in multi_horizons})
+        blocks: dict[str, dict] = {}
+        for h in hs:
+            blocks[str(h)] = horizon_block(
+                panel, feature_cols, a158_names, list(FEAT26_ORDER),
+                horizon=h, min_codes=args.min_codes, alpha=args.alpha)
+        meta["horizons"] = blocks
+        nn_dims = blocks.get(str(args.horizon), {}).get("net_new", {}).get("kept_dims", [])
+        meta["yearly"] = yearly_decay(daily, summary, {
+            "Alpha158": a158_names, "FEAT26": list(FEAT26_ORDER), "净新增": nn_dims},
+            maxlags=args.horizon)
     if write_panel:
         atomic_write_parquet(panel.astype({c: "float32" for c in [*feature_cols, "label"]}),
                              out_dir / f"panel_{tag}.parquet")
@@ -490,6 +738,16 @@ def report_lines(summary: pd.DataFrame, a158: list[str], f26: list[str],
     """报告正文（纯函数，好测）。"""
     s = summary.copy()
     s["abs_ic"] = s["mean_ic"].abs()
+    # 耗时这条只在**真测过**的时候出现：装配路径有 elapsed_sec，复用路径只有加标签
+    # 列的秒数；拿缺省 0 印成「耗时 0s」会被读成「这一轮不花钱」，而复用省下的只是装配。
+    sec = meta.get("elapsed_sec")
+    attach = meta.get("label_attach_sec")
+    cost: str | None = None
+    if sec is not None:
+        cost = f"- 耗时 {float(sec):.0f}s"
+    elif attach is not None:
+        cost = (f"- 本轮不重跑装配（复用面板 {meta.get('reused_panel', '—')}）"
+                f"· 加标签列 {float(attach):.1f}s")
     lines = [
         f"# Alpha158 × FEAT26 日频 IC 对照 · {meta['tag']}",
         "",
@@ -502,8 +760,7 @@ def report_lines(summary: pd.DataFrame, a158: list[str], f26: list[str],
         f"- 横截面够天的 {meta.get('days_with_ic', '—')} 天出 IC，"
         f"太薄被丢弃 {meta.get('days_dropped_thin', '—')} 天"
         f"（丢弃不是补 0：那是「没验到」，不是「无信号」）",
-        f"- 耗时 {meta.get('elapsed_sec', 0.0):.0f}s"
-        + (f"（复用面板 {meta['reused_panel']}）" if meta.get("reused_panel") else ""),
+        *([cost] if cost else []),
         "",
         f"成交额代理段自 {meta['proxy_caliber_start']} 起（KI-DATA-001）：本次"
         f"{'**在样本内**' if meta['include_proxy'] else '**已排除**'}。受污染维："
@@ -594,6 +851,63 @@ def report_lines(summary: pd.DataFrame, a158: list[str], f26: list[str],
                   f"集内自重复 {ded[primary]['net_new']['dropped_within']} 条；"
                   "两维没有共同有效日而无法判定的对数记在 `uncomparable`，"
                   "它不该被算进「独立」。"]
+    blocks = meta.get("horizons") or {}
+    if blocks:
+        lines += ["", "## 多 horizon：换前瞻窗口，结论会不会翻", "",
+                  "| h | 有 IC 的天数 | Alpha158 \\|IC\\| 中位 | FEAT26 \\|IC\\| 中位 |"
+                  " Alpha158 独立维 | FEAT26 独立维 | 净新增 | 其中过 BH |"
+                  " 净新增 \\|IC\\| 中位 | 现役净新增 | 2×SE 门槛 | 被现役挡（点名） |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for h in sorted(blocks, key=lambda x: int(x)):
+            b = blocks[h]
+            blocked = b["net_new"].get("blocked_by_seed") or []
+            names = "、".join(f"{d['dim']}←{d['by']}" for d in blocked[:4]) or "—"
+            if len(blocked) > 4:
+                names += f" 等 {len(blocked)} 条"
+            lines.append(
+                f"| {b['horizon']} | {b['days_with_ic']} | "
+                f"{_fmt_ic(b['median_abs_ic']['Alpha158'])} | "
+                f"{_fmt_ic(b['median_abs_ic']['FEAT26'])} | "
+                f"{b['within']['Alpha158']} | {b['within']['FEAT26']} | "
+                f"{b['net_new']['kept']} | {b['net_new']['reject']} | "
+                f"{_fmt_ic(b['net_new']['median_abs_ic'])} | {b['reverse']['kept']} | "
+                f"{_fmt_ic(2 * float(b['noise_scale']))} | {names} |")
+        days = [int(b["days_with_ic"]) for b in blocks.values()]
+        same_basis = len(set(days)) == 1
+        note = ("**各块共用同一批天（" + f"{days[0]} 天）**——差异只来自标签窗口与"
+                " HAC 滞后，可以直接并列比。"
+                if same_basis else
+                "**各块天数不同（" + f"{min(days)}–{max(days)} 天）**：h 越大尾段越容易"
+                "缺标签，那是「窗口尽头」不是「信号消失」，比均值要连着覆盖差一起看。")
+        lines += ["", "读法：每一块都是同一张特征表、只换标签列与 HAC 滞后"
+                  f"（`maxlags=h`）——所以横向可比。{note}"
+                  "最后一列是该块自己的 2×SE（门槛由本块 HAC 标准误算出，随 h 变）："
+                  "两格的差落在门槛以内就读不出结论。"]
+    yearly = meta.get("yearly") or {}
+    if yearly.get("groups"):
+        yrs = yearly["years"]
+        lines += ["", "## 逐年衰减：|IC| 中位与同号率", "",
+                  "| 组 | " + " | ".join(yrs) + " |",
+                  "|---|" + "---|" * len(yrs)]
+        for name, g in yearly["groups"].items():
+            lines.append(f"| {name} 中位\\|IC\\| | " + " | ".join(
+                _fmt_ic(g["median_abs_ic"].get(y, float("nan"))) if y in g["median_abs_ic"]
+                else "—" for y in yrs) + " |")
+            lines.append(f"| {name} 比值（÷该年 2×SE） | " + " | ".join(
+                (f"{g['median_abs_ic'][y] / (2 * g['noise_scale'][y]):.2f}"
+                 if y in g["median_abs_ic"] and y in g.get("noise_scale", {})
+                 and np.isfinite(g["noise_scale"][y]) and g["noise_scale"][y] > 0 else "—")
+                for y in yrs) + " |")
+            lines.append(f"| {name} 同号率 | " + " | ".join(
+                f"{g['sign_agreement'][y]:.2f}" if y in g["sign_agreement"] else "—"
+                for y in yrs) + " |")
+        lines += ["", "同号率 = 该年逐日 IC 均值的符号与**全样本**符号一致的维占比。"
+                  "中位数掉下来但同号率仍接近 1，是「变弱」；同号率掉到 0.5 附近，是"
+                  "「在换向」——后者不能靠加长窗口解决，也不该进候选集。",
+                  "比值那行是**跨年比较的唯一尺子**：各年的天数不同（尾年往往更短），"
+                  "门槛就不同——2026 段 171 天的门槛比 656 天全样本大一截。**比值 <1 表示"
+                  "那一年该组的中位 |IC| 落在自己的噪声门槛以内**，只说明「按年切片判不出」，"
+                  "不能读成「信号没了」。"]
     noise = s["nw_se"].median()
     lines += ["", "读法：`n_days` 远小于天数的维度，其均值由少数几天给出，不能与满覆盖",
               f"的维度并列排序；本表 `mean_IC` 的 HAC 标准误中位是 {noise:.4f}，"
@@ -623,6 +937,9 @@ def main(argv=None) -> int:
     ap.add_argument("--alpha", type=float, default=0.05)
     ap.add_argument("--limit", type=int, help="只跑前 N 只（冒烟）")
     ap.add_argument("--from-panel", help="复用已落盘的 panel_*.parquet，不重新装配特征")
+    ap.add_argument("--extra-horizons", default="",
+                    help="配合 --from-panel：逗号分隔的额外前瞻天数（如 1,10,20），"
+                         "只加 label_hN 列、不重算特征；主 --horizon 自动包含")
     ap.add_argument("--out-dir", default=str(paths.DATA_ROOT / "alpha158_ic"))
     args = ap.parse_args(argv)
 
