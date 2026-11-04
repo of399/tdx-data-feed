@@ -229,7 +229,7 @@ def test_is_st_is_degenerate_from_this_entry_point():
     raw, hfq = _frames()
     panel = _build(mod, raw, hfq)
     assert set(panel["is_st"].unique()) == {0}, (
-        f"is_st 突然有值了：说明入口开始带名字，报告口径要跟着改")
+        "is_st 突然有值了：说明这条入口开始带股票名，报告口径要跟着改")
     assert "is_st" in FEAT26_ORDER
 
 
