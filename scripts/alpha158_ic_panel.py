@@ -108,10 +108,16 @@ def parity_rows(panel: pd.DataFrame, pairs: Sequence[tuple[str, str]], *,
                 date_col: str = "date", min_codes: int = 10) -> list[dict]:
     """每对维度的**日内横截面**相关，按天平均——不是把整张面板堆一起算。
 
-    这正是 `tdxfeed/alpha158/ic.py` 里那条判据的同一个坑：面板里 `avg_amount_5d` 是
-    几千万的量级、`VWAP0` 是 1 附近的比值，pooled 相关会被"哪只票、哪天"的水位差主导，
-    给出一个与语义无关的数（实测 pooled 给 -0.72，日内给 ~0）。逐日算完再平均，量纲与
-    水位都消掉了，剩下的才是两维在同一批票上的同向程度。
+    这正是 `tdxfeed/alpha158/ic.py` 里那条判据的同一个坑：把整张面板堆在一起算相关，
+    量的是「哪只票、哪天」的水位差加上同一批票上的同向程度，两件事混在一个数里；逐日算完
+    再平均，水位消掉了，剩下的才是两维在同一批票上的同向程度。本面板实测（2026-11-04，
+    `VWAP0` 口径修复后那套，全 184×184 网格）pooled 与日内的最大偏离 0.19
+    （`IMIN30 × CNTP20`：pooled −0.45 / 日内 −0.26），`avg_amount_5d × VWAP0` 是
+    +0.027 / +0.047——所以这一层判据的意义不是「每次都会差很远」，而是**它回答的是另一个
+    问题**，而 IC 的定义是逐日的，对照必须同判据。水位主导那种失真在合成对照里才看得清，
+    由 `tests/test_alpha158_ic_panel.py::test_parity_rows_are_within_day_not_pooled` 钉住
+    （日内该是 +1、pooled 必须 <0.6）。本文早前一版在这里写过「实测 pooled 给 −0.72」，
+    那是在场两套产物都复现不出来的数（修复前实测 −0.209 / −0.221），已按现产物更正。
 
     整列缺失或当天方差为 0 时给 NaN 并**保留这一行**：漏掉一对比给不出数更糟——读者会
     以为这两维没关系，其实是没验。
@@ -610,7 +616,14 @@ def panel_window(dates, *, start: str, end: str) -> tuple[str, str, bool]:
     lo, hi = str(s.min()), str(s.max())
     if not len(s) or lo == "nan":
         raise ValueError("面板没有可用日期，无法决定时窗")
-    return (start, end, False) if (lo, hi) == (start, end) else (lo, hi, True)
+    if (lo, hi) == (start, end):
+        return start, end, False
+    # 只在面板**越出**请求窗口时改：请求窗口是「我要报的那一段」，首末行差一两个日历日
+    # 通常只是那几天休市（2024-01-01 就没有交易），把 tag 改成 1-02 会凭空多出一套产物，
+    # 反而与历史那一轮对不上号。越出请求窗口才是「这是另一段的面板」——那才必须改名。
+    if start <= lo and hi <= end:
+        return start, end, False
+    return lo, hi, True
 
 
 def parse_horizons(spec: str, primary: int) -> list[int]:
@@ -768,6 +781,17 @@ def aggregate_and_write(panel: pd.DataFrame, args: argparse.Namespace,
 
     cfg = IcConfig(label_col="label", min_codes=args.min_codes,
                    maxlags=args.horizon, alpha=args.alpha)
+    # 报告的口径 = 面板**落盘后**的表示（float32）。装配时特征在内存里是 float64，而任何
+    # 拿 parquet 复算的人看到的是 float32：tie-heavy 的维在 float32 下会并成精确等值
+    # （实测某天 SUMD5 的 1,153 行只剩 367 个唯一值、众数占 66.8%），并列秩一变，同一天的
+    # 一日 IC 能差 0.15。不折这一刀，装配路径与复用路径就对同一张面板给两个数。
+    # 标签列一起折：`label_hN` 是现算的 float64，不折就等于四个窗口用两把尺子。
+    cast = {c: "float32" for c in feature_cols if c in panel.columns}
+    for c in panel.columns:
+        if c == "label" or c.startswith("label_h"):
+            cast[c] = "float32"
+    if cast:
+        panel = panel.astype(cast)
     daily = daily_ic(panel, feature_cols, cfg)
     summary = summarize_ic(daily, cfg)
 

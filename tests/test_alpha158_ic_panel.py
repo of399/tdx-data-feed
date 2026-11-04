@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import inspect
 import json
@@ -1076,6 +1077,47 @@ def test_report_renders_the_proxy_sensitivity_table():
     assert "nan" not in section, f"报告里不该出现 nan 文本（判不出的格子统一印「—」）：{drow}"
 
 
+def test_assembly_reports_from_the_stored_precision(tmp_path):
+    """装配路径的报告要由**面板落盘后的表示**导出，否则同一张面板有两条数（`KI-DATA-006`）。
+
+    面板存 float32，装配时内存里是 float64。tie-heavy 的维在 float32 下会并成精确等值
+    （实测某天 `SUMD5` 的 1,153 行只剩 367 个唯一值、众数占 66.8%），Spearman 的并列秩
+    跟着变——同一个交易日两条路径的一日 IC 差到 0.15。任何拿 parquet 复算的人都只能得到
+    落盘口径，所以报告必须以它为准（复用路径本来就是 float32，改的是装配路径）。
+    """
+    mod = _panel_module()
+    dates = [f"2024-01-{i:02d}" for i in range(1, 13)]
+    codes = [f"60000{i}" for i in range(6)]
+    rows = []
+    for di, d in enumerate(dates):
+        for ci, c in enumerate(codes):
+            # 一个 float64 严格递增、float32 全并成 1.0 的维：IC 在 float64 是 1.0，
+            # 在落盘口径里整列为常数 ⇒ NaN（不知道），两者形状都正常、只有一个能复算
+            # （步长要小于 float32 在 1.0 处的半个 ulp≈6e-8，1e-9 仍会翻出第二个值）
+            rows.append({"date": d, "code": c,
+                         "VWAPTEST": 1.0 + (di * 6 + ci) * 1e-10,
+                         "TESTRET": 0.01 * ((di + ci) % 5),
+                         "TESTMEAN": 0.02 * ((di * 3 + ci) % 4),
+                         "label": 0.003 * ((di + 2 * ci) % 6)})
+    panel = pd.DataFrame(rows)
+    for c in FEAT26_ORDER:
+        panel[c] = np.random.default_rng(abs(hash(c)) % 1000).normal(0, 1, len(panel))
+    panel["is_st"] = 0.0
+    args = argparse.Namespace(start="2024-01-01", end="2024-01-12", horizon=1, sample=6,
+                              seed=1, min_codes=5, alpha=0.05, include_proxy=False,
+                              against_daily="", out_dir=str(tmp_path))
+    assert mod.aggregate_and_write(panel, args, FAKE_PAYLOAD, extra={},
+                                   write_panel=True) == 0
+
+    stored = pd.read_parquet(tmp_path / "panel_2024-01-01_2024-01-12_h1_n6_s1.parquet")
+    assert stored["VWAPTEST"].nunique() == 1, "前提：这一维在 float32 落盘后应当并成常数"
+    written = pd.read_parquet(tmp_path / "daily_ic_2024-01-01_2024-01-12_h1_n6_s1.parquet")
+    got = written.set_index("date")["VWAPTEST"]
+    assert got.isna().all(), (
+        f"装配路径用了内存 float64 的秩（IC={float(got.iloc[0]):+.2f}），"
+        f"而面板落盘是 float32：同一张面板两条路径两个数，别人复算不出来")
+
+
 def test_proxy_shift_refuses_overlapping_segments():
     """两段有同日就必须拒：`se_diff = hypot(pre, post)` 的前提是两段的日互不重叠。
 
@@ -1106,6 +1148,12 @@ def test_panel_window_follows_the_panel_not_the_cli_defaults():
     # 面板正好落在命令行说的窗口上：原样返回，不许改成面板的首末行（那是同一轮的 tag）
     same = pd.Series(["2024-01-01", "2024-01-05", "2026-09-15"])
     assert mod.panel_window(same, start="2024-01-01", end="2026-09-15") == (
+        "2024-01-01", "2026-09-15", False)
+    # 面板被请求窗口包住但不相等（首个交易日 1-02，1-01 休市）：**保留请求的窗口**。
+    # 这是同一轮的装配，不是另一段的面板；改成 1-02 会把产物挪到另一个 tag 上，
+    # 反而造出第二套文件、并与历史那一轮对不上号。
+    hol = pd.Series(["2024-01-02", "2024-01-05", "2026-09-15"])
+    assert mod.panel_window(hol, start="2024-01-01", end="2026-09-15") == (
         "2024-01-01", "2026-09-15", False)
 
 
