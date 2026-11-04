@@ -1144,7 +1144,7 @@ issues:
         paths: ["tdxfeed/sources/sina_source.py"]
         min_count: 1
         note: "新浪日 K 结构性不返回 amount（2026-11-03 实测 6/6 根 amount=0.0），写盘时按缺口补齐成代理值"
-    impact: "实测断点在 2026-09-16：08-24 真实额/(close×volume×100) 中位 1.0012（p5–p95 0.987~1.018）、09-15 中位 1.0074，而 09-16 起 **100% 的行精确等于公式**（中位 1.000000）⇒ amount 从观测量变成 close 与 volume 的确定性函数。下游全部建在这条列上：avg_amount_5d / vol_ratio_t1 / amount_surge_3d / amt_per_price / amihud_20，以及 18 维模型输入的 turnover_proxy（features_5d.py:176 = amount/volume）——2026-11-02 生产榜 4923/4923 行 turnover_proxy 恰等于 close×100、与 close 的相关系数为 1.0，该维已退化成价格的复制品；训练样本跨 09-16 ⇒ 存在未登记的口径断点。daban 流动性闸门 min_avg_amount_5d=5e7 比的也是代理值。旁路清单 amount_estimated.json 同一 symbol 整段替换、只保留最后一次写入的日期，所以现在只列 10-29/10-30/11-02 三天，容易被读成「只有三天坏」。2026-11-04 另测得（1,199 只 / 656 天日频横截面，标签 t→t+5 hfq 收益）：avg_amount_5d 是全表最强单维（mean_IC −0.0825、NW t −6.25、BH q 2.8e-09），而它正是被代理改写成 close×volume 量级的那一维 ⇒ 这条从「数据卫生」升级为「信号风险」，②（真 amount 回填）的优先级高于原判断"
+    impact: "实测断点在 2026-09-16：08-24 真实额/(close×volume×100) 中位 1.0012（p5–p95 0.987~1.018）、09-15 中位 1.0074，而 09-16 起 **100% 的行精确等于公式**（中位 1.000000）⇒ amount 从观测量变成 close 与 volume 的确定性函数。下游全部建在这条列上：avg_amount_5d / vol_ratio_t1 / amount_surge_3d / amt_per_price / amihud_20，以及 18 维模型输入的 turnover_proxy（features_5d.py:176 = amount/volume）——2026-11-02 生产榜 4923/4923 行 turnover_proxy 恰等于 close×100、与 close 的相关系数为 1.0，该维已退化成价格的复制品；训练样本跨 09-16 ⇒ 存在未登记的口径断点。daban 流动性闸门 min_avg_amount_5d=5e7 比的也是代理值。旁路清单 amount_estimated.json 同一 symbol 整段替换、只保留最后一次写入的日期，所以现在只列 10-29/10-30/11-02 三天，容易被读成「只有三天坏」。2026-11-04 另测得（1,199 只 / 656 天日频横截面，标签 t→t+5 hfq 收益）：avg_amount_5d 是全表最强单维（mean_IC −0.0825、NW t −6.25、BH q 2.8e-09），而它正是被代理改写成 close×volume 量级的那一维 ⇒ 这条从「数据卫生」升级为「信号风险」，②（真 amount 回填）的优先级高于原判断。2026-11-04 又测了一层（同面板 + 24 个交易日代理段、同一判据做跨断点位移对照，见 docs/research/2026-11-04-alpha158-vs-feat26-ic.md §3.8/§3.9）：①**这条的信号代价在 24 天窗口里定不出价**——受污染 5 维的位移 |z| 中位 2.72，与不受污染的对照 19 维 2.52 分不开（Mann-Whitney 单侧 U=58.0、p=0.239），且该段自己的 2×SE 门槛 0.0717 是主段 0.0183 的 3.9 倍，整段更像一次市场状态切换（两段各自 |t|>2 而符号相反的 6 条维里有 4 条是对照的短窗动量类）；要定价得等代理段攒到 100 天以上重跑同一条命令，判据与代码都不用改。②代理化对 `vwap` 派生的实际形状比原措辞更危险：2026-09-16 起 `amount = close×volume(手)×100` ⇒ 每股 VWAP **精确等于 close** ⇒ 装配出的 VWAP0 恒等于 100/复权因子（日内截面标准差 0），成为复权因子的纯替身，而在该段它 q=0.049 **过 BH**——退化不是『这一维变弱』，是『变成另一个变量的替身并且看起来显著』"
     guard: "NONE"
     owner: "jiuben"
     due: "2026-11-30"
@@ -1284,3 +1284,49 @@ issues:
     due: "2026-11-30"
     exemption: "NONE"
     fix_hint: "已完成（2026-11-04）：①取证 = scripts/audit_hfq_raw_close.py 产出 data/.state/hfq_raw_close_mismatch.json（容差 max(0.011, 0.5%×日线收盘)，无基准日期跳过；判据与写入侧同源，不另立口径）；②写入侧对账 = tdxfeed/hfq_factor.py 的 raw_close_mismatches + _daily_closes，update_one 在 write_atomic 前只比本次取数窗口的行，不符返回 fail:raw-vs-daily:<n>:<日期> <raw>≠<daily> 且旧文件一字节不动、不留 .tmp；③300386 尾两行定点修 = 备份 data/_backups/20261104/hfq_factor_300386.parquet → 截断到 2026-10-30 → 走生产路径 venv/bin/python -m tdxfeed.hfq_factor --code 300386 --today 2026-11-03 重追加，结果 raw_close=10.72/10.58、hfq_factor 回到 4.519819、3,003 行、date32[day] 不变；④白名单没动（KNOWN_JUMPS 仍是 12 次真实除权），tests/test_hfq_factor_monotone.py 转绿是数据修好的证据而不是改判据的结果。附带把 hfq 文件枚举收进 paths.hfq_factor_codes()，写侧与审计侧共用同一集合"
+
+  - id: KI-DATA-005
+    title: "Alpha158 面板把 raw 口径的 $vwap 除以 hfq 口径的 $close：VWAP0 静默退化成复权因子的替身"
+    theme: silent-failure
+    severity: P1
+    status: FIXED
+    first_seen: "2026-11-04"
+    last_seen: "2026-11-04"
+    seen_count: 1
+    sources: ["docs/research/2026-11-04-alpha158-vs-feat26-ic.md §3.9（取证与逐行恒等式）", "tests/test_alpha158_ic_panel.py::test_vwap_is_rebased_to_the_same_caliber_as_close（RED 时实测中位 50.0）"]
+    locations: ["scripts/alpha158_ic_panel.py"]
+    detect:
+      - kind: absent
+        path: "scripts/alpha158_ic_panel.py"
+        pattern: "per_share"
+        note: "装配里不再有『按股 + 按当日因子 rebase 到 hfq』的 vwap 派生 ⇒ 跨口径回归，VWAP0 又会变成因子替身"
+    impact: "2026-11-04 取证：`build_code_panel` 原先写 `px['vwap'] = raw['amount'] / raw['volume']`，而 px 的价格列来自 hfq 帧 ⇒ 恒等式 VWAP0 = (raw_vwap/raw_close)/hfq_factor 在面板 769,828 行上**逐行成立（占比 1.0000）**。两件事叠在一起：① 日线 volume 的单位是**手**，amount/volume 是每股价的 100 倍（实测 amount/(volume×100) 落在当日 [low, high] 的天数占比 0.9999，5 只票 22,844 个有成交的交易日）；② 分母换了口径。每只票的 VWAP0 中位数因此从 0.077 铺到 127.0（1,199 只里等于 1.0 的是 0 只），而真正的日内位置信息截面标准差只有 0.94（相对 0.94%）⇒ 截面排序由复权因子主导：日内 corr(VWAP0, 1/hfq_factor) 中位 0.949，656 天全部 >0.9。后果是可测量的：现口径 mean_IC −0.0025 / NW_t −0.32 / q 0.753（不过 BH），同一张面板同一判据只换分子口径 = +0.0129 / +2.16 / q 0.031（过 BH 且反号）——一条本来有信号的维被装配缺陷压成『看起来没信号』。代理段（2026-09-16 起）更坏：amount 是代理值 ⇒ 每股 VWAP 精确等于 close ⇒ VWAP0 恒等于 100/因子（日内截面标准差 0），而这条纯因子替身在该段 q=0.049 过 BH。形状是『变成另一个变量的替身并且看起来显著』，不是变弱"
+    guard: "tests/test_alpha158_ic_panel.py"
+    test: "tests/test_alpha158_ic_panel.py"
+    owner: "jiuben"
+    due: "2026-11-30"
+    exemption: "NONE"
+    fix_hint: "装配已修（2026-11-04）：per_share = amount/(volume×100)，factor = hfq close / raw close（raw close=0 落 NaN），vwap = per_share×factor ⇒ VWAP0 与 $close 同口径、对复权因子是不变量（用例第二条断言因子 ×2→×3 值不变），零成交日仍为 NaN。**未完成的一半**：两个窗口（主段与代理段）的面板仍是修复前装配的，本文 §3.2/§3.5/§3.6/§3.7 里 VWAP0 相关行按现产物保留，重装配（各约 32 分钟，带内存上限的临时 scope，输出到独立 --out-dir 以免覆盖现有产物）后逐表刷新——改口径会牵动已入库数字，不做『顺手改掉』"
+
+  - id: KI-SILENT-003
+    title: "研究脚本用命令行默认值而非数据自身决定产物 tag：--from-panel 换时段会原地覆盖另一轮的 IC/汇总/报告"
+    theme: silent-failure
+    severity: P1
+    status: FIXED
+    first_seen: "2026-11-04"
+    last_seen: "2026-11-04"
+    seen_count: 1
+    sources: ["本次实踩：`--from-panel` 指向代理段面板而未带 --start/--end，主段那 656 天的 daily_ic / ic_summary / report / run_meta 四份被 24 天的内容原地覆盖（daily_ic 656→24 行），退出码 0、无任何报错"]
+    locations: ["scripts/alpha158_ic_panel.py"]
+    detect:
+      - kind: absent
+        path: "scripts/alpha158_ic_panel.py"
+        pattern: "panel_window("
+        note: "复用路径没按面板自身首末行派生时窗 ⇒ tag 仍可能落在默认值上，覆盖另一轮的落盘物"
+    impact: "装配出的 panel_*.parquet 是唯一不会被覆盖的那份（40 分钟成本），而它下游的四份派生产物全按 tag 命名。tag 来自 `--start/--end`，装配路径里这是因（面板按它切行），复用路径里它只是果——按默认值打 tag 就会写到**另一轮**的文件名下。data/ 不在 git，覆盖救不回来，只能靠面板在场重跑（本次主段四份已按同一命令重生成，§3.6/§3.7 的每个数逐格复核一致：三组 2026 比值 0.64/0.32/0.93、门槛 0.0413/0.0383/0.0295、mismatch 0）"
+    guard: "tests/test_alpha158_ic_panel.py"
+    test: "tests/test_alpha158_ic_panel.py"
+    owner: "jiuben"
+    due: "2026-11-04"
+    exemption: "NONE"
+    fix_hint: "已完成：新增 `panel_window(dates, start=..., end=...)`，复用分支读面板后立即用它派生 start/end，与命令行不一致时打一行 ⚠️ 并**以面板为准**（tag 跟着数据走）；装配路径不变（start/end 仍是输入）。接线本身有用例钉住（inspect 判据：复用分支必须真的调用 panel_window），只测函数不测接线等于允许下一版把这行删掉"
