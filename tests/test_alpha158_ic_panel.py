@@ -140,6 +140,31 @@ def test_tail_rows_without_label_are_dropped_not_zeroed():
 
 
 # ------------------------------------------------------------------ ③ vwap #
+def test_vwap_is_rebased_to_the_same_caliber_as_close():
+    """`$vwap` 必须与 `$close` 同口径：跨口径的比值会静默变成复权因子的替身。
+
+    两处都不显眼：① 日线 `volume` 的单位是**手**，`amount/volume` 是每股价的 100 倍
+    （实测 `amount/(volume×100)` 落在当日 [low, high] 的天数占比 0.9999）；② hfq 帧的价
+    是 raw × 当日因子。合成帧里 `amount = close×volume×100` ⇒ 每股 VWAP 恰等于 close ⇒
+    同口径的 `vwap/close` 必须是 1.0，且**对复权因子是不变量**（因子从 ×2 换到 ×3 不该动它）。
+    实装的错法是拿 raw 的 vwap 除 hfq 的 close：值随因子铺三个数量级，截面排序 95% 由
+    因子决定（见 KI-DATA-005），把一条本来过 BH 的维压成不显著。
+    """
+    mod = _panel_module()
+    raw, hfq = _frames()
+    got = _build(mod, raw, hfq)["VWAPTEST"].dropna()
+    assert np.allclose(got, 1.0, atol=1e-6), (
+        f"同口径的 vwap/close 应为 1.0，实得中位 {float(got.median())}"
+        f"（100 倍=volume 单位没换算，除尽子/跨口径=没 rebase 到 hfq）")
+
+    raw2, hfq3 = _frames()
+    for c in ("open", "high", "low", "close"):
+        hfq3[c] = hfq3[c] * 1.5                       # 因子从 2 变成 3
+    again = _build(mod, raw2, hfq3)["VWAPTEST"].dropna()
+    assert np.allclose(again, 1.0, atol=1e-6), (
+        f"复权因子变了，同口径比值不该变，实得中位 {float(again.median())}")
+
+
 def test_zero_volume_day_gives_nan_vwap_not_zero():
     """volume=0 时 vwap 是 NaN：给 0 会把停牌日当成一次真实的 vwap=0 观测。"""
     mod = _panel_module()
@@ -968,3 +993,128 @@ def test_report_without_multi_horizon_omits_both_sections():
     meta.pop("yearly")
     text = "\n".join(mod.report_lines(summary, ["A1"], ["F1"], meta))
     assert "多 horizon" not in text and "逐年衰减" not in text
+
+
+# ------------------------------------------------- 代理段敏感性（KI-DATA-001 的位移） #
+def _two_segments():
+    """两段日频 IC：同一条维在代理段前后的均值不同，另一条不变，第三条一段全 NaN。
+
+    解析可对照的量：`S` 前后都是 0.10（口径改了但没动它的信息）、`W` 从 0.10 掉到 −0.10
+    （方向都翻）、`D` 在代理段整段给不出 IC（伪信号那一路）。
+    """
+    rng = np.random.default_rng(7)
+    pre = pd.DataFrame({"S": 0.10 + rng.normal(0, 0.10, 200),
+                        "W": 0.10 + rng.normal(0, 0.10, 200),
+                        "D": np.full(200, np.nan)},
+                       index=pd.Index([f"2026-08-{i % 28 + 1:02d}" for i in range(200)]))
+    post = pd.DataFrame({"S": 0.10 + rng.normal(0, 0.10, 60),
+                         "W": -0.10 + rng.normal(0, 0.10, 60),
+                         "D": np.zeros(60)},
+                        index=pd.Index([f"2026-10-{i % 27 + 1:02d}" for i in range(60)]))
+    return pre, post
+
+
+def test_proxy_shift_compares_the_same_judgment_across_the_caliber_break():
+    """位移必须用**同一判据**（`summarize_ic` + HAC）算两段，差的 SE 由两段自己的 SE 合成。
+
+    两个坑：① 一段给不出 IC 时差必须是 NaN 并计数，不能把「没验到」当成 0 位移；
+    ② `se_diff` 不能写死，必须是 `sqrt(pre² + post²)`——代理段只有几十天，它的 SE
+    比主段大一截，用主段的门槛判代理段会把噪声读成位移。
+    """
+    from tdxfeed.alpha158.ic import IcConfig, summarize_ic
+
+    mod = _panel_module()
+    pre, post = _two_segments()
+    out = mod.proxy_shift(pre, post, ["S", "W", "D"], maxlags=5)
+    rows = {r["dim"]: r for r in out["rows"]}
+    assert set(rows) == {"S", "W", "D"}
+    s = rows["S"]
+    assert abs(s["diff"]) < 0.02, f"同一条不该报出大位移：{s}"
+    w = rows["W"]
+    assert w["diff"] < -0.15 and abs(w["z"]) > 4, f"方向翻转必须看得见：{w}"
+    d = rows["D"]
+    assert np.isnan(d["diff"]) and d["missing"], f"一段全 NaN 要给 NaN 并计数：{d}"
+    assert out["uncomparable"] == 1, f"实得 {out}"
+    # se_diff 是两段 SE 的平方和开根，不是其中一段
+    cfg = IcConfig(min_codes=1, maxlags=5, alpha=0.05)
+    sp = float(summarize_ic(pre[["S", "W", "D"]], cfg).loc["S", "nw_se"])
+    sq = float(summarize_ic(post[["S", "W", "D"]], cfg).loc["S", "nw_se"])
+    assert s["se_diff"] == pytest.approx(float(np.hypot(sp, sq)))
+    assert out["pre_days"] == pre.shape[0] and out["post_days"] == post.shape[0]
+
+
+def test_report_renders_the_proxy_sensitivity_table():
+    """敏感性表要点名「受污染维」并给每段天数——否则读者会拿 30 天的位移去比 656 天。"""
+    mod = _panel_module()
+    idx = ["S", "W", "D"]
+    summary = pd.DataFrame({
+        "n_days": [200] * 3, "mean_ic": [0.1, 0.1, np.nan], "ic_std": [0.1] * 3,
+        "icir": [1.0] * 3, "pos_rate": [0.9] * 3, "nw_t": [8.0, 8.0, np.nan],
+        "nw_p": [1e-16] * 3, "nw_se": [0.0125] * 3, "q_value": [1e-15] * 3,
+        "reject": [True, True, False]}, index=idx)
+    meta = _multi_meta(mod)
+    meta.pop("horizons", None)
+    meta.pop("yearly", None)
+    pre, post = _two_segments()
+    meta["proxy_sensitivity"] = mod.proxy_shift(pre, post, ["S", "W", "D"], maxlags=5)
+    meta["proxy_caliber_start"] = "2026-09-16"
+    text = "\n".join(mod.report_lines(summary, ["S"], ["W", "D"], meta))
+    assert "代理段敏感性" in text
+    assert "200" in text and "60" in text, "两段各自的天数要在表旁边"
+    # 只在这张表里找行：`| D |` 这种前缀在上面的 |IC| 前 15 表里同样出现，整篇扫描会抓错。
+    section = text.split("## 代理段敏感性", 1)[1]
+    rows = [ln for ln in section.splitlines() if ln.startswith("| W ")]
+    assert rows and "-" in rows[0], f"W 那行要给出翻向的位移：{rows}"
+    # 列序：维度｜主段天数｜主段 IC｜主段 t｜代理段天数｜代理段 IC｜代理段 t｜位移｜差的 2×SE｜z
+    wcells = [c.strip() for c in rows[0].strip("|").split("|")]
+    assert len(wcells) == 10, f"敏感性表该有 10 列：{rows[0]}"
+    assert wcells[7].startswith("-") and wcells[9].startswith("-"), \
+        f"位移与 z 都该是负的（0.10 → −0.10）：{rows[0]}"
+    assert not wcells[8].startswith("-"), f"差的 2×SE 是尺度，不该带符号：{rows[0]}"
+    drow = next(ln for ln in section.splitlines() if ln.startswith("| D "))
+    assert "—" in drow, f"给不出 IC 的那条要印「—」而不是 0：{drow}"
+    assert "nan" not in section, f"报告里不该出现 nan 文本（判不出的格子统一印「—」）：{drow}"
+
+
+def test_proxy_shift_refuses_overlapping_segments():
+    """两段有同日就必须拒：`se_diff = hypot(pre, post)` 的前提是两段的日互不重叠。
+
+    重叠时两条估计量共用同一批交易日，差的方差不是两边之和——把它当独立合成会**低估**
+    差的 SE，于是把噪声读成位移。这里宁可退出，让人把窗口切干净。
+    """
+    mod = _panel_module()
+    pre, post = _two_segments()
+    shared = pre.index[0]
+    post2 = pd.concat([post, pre.iloc[[0]].rename(index={shared: shared})])
+    with pytest.raises(ValueError, match="重叠"):
+        mod.proxy_shift(pre, post2, ["S", "W", "D"], maxlags=5)
+
+
+def test_panel_window_follows_the_panel_not_the_cli_defaults():
+    """复用路径的时窗必须由面板自己决定：否则这一轮的产物会盖掉另一轮的。
+
+    2026-11-04 实踩：`--from-panel` 指代理段面板、命令行没给 `--start/--end`，
+    `tag` 取的是默认值 2024-01-01_2026-09-15 ⇒ 主面板那 656 天的 `daily_ic` /
+    `ic_summary` / `report` / `run_meta` 四份被 24 天的内容原地覆盖。面板文件本身没事，
+    但所有下游结论的落盘物都没了——而这种覆盖**一个字的报错都不会有**。
+    """
+    mod = _panel_module()
+    dates = pd.Series(["2026-09-18", "2026-09-16", "2026-10-27", "2026-10-20"])
+    lo, hi, changed = mod.panel_window(dates, start="2024-01-01", end="2026-09-15")
+    assert (lo, hi) == ("2026-09-16", "2026-10-27"), f"时窗要按面板取，实得 {(lo, hi)}"
+    assert changed, "面板与命令行不一致却没报出来，就是静默覆盖"
+    # 面板正好落在命令行说的窗口上：原样返回，不许改成面板的首末行（那是同一轮的 tag）
+    same = pd.Series(["2024-01-01", "2024-01-05", "2026-09-15"])
+    assert mod.panel_window(same, start="2024-01-01", end="2026-09-15") == (
+        "2024-01-01", "2026-09-15", False)
+
+
+def test_reuse_path_derives_its_window_from_the_panel():
+    """接线判据：`run()` 的复用分支必须真的调用 `panel_window`。
+
+    只测函数不测接线，等于允许下一版把这一行删掉——覆盖事故就回来了（`KI-SILENT-003`）。
+    """
+    mod = _panel_module()
+    src = inspect.getsource(mod.run)
+    reuse = src[src.index("if args.from_panel:"):]
+    assert "panel_window(" in reuse[:1200], "复用分支没按时窗派生 tag：会覆盖另一轮的产物"

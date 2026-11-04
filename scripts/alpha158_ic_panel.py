@@ -52,6 +52,7 @@ from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -226,7 +227,14 @@ def build_code_panel(raw: pd.DataFrame, hfq: pd.DataFrame, code: str, *,
         raise ValueError(f"{code}: raw 与 hfq 帧的日期不一致，逐维分派无从对齐")
 
     px = hfq[["date", "open", "high", "low", "close", "volume"]].copy()
-    px["vwap"] = raw["amount"].astype(float) / raw["volume"].replace(0, np.nan)
+    # `$vwap` 必须与 `$close` 同口径，两件容易漏的事：① 日线 volume 的单位是**手**，
+    # amount/volume 得到每股价的 100 倍；② hfq 帧的价 = raw × 当日因子。所以先按股、
+    # 再按当日因子 rebase 到 hfq。少了 ② 时 VWAP0 = (raw vwap/raw close)/因子——截面排序
+    # 九成由复权因子决定（KI-DATA-005：实测日内 corr 中位 0.949，656 天全部 >0.9），
+    # 一条本来过 BH 的维会被静默压成不显著；少了 ① 只是整体等比，不影响秩但影响水平。
+    per_share = raw["amount"].astype(float) / (raw["volume"].replace(0, np.nan) * 100.0)
+    factor = hfq["close"].astype(float) / raw["close"].astype(float).replace(0, np.nan)
+    px["vwap"] = per_share * factor
     a158 = evaluate_frame(px, payload=payload)
 
     fwd = forward_return(hfq["close"], horizon)
@@ -502,6 +510,62 @@ def yearly_decay(daily: pd.DataFrame, summary: pd.DataFrame,
     return {"years": [str(y) for y in years], "groups": out}
 
 
+def overlapping_days(pre: pd.DataFrame, post: pd.DataFrame) -> list[str]:
+    """两段日频 IC 共用的日期（升序）。跨断点位移的前提就是这份清单为空。"""
+    return sorted({str(d) for d in pre.index} & {str(d) for d in post.index})
+
+
+def proxy_shift(pre: pd.DataFrame, post: pd.DataFrame, dims: Sequence[str], *,
+                maxlags: int, alpha: float = 0.05) -> dict:
+    """成交额代理化断点前后的 IC 位移：两段用**同一判据**汇总，差另有自己的 SE。
+
+    KI-DATA-001 从 2026-09-16 起把 `amount` 写成 `close×volume` 的代理值。受污染的维
+    在这段里测出来的 IC 还能不能用，只能拿断点前同一条维对照——所以这里比的是**同一条维**
+    在两段的 `mean_IC`，不是两个样本池的平均数。
+
+    三条不能靠直觉的口径：
+
+    ① 判据复用 `summarize_ic`（逐日 Rank IC + HAC + BH），两段各自跑一遍：换一份实现
+       就等于换一把尺子，位移里会混进判据差异。
+    ② `se_diff = hypot(se_pre, se_post)`：两段的日不重叠，差的方差是两边之和。代理段
+       只有几十天，它的 SE 天然比主段大一截——拿主段门槛去判代理段会把噪声读成位移。
+    ③ 任一段给不出 IC（整段常数、横截面太薄、该维不可比）⇒ 位移是 **NaN** 并计入
+       `uncomparable`，绝不补 0。补 0 会把「没验到」冒充「口径改了但 IC 没动」，
+       那正是这一层要回答的问题上最贵的一次误读。
+    """
+    cfg = IcConfig(min_codes=1, maxlags=maxlags, alpha=alpha)
+    overlap = overlapping_days(pre, post)
+    if overlap:
+        # `se_diff = hypot(se_pre, se_post)` 的前提是两段的日互不重叠。共用交易日时
+        # 两条估计量相关，按独立合成会**低估**差的 SE，把噪声读成位移。
+        raise ValueError(f"两段日频 IC 有 {len(overlap)} 个重叠日（如 {overlap[:3]}）："
+                         f"位移的 SE 合成前提（两段互不重叠）不成立，把窗口切干净再来")
+    s_pre = summarize_ic(pre[list(dict.fromkeys(dims))], cfg)
+    s_post = summarize_ic(post[list(dict.fromkeys(dims))], cfg)
+    rows: list[dict[str, Any]] = []
+    uncomparable = 0
+    for dim in dict.fromkeys(dims):
+        p, q = s_pre.loc[dim], s_post.loc[dim]
+        a, b = float(p["mean_ic"]), float(q["mean_ic"])
+        se_a, se_b = float(p["nw_se"]), float(q["nw_se"])
+        missing = not (np.isfinite(a) and np.isfinite(b)
+                       and np.isfinite(se_a) and np.isfinite(se_b))
+        if missing:
+            diff = se_diff = z = float("nan")
+            uncomparable += 1
+        else:
+            diff = b - a
+            se_diff = float(np.hypot(se_a, se_b))
+            z = float(diff / se_diff) if se_diff > 0 else float("nan")
+        rows.append({"dim": str(dim),
+                     "pre_days": int(p["n_days"]), "pre_mean_ic": a, "pre_nw_t": float(p["nw_t"]),
+                     "post_days": int(q["n_days"]), "post_mean_ic": b, "post_nw_t": float(q["nw_t"]),
+                     "diff": diff, "se_diff": se_diff, "z": z, "missing": bool(missing)})
+    return {"maxlags": int(maxlags), "alpha": float(alpha),
+            "pre_days": len(pre), "post_days": len(post),
+            "rows": rows, "uncomparable": int(uncomparable)}
+
+
 def json_safe(obj):
     """递归把 NaN/Inf 换成 null。
 
@@ -532,6 +596,21 @@ def atomic_write_parquet(df: pd.DataFrame, path: Path) -> Path:
     finally:
         tmp.unlink(missing_ok=True)
     return path
+
+
+def panel_window(dates, *, start: str, end: str) -> tuple[str, str, bool]:
+    """复用路径的时窗由**面板自己**决定：返回 (start, end, 是否改了)。
+
+    产物名（tag）是从 start/end 派生的。装配路径的 start/end 是因、面板是果；复用路径
+    反过来——面板是因，start/end 只是「我要给这批行出报告」的标签。还按命令行默认值打
+    tag，就会把另一轮的 IC/汇总/报告原地盖掉（2026-11-04 实踩过一次：代理段面板 + 默认
+    时窗 ⇒ 主面板那 656 天的四份派生产物被 24 天的内容覆盖，且没有任何报错）。
+    """
+    s = pd.Series(dates, dtype=str)
+    lo, hi = str(s.min()), str(s.max())
+    if not len(s) or lo == "nan":
+        raise ValueError("面板没有可用日期，无法决定时窗")
+    return (start, end, False) if (lo, hi) == (start, end) else (lo, hi, True)
 
 
 def parse_horizons(spec: str, primary: int) -> list[int]:
@@ -571,6 +650,12 @@ def run(args: argparse.Namespace) -> int:
         # 装配一次几十分钟，报告的措辞与判据参数要能反复改：从落盘面板直接出 IC。
         panel = pd.read_parquet(args.from_panel)
         print(f"从面板复用：{Path(args.from_panel).name} → {panel.shape}", flush=True)
+        lo, hi, changed = panel_window(panel["date"], start=args.start, end=args.end)
+        if changed:
+            print(f"⚠️ 时窗按面板取 [{lo}, {hi}]（命令行是 [{args.start}, {args.end}]）："
+                  f"复用路径的产物名跟着数据走，否则这一轮的 IC/报告会原地覆盖另一轮的",
+                  flush=True)
+            args.start, args.end = lo, hi
         extra: dict = {"reused_panel": str(args.from_panel)}
         multi: list[int] = []
         if str(args.extra_horizons or "").strip():
@@ -718,6 +803,24 @@ def aggregate_and_write(panel: pd.DataFrame, args: argparse.Namespace,
         meta["yearly"] = yearly_decay(daily, summary, {
             "Alpha158": a158_names, "FEAT26": list(FEAT26_ORDER), "净新增": nn_dims},
             maxlags=args.horizon)
+    if str(getattr(args, "against_daily", "") or "").strip():
+        # 位移只在两段互不重叠时成立；把对照段的日频 IC 读进来，按同一判据各算一遍。
+        against = pd.read_parquet(args.against_daily)
+        if "date" in against.columns:
+            against = against.set_index("date")
+        contaminated = FEAT26_AMOUNT_DIMS + vwap_dims_from_artifact(payload)
+        controls = [c for c in FEAT26_ORDER if c not in FEAT26_AMOUNT_DIMS]
+        shared = overlapping_days(against, daily)
+        if shared:
+            # 在这里就判掉：`proxy_shift` 自己也会 raise，但调用侧先说清是哪几天，
+            # 报错才有动作价值（否则只有一个异常文本，得回头打印 index）。
+            print(f"❌ 对照段与本次窗口有 {len(shared)} 个重叠日（如 {shared[:3]}）："
+                  f"位移的 SE 合成前提不成立，把 --against-daily 指向不重叠的那一段",
+                  file=sys.stderr)
+            return 1
+        meta["proxy_sensitivity"] = proxy_shift(
+            against, daily, [*contaminated, *controls], maxlags=args.horizon,
+            alpha=args.alpha)
     if write_panel:
         atomic_write_parquet(panel.astype({c: "float32" for c in [*feature_cols, "label"]}),
                              out_dir / f"panel_{tag}.parquet")
@@ -908,6 +1011,34 @@ def report_lines(summary: pd.DataFrame, a158: list[str], f26: list[str],
                   "门槛就不同——2026 段 171 天的门槛比 656 天全样本大一截。**比值 <1 表示"
                   "那一年该组的中位 |IC| 落在自己的噪声门槛以内**，只说明「按年切片判不出」，"
                   "不能读成「信号没了」。"]
+    sens = meta.get("proxy_sensitivity") or {}
+    if sens.get("rows"):
+        lines += ["", "## 代理段敏感性：口径改了之后，受污染的维还剩多少", "",
+                  f"断点 {meta.get('proxy_caliber_start', '—')}（KI-DATA-001：`amount` 改为 "
+                  f"`close×volume` 的代理值）；主段 {sens['pre_days']} 天 vs 代理段 "
+                  f"{sens['post_days']} 天，两段同判据、同 `maxlags={sens['maxlags']}`。", "",
+                  "| 维度 | 主段 n_days | 主段 mean_IC | 主段 NW_t | 代理段 n_days |"
+                  " 代理段 mean_IC | 代理段 NW_t | 位移 | 差的 2×SE | z |",
+                  "|---|---|---|---|---|---|---|---|---|---|"]
+        def _cell(v: float) -> str:
+            # 判不出的格子统一印「—」：`f"{nan:+.2f}"` 印出来是 "+nan"，读者会当成一个数
+            return "—" if not np.isfinite(v) else f"{v:+.2f}"
+
+        for r in sens["rows"]:
+            lines.append(
+                f"| {r['dim']} | {r['pre_days']} | {_fmt_ic(r['pre_mean_ic'])} | "
+                f"{_cell(r['pre_nw_t'])} | {r['post_days']} | "
+                f"{_fmt_ic(r['post_mean_ic'])} | {_cell(r['post_nw_t'])} | "
+                + ("—" if r["missing"] else f"{r['diff']:+.4f}") + " | "
+                + ("—" if not np.isfinite(r["se_diff"]) else f"{2 * r['se_diff']:.4f}") + " | "
+                + ("—" if r["missing"] else f"{r['z']:+.2f}") + " |")
+        lines += ["", f"读法：**位移是 `代理段 − 主段`，判据用 z（|z|>2 才算看得见）**，"
+                  f"两段的日不重叠，所以差的 SE 是两段 SE 的平方和开根。代理段只有 "
+                  f"{sens['post_days']} 天，它的门槛天然比主段宽——位移落在「差的 2×SE」"
+                  "以内时读作「判不出位移」，既不等于「口径没影响」，也不等于「IC 还在」"
+                  "（代理段的样本本身也可能与主段的市场状态不同，这一层没隔开）。"
+                  f"给不出 IC 的维印「—」并计入 `uncomparable`（本次 "
+                  f"{sens['uncomparable']} 条）：那是「没验到」，不是「位移为 0」。"]
     noise = s["nw_se"].median()
     lines += ["", "读法：`n_days` 远小于天数的维度，其均值由少数几天给出，不能与满覆盖",
               f"的维度并列排序；本表 `mean_IC` 的 HAC 标准误中位是 {noise:.4f}，"
@@ -940,6 +1071,10 @@ def main(argv=None) -> int:
     ap.add_argument("--extra-horizons", default="",
                     help="配合 --from-panel：逗号分隔的额外前瞻天数（如 1,10,20），"
                          "只加 label_hN 列、不重算特征；主 --horizon 自动包含")
+    ap.add_argument("--against-daily", default="",
+                    help="另一段的日频 IC parquet（通常是代理化之前的主段）；给出时"
+                         "报告加「代理段敏感性」一节，位移按 KI-DATA-001 的受污染维 + "
+                         "FEAT26 其余维（同产源、不读 amount）当对照")
     ap.add_argument("--out-dir", default=str(paths.DATA_ROOT / "alpha158_ic"))
     args = ap.parse_args(argv)
 
