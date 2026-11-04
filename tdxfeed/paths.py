@@ -43,6 +43,7 @@ def exchange_prefix(code: str) -> str:
 DAILY_BAK_SUFFIX = ".v1.bak.parquet"
 DERIVED_SUFFIX = "_indicators"
 _DAILY_NAME_RE = re.compile(r"(?:sh|sz|bj)\d{6}\.parquet")
+_HFQ_NAME_RE = re.compile(r"\d{6}\.parquet")
 
 
 def _minute_name(period: str) -> str:
@@ -97,6 +98,16 @@ def daily_files() -> list[Path]:
 
 def adj_factor_files() -> list[Path]:
     return sorted(adj_factor_dir().glob("*.parquet"))
+
+
+def hfq_factor_codes() -> list[str]:
+    """后复权因子表的标的枚举：只认裸 6 位文件名，排除备份与中断残留（`*.tmp`）。
+
+    写侧（`tdxfeed.hfq_factor` 的全量/缺项更新）与审计侧（`scripts/audit_hfq_raw_close.py`）
+    必须扫同一批文件——否则「全市场对账」这句话没有可比对象。判据只放这一处。
+    """
+    return sorted(p.stem for p in hfq_factor_dir().glob("*.parquet")
+                  if _HFQ_NAME_RE.fullmatch(p.name))
 
 
 def daily_dir(root: str | Path | None = None) -> Path:

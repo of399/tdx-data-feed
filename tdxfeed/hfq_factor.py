@@ -17,6 +17,23 @@ date 是 date32[day]（pandas 里是 datetime.date），不是 string 也不是 
   漂移信号。
 - 网络约束与 adj 相同：baostock 的 HTTP 不自带超时，也不保证一次成功，所以必须
   有 socket 超时、重试与连续失败熔断——否则一次登录失效会把 5221 只拖满几小时。
+
+写入侧的跨源对账（KI-DATA-004）
+------------------------------
+`raw_close` 是交易所价格，日线表 `data/parquet/daily` 里存的是同一个价格的另一个
+来源，所以两者必须逐日相等。2026-11-03 的增量把 300386 的 11-02/11-03 两行写成了
+`raw_close = hfq_close`（48.45 对 10.72），因子当场塌成 1.0，而形状、行数、日期序列
+全都正常——按形状检查的守卫只会说「又下跳了一次」，说不出「这次是取错序列」。
+机制至今没能定论（重查 baostock 已回正，源侧瞬态还是我们这侧两路查询接错都无本地
+凭据），所以这里装的是**与成因无关的不变量**：本次取数窗口里的行，raw_close 与日线
+收盘差超过容差就拒绝落盘，旧文件一字节不动。
+
+范围是测出来的，不是拍的。2026-11-04 全历史逐行比对 16,783,596 行（清单落盘在
+`data/.state/hfq_raw_close_mismatch.json`，由 `scripts/audit_hfq_raw_close.py` 产出）：
+容差外 **2,339 行 / 461 只标的**，其中 2,195 行在 2000 年及以前（早期收盘在两个源之间
+本就有修正差，与 KI-DATA-003 同源），**2019 年起为 0 行**。所以判据只比**本次取数窗口
+产出的行**——把整表纳入会让每次 rebase 都被 1990 年代的差异拦住，那是拿守卫造一个新的
+停更源；而近期段本来就没有误判。
 """
 from __future__ import annotations
 
@@ -32,7 +49,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from tdxfeed.freshness import CN_HOLIDAYS, last_trading_day
-from tdxfeed.paths import hfq_factor_dir
+from tdxfeed.paths import daily_path, hfq_factor_codes, hfq_factor_dir
 
 # 吞错计数（SEM002）：每处被吞掉的错误都计入统计，按函数名分桶，便于事后追溯失败率
 _ERROR_COUNT: Counter[str] = Counter()
@@ -47,6 +64,14 @@ BOOTSTRAP_START = "2020-01-01"
 
 # 连续这么多只失败就中止整轮：登录失效时每只还要退避 3 次，不能一路拖下去。
 FAIL_ABORT = 20
+
+# raw_close 与日线收盘的对账容差：「一分钱或 0.5% 取大」。
+# 下限必须是绝对值：2 元的票上一分钱就是 0.5%，纯相对容差会把正常舍入差当缺陷拒写，
+# 而每只票每天都在追加行，那等于天天停更。走「取大」而不是「取小」：两个源的价格精度
+# 都只到分，绝对档兜住低价票的舍入，相对档兜住高价票本就不小的分位噪声；而真正要拦的
+# 那种错（raw 收到后复权序列，48.45 对 10.72）跨的是量级，两档都拦得住。
+RAW_VS_DAILY_ABS = 0.011
+RAW_VS_DAILY_REL = 0.005
 
 
 def bs_code(code: str) -> str:
@@ -151,6 +176,52 @@ def write_atomic(path: Path, df: pd.DataFrame) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def _daily_closes(code: str, dates: list[str]) -> dict[str, float]:
+    """从日线表取这几天的收盘，作为 `raw_close` 的第二个来源。
+
+    取不到就回空 dict：日线缺失或坏掉不等于 hfq 不合格——新纳入池、北交所段在 daily
+    里本就没有文件，判红会让整条后置任务停更，代价远大于「这几天没有基准」。
+    缺失是正常状态所以先看文件在不在（不靠异常表达）；真读不动了才计一次数（SEM002）。
+    """
+    want = {str(d) for d in dates}
+    if not want:
+        return {}
+    path = daily_path(code)
+    if not path.exists():
+        return {}
+    try:
+        df = pd.read_parquet(path, columns=["date", "close"])
+    except Exception:
+        _ERROR_COUNT['_daily_closes'] += 1
+        return {}
+    out: dict[str, float] = {}
+    for d, c in zip(df["date"], df["close"], strict=True):
+        key = str(d)
+        if key in want and pd.notna(c):
+            out[key] = float(c)
+    return out
+
+
+def raw_close_mismatches(new: pd.DataFrame, closes: dict[str, float],
+                         abs_tol: float = RAW_VS_DAILY_ABS,
+                         rel_tol: float = RAW_VS_DAILY_REL) -> list[tuple]:
+    """逐日比 `raw_close` 与日线收盘，返回 `(date, raw_close, daily_close)` 列表。
+
+    没有基准的日期是**跳过**而不是判错：一次取数窗口里可能混着停牌日，把「查不到」
+    当「不合格」会让那只票永久拒写。报错带两个具体数值是刻意的——只给日期等于让
+    下一个人再跑一遍才知道错在哪个量级。
+    """
+    out: list[tuple] = []
+    for d, raw in zip(new["date"], new["raw_close"], strict=True):
+        ref = closes.get(str(d))
+        if ref is None:
+            continue
+        raw_f = float(raw)
+        if abs(raw_f - ref) > max(abs_tol, rel_tol * abs(ref)):
+            out.append((d, raw_f, ref))
+    return out
+
+
 def _query(bs, code: str, start: str, end: str, adjustflag: str) -> list[list]:
     rs = bs.query_history_k_data_plus(
         code, "date,close", start_date=start, end_date=end,
@@ -234,6 +305,16 @@ def update_one(bs, code: str, out_dir: Path, today: str) -> str:
         if n_old and (len(merged) < n_old
                       or str(merged["date"].iloc[-1]) < old_last):
             return "fail:shrink"
+        # 跨源对账（KI-DATA-004）：只比本次取数窗口产出的行。整表重拉时窗口从
+        # old_first 起，普通增量时从 last_date 起——历史段那两个源本就有修正差，
+        # 把它们纳入判据会让每次 rebase 都被 1990 年代的差异拦住。
+        boundary = old_first if rebased else start
+        fresh = merged.loc[[str(d) >= boundary for d in merged["date"]]]
+        bad = raw_close_mismatches(
+            fresh, _daily_closes(code, [str(d) for d in fresh["date"]]))
+        if bad:
+            d, raw_v, ref_v = bad[0]
+            return f"fail:raw-vs-daily:{len(bad)}:{d} {raw_v:.2f}≠{ref_v:.2f}"
         write_atomic(path, merged)
     except Exception as e:  # 单只失败不应中断整轮
         _ERROR_COUNT['update_one'] += 1
@@ -281,11 +362,9 @@ def main(argv=None) -> int:
         print(f"❌ 后复权因子目录不存在: {out_dir}", file=sys.stderr)
         return 1
 
-    if args.code:
-        codes = [args.code[-6:]]
-    else:
-        codes = [p.stem for p in sorted(out_dir.glob("*.parquet"))
-                 if len(p.stem) == 6 and p.stem.isdigit()]
+    # 枚举判据在 paths 里单源：审计侧（scripts/audit_hfq_raw_close.py）扫的是同一批
+    # 文件，两边的「全市场」才是同一个集合。
+    codes = [args.code[-6:]] if args.code else hfq_factor_codes()
     if args.limit:
         codes = codes[: args.limit]
     if args.missing:
