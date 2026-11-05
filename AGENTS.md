@@ -64,6 +64,8 @@
 ## 模型与蒸馏
 
 - 源码里出现的教师 tag 一律不可信，包括写死的默认值：`tdx-lora:latest` 在本仓库没有任何生产者（无 Modelfile、无 create 步骤），本机也早已不存在。跑之前用 `ollama list` 或 `make deploy-list` 挑一个真实存在的 tag，并先确认当前这份脚本从哪儿读它——显式传环境变量的入口是后加的，旧版本会无视它继续用写死的 tag。
+- **`MODEL_REGISTRY` 条目产物在场性由 `tests/test_predict_registry_artifacts.py` 钉，缺失必须登记理由且不得覆盖默认链。** 默认链（`DEFAULT_MODEL` / `FALLBACK_MODEL` / `POSITION_MODE_MODEL` 的两个值）不带任何豁免：`data/double_up/d_signal_5d_model_daban.txt` 一旦被误删或改名，`predict-daily` 只会走 `resolve_model` 的静默回退（打一行 `[WARN] 自动回退`），出票照常生成、退出码仍是 0，但排序模型已换成另一只（29 维分类 → 21 维回归），产物里看不出来。登记表当前唯一条目是 `"v9"`——它有生产者（`scripts/feature_engineering.py` 的 `MODEL_OUT`）而产物未生成，属合法占位而非手误，重跑后必须删登记；**不要为了它去删键**，`tests/test_predict_price_basis.py` 的 `OLD_ENTRIES` 已钉住那条键，删了是当场 KeyError。注册表一律现读 `predict.MODEL_REGISTRY`，别再抄一份「键 → 文件名」映射当第二权威源。
+- **教师 tag 的写死点分两层清单，`train/` 那层只在判本机。** `tests/test_teacher_tag_hardcoding.py` 把写死 `qwen3-14b-tdx*` 的位置逐文件登记成**双向闭合**清单（多一个是漏网、少一个是腐化）：**仓库层**逐个根实测被 git 跟踪（`git ls-files scripts`=186 / `v5`=268 / `training`=39），CI 里真判；**本机层**只有 `train/`——`.gitignore` 把它整目录排除（第 48 行）、`git ls-files train` = 0，CI 检出里根本没有这个目录，所以只能在它在场时逐条判，不在场时无货可判（这是声明出来的残留覆盖缺口，不是漏扫，也不走 `pytest.skip`）。绊线是 `test_local_tier_roots_are_really_gitignored`：`train/` 哪天被收进 git，它就红并逼着把那些条目重新归类。**注意 `training/` 与 `train/` 是仓库根下两个不同的目录**，v8/v9 的训练、评估、merge、部署脚本全在 `train/scripts/` 下——这正是「v8/v9 用的是哪个」难以只从仓库回答的结构性原因。在役入口（enabled timer 的 `ExecStart` 那 5 个脚本）里出现 tag 字面量直接判红；历史基准脚本钉死当时的 tag 才是基准，不改。
 - 蒸馏「跑成功」不等于答案非空：`main()` 自己不做非空校验，它只把 `call()` 交回来的东西写进行并打 `DISTILL_DONE`——所以整片空语料的形状是「退出码 0 + 行数对得上」。这条静默与否取决于 `call()` 的实现、会随版本漂，口径因此固定：**长跑前先用小批量 `LIMIT` 出一批，人工确认 output 非空再放开**。
 - `scripts/distill_outputs.py` 的输出是**追加**续跑（按已写行数跳过），skeleton 变更后要把输出指到新文件，否则两套口径混进同一个语料。
 

@@ -29,6 +29,7 @@ DATA_DEPENDENT_MODULES = {
     "test_daban_mcp.py",
     "test_daily_history_depth_no_cap_truncation.py",
     "test_hfq_factor_monotone.py",
+    "test_predict_registry_artifacts.py",
     "test_pnl_label_recompute.py",
     "test_stage1_candidates.py",
     "test_stage1_factors_parity.py",
