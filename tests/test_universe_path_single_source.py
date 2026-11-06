@@ -17,6 +17,10 @@
      改名躲不过去。
   R5（入口）：`load_universe` / `universe_codes` 这类公开入口的**函数定义**只允许出现在
      权威层（历史上 `load_universe` 有 8 份实现、返回类型还分裂成 dict/list）。
+  R6（形状级豁免）：写入者需要旧文件的**原始字节**做备份与「没变就不写」判据，这一形
+     （`read_bytes()`）在 `WRITER_SNAPSHOT_EXCEPTIONS` 里逐条登记理由。豁免按形状给、
+     不按文件给：同文件里出现 `read_text()` / `open()` / `json.loads` 照样判红；
+     登记了却已无命中也算红（防腐化）。
 
 **两个依赖域，各一份实现**：
 - 主仓（scripts / tdxfeed / mcp / quant）：权威层 = `tdxfeed/names.py`（`load_universe` +
@@ -51,6 +55,14 @@ DOMAINS = {
 
 # 公开入口名（去掉前导下划线后比对）：这些名字只允许在权威层里定义
 ENTRY_NAMES = {"load_universe", "universe_codes", "load_names", "universe"}
+
+# R4 的形状级豁免（登记即文档，腐化即红）：名单的**写入者**读旧文件的原始字节做备份，
+# 只豁免 `read_bytes()` 这一形；名单内容的读取仍只有 `tdxfeed/names.py` 一处。
+# 新增条目要说清「靠这几行字节干什么用」；写入者身份由 tests/test_universe_writer.py 钉。
+WRITER_SNAPSHOT_EXCEPTIONS = {
+    "scripts/update_universe.py":
+        "唯一写入者：read_bytes 只用于写前备份与「逐字节相同⇒不写」判据，内容经 names.load_universe 读",
+}
 
 
 def _strs(node: ast.AST) -> list[str]:
@@ -133,8 +145,7 @@ def _mentions_alias(node: ast.AST, aliases: set[str]) -> bool:
     return any(isinstance(n, ast.Name) and n.id in aliases for n in ast.walk(node))
 
 
-def read_violations(path: Path) -> list[int]:
-    """R4：读取名单文件的行为（行号）。"""
+def _read_lines_for(path: Path, attrs: tuple[str, ...]) -> list[int]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     aliases = _universe_aliases(tree)
     lines: set[int] = set()
@@ -143,17 +154,33 @@ def read_violations(path: Path) -> list[int]:
             continue
         func = node.func
         # `X.read_text()` / `X.read_bytes()`
-        if isinstance(func, ast.Attribute) and func.attr in ("read_text", "read_bytes"):
+        if isinstance(func, ast.Attribute) and func.attr in attrs:
             recv = func.value
             if _contains_universe_path(recv) or _mentions_alias(recv, aliases):
                 lines.add(node.lineno)
         # `open(X)`
-        elif isinstance(func, ast.Name) and func.id == "open":
+        elif isinstance(func, ast.Name) and func.id == "open" and "open" in attrs:
             for arg in node.args:
                 if _contains_universe_path(arg) or _mentions_alias(arg, aliases):
                     lines.add(node.lineno)
                     break
     return sorted(lines)
+
+
+def read_violations(path: Path) -> list[int]:
+    """R4：读取名单文件的行为（行号）。"""
+    return _read_lines_for(path, ("read_text", "read_bytes", "open"))
+
+
+def snapshot_read_lines(path: Path) -> list[int]:
+    """R4 中唯一可豁免的一形：只把名单当**原始字节**读（`read_bytes()`）。
+
+    写入者需要旧字节做两件事：写前备份、以及「逐字节相同 ⇒ 不写不备份」。
+    这不等于第二份读取实现——它不解析内容；名单内容仍只能经 `names.load_universe()`。
+    所以豁免按形状给，同文件里的 `read_text()` / `open()` 照判红（见
+    `test_exception_only_excuses_snapshot_reads`）。
+    """
+    return _read_lines_for(path, ("read_bytes",))
 
 
 def entry_violations(path: Path) -> list[int]:
@@ -197,14 +224,17 @@ def scan(root: Path = ROOT) -> dict[str, list[int]]:
 
 
 def scan_implementations(domains: dict[str, tuple[tuple[str, ...], set[str]]] | None = None,
-                         root: Path = ROOT) -> dict[str, list[str]]:
+                         root: Path = ROOT,
+                         exceptions: dict[str, str] | None = None) -> dict[str, list[str]]:
     """实现层扫描：返回 {相对路径: [违规原因, ...]}。
 
     Args:
         domains: 依赖域定义（源码根 + 该域的权威文件），默认用仓库自身的。
         root: 扫描根，默认仓库根；自检用例会指向临时目录。
+        exceptions: R6 的形状级豁免表（相对路径 → 理由），默认用仓库登记的那份。
     """
     doms = DOMAINS if domains is None else domains
+    exc = WRITER_SNAPSHOT_EXCEPTIONS if exceptions is None else exceptions
     bad: dict[str, list[str]] = {}
     for _domain, (roots, authority) in doms.items():
         for p in _domain_files(roots, root):
@@ -220,6 +250,10 @@ def scan_implementations(domains: dict[str, tuple[tuple[str, ...], set[str]]] | 
                 entries = entry_violations(p)
             except SyntaxError:
                 continue
+            if reads and rel in exc:
+                # 只放过字节快照这一形；其余读取（含解析）留着判红。
+                snapshots = set(snapshot_read_lines(p))
+                reads = [ln for ln in reads if ln not in snapshots]
             if reads:
                 reasons.append(f"L{reads[0]} 读取名单文件")
             if entries:
@@ -366,3 +400,74 @@ def test_scan_implementations_flags_a_second_reader(tmp_path):
     bad = scan_implementations(domains={"probe": (("pkg",), set())}, root=tmp_path)
     assert "pkg/bad.py" in bad, "第二份实现必须被扫描器报出来"
     assert "pkg/ok.py" not in bad, "合规调用唯一入口不该被误报"
+
+
+# --------------------------------------------------------------------------- #
+# 写入者的「旧字节快照」豁免：按形状放行，不按文件放行
+# --------------------------------------------------------------------------- #
+def test_snapshot_read_lines_are_detected(tmp_path):
+    """`read_bytes()` 抓出来，`read_text()` / `open()` 不算快照（豁免吃不到它们）。"""
+    snap = tmp_path / "snap.py"
+    snap.write_text(
+        "from tdxfeed.paths import universe_path\n"
+        "RAW = universe_path()\n"
+        "old = RAW.read_bytes()\n"
+        "text = RAW.read_text(encoding='utf-8')\n"
+        "with open(RAW) as fh:\n"
+        "    fh.read()\n",
+        encoding="utf-8",
+    )
+    assert read_violations(snap) == [3, 4, 5]
+    assert snapshot_read_lines(snap) == [3]
+
+
+def test_exception_only_excuses_snapshot_reads(tmp_path):
+    """同一个登记文件里，快照之外的读取仍然判红——豁免不是文件级的免死牌。"""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "w.py").write_text(
+        "from tdxfeed.paths import universe_path\n"
+        "RAW = universe_path()\n"
+        "old = RAW.read_bytes()\n",
+        encoding="utf-8",
+    )
+    (pkg / "sneak.py").write_text(
+        "import json\n"
+        "from tdxfeed.paths import universe_path\n"
+        "RAW = universe_path()\n"
+        "mapping = json.loads(RAW.read_text(encoding='utf-8'))\n",
+        encoding="utf-8",
+    )
+    doms = {"probe": (("pkg",), set())}
+    exc = {"pkg/w.py": "只读原始字节做备份", "pkg/sneak.py": "同一句话"}
+    bad = scan_implementations(domains=doms, root=tmp_path, exceptions=exc)
+    assert "pkg/w.py" not in bad, "登记过的快照读取不该判红"
+    assert "pkg/sneak.py" in bad, "借同一份登记去解析名单内容必须仍判红"
+
+    # 没登记就不豁免：把表清空，同一批文件要全部变红。
+    unregistered = scan_implementations(domains=doms, root=tmp_path, exceptions={})
+    assert set(unregistered) == {"pkg/w.py", "pkg/sneak.py"}
+
+
+def test_registered_exceptions_do_not_rot():
+    """登记了但已无命中 = 该重新评估（和 test_names_single_source 的腐化判据同一形）。"""
+    for rel in WRITER_SNAPSHOT_EXCEPTIONS:
+        path = ROOT / rel
+        assert path.is_file(), f"豁免条目指向不存在的文件: {rel}"
+        assert snapshot_read_lines(path), (
+            f"{rel} 已不再对名单做 read_bytes() 快照，豁免条目在腐化 —— "
+            f"要么删掉登记，要么说明它现在靠什么备份旧名单")
+
+
+def test_writer_still_reads_content_through_the_authority():
+    """豁免的前提：写入者读名单**内容**只经 names.load_universe，没有第二份解析。"""
+    for rel in WRITER_SNAPSHOT_EXCEPTIONS:
+        tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+        loads = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "loads"]
+        assert not loads, f"{rel} 里出现了 json.loads ⇒ 名单解析有了第二份实现"
+        calls = {f.func.attr for f in ast.walk(tree)
+                 if isinstance(f, ast.Call) and isinstance(f.func, ast.Attribute)
+                 and isinstance(f.func.value, ast.Name) and f.func.value.id == "names"}
+        assert "load_universe" in calls, f"{rel} 不经 names.load_universe 读名单内容"

@@ -115,13 +115,20 @@ def download_indices(w: Writers, state: State, src: SinaSource):
       与个股（sz000001=平安银行）互不冲突。
     - 本环境实测 TDX 公共服务器不吐指数（返回 0 根），会自动落到 Sina。
     """
+    # 构造 + 一次性探测：mootdx 不可用时全程走 Sina，避免逐指数超时挂死。
+    # 2026-11-05 实测能力分档（`hq_hosts` 前 14 台逐台验）：connect 6/14、bars 0/14、f10 6/14——
+    # 本环境不是「TDX 被封锁」，那 6 台 TCP 通、协议连上、F10 有正文，但 K 线一律 0 根（bars_empty）。
+    # 结论：**日线与指数的实际通道在这台机器上就是 Sina**，换主机/修选主都不会把通达信侧的 K 线接回来；
+    # 选主那一修管的是「白等 15 秒」与失败可见性。所以打印必须带**原因统计**，否则下一轮排查
+    # 又会把「探测不可用」读成网络问题，白换一天主机。
     from tdxfeed.sources.mootdx_source import MootdxSource
-    # 构造 + 一次性探测：mootdx 不可用时（本环境 TDX 被封锁）全程走 Sina，避免逐指数超时挂死
+    from tdxfeed.sources.tdx_hosts import last_stats as _host_stats
     pydx = None
     try:
         pydx = MootdxSource()
         if not pydx.probe():
-            print("[index] mootdx 探测不可用，全程走 Sina 兜底", flush=True)
+            print(f"[index] mootdx 探测不可用（原因统计={_host_stats()}），全程走 Sina 兜底",
+                  flush=True)
             pydx = None
     except Exception as e:
         _ERROR_COUNT['download_indices'] += 1

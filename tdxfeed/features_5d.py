@@ -61,14 +61,19 @@ LIMIT_ST_MAIN_OLD = float(_limits.LIMIT_RATIO_ST_MAIN_OLD - _THRESHOLD_BUFFER)
 MAIN_ST_RULE_CHANGE_DATE = _limits.MAIN_ST_RULE_CHANGE_DATE
 
 
-def get_limit(code: str, name: str = "", on_date=None) -> float:
+def get_limit(code: str, name: str = "", on_date=None, is_st: bool | None = None) -> float:
     """涨停判定阈值。委托 `tdxfeed.execution.limits.limit_threshold`（唯一实现）。
 
     name / on_date 只影响主板 ST/*ST 一档：早于 2026-07-06 取 5% 档，之后与主板
     普通票并轨。北交所按代码前缀（920 / 8 / 4）与 `bj` 前缀判定，不再要求显式前缀。
     做 2020-2026 的历史区间一定要把交易日传进来，否则并轨前的主板 ST 会被误判成 10% 档。
+
+    `is_st` 给定时（面板按日供给的真实状态，见 `tdxfeed/st_supply.py`）以它为准；
+    只有 `is_st=None` 才回落到 `_is_st_name(name)`——名称是**当日快照**口径，
+    拿它判历史某一天会把「曾经 ST、后来撤销」的票判错，这正是 KI-DATA-008 的病灶之一。
     """
-    return _limits.limit_threshold(code, is_st=_is_st_name(name), on_date=on_date)
+    flag = _is_st_name(name) if is_st is None else bool(is_st)
+    return _limits.limit_threshold(code, is_st=flag, on_date=on_date)
 
 
 def is_limit_up_ret(ret: float, limit: float) -> bool:
@@ -117,6 +122,8 @@ def compute_window_features(
     code: str,
     sig_idx: int = -1,
     frame_hfq: pd.DataFrame | None = None,
+    *,
+    is_st: bool | None = None,
 ) -> dict | None:
     """对 df 中 sig_idx 行作为 T-1，计算 18 维特征。
 
@@ -125,9 +132,15 @@ def compute_window_features(
       code:   股票代码（可带或不带 bj/sh/sz 前缀）。
       sig_idx: T-1 在 df 中的索引，默认 -1（最后一行）。
       frame_hfq: 同日的后复权帧；价格比率维取它，涨停/成交额仍取 df。
+      is_st:  信号日 T 的真实 ST 状态（由 `tdxfeed/st_supply.py` 按日供给）。
+              `None` = **未供给**，按现行口径（is_st=False）供给，与改动前逐值相同；
+              这一档的存在是为了让研究/基准脚本保持可复现，不是回落借口——
+              生产侧（训练与在役推理）必须显式供给，见 KI-DATA-008 与
+              `tests/test_limit_on_date_in_production.py`。
 
     返回：
-      18 维特征 dict；数据不足时返回 None。
+      18 维特征 dict；数据不足时返回 None。**不新增键**（列集是 29 维契约的一部分，
+      由 `test_extended_features_column_set_does_not_grow` 钉住）。
     """
     if df is None or len(df) < 5:
         return None
@@ -145,7 +158,12 @@ def compute_window_features(
     sig_day = df.iloc[sig_idx]
     px_day = px.iloc[sig_idx]
 
-    limit = get_limit(code)
+    # B1（KI-DATA-008）：阈值按**信号日 T** 取档，ST 状态由调用方按日供给。
+    # 与 `scripts/audit_daban_st_tier_pollution.py` 的 52,919 同轴（判定挂 T，不是 T+1）：
+    # 换成 T+1 会在 ST 实施/撤销边界错开一根 K 线，本批不换轴。
+    sig_date = _limits.as_date(sig_day["date"])
+    st_flag = False if is_st is None else bool(is_st)
+    limit = get_limit(code, on_date=sig_date, is_st=st_flag)
     pct_raw = prev_5["close"].pct_change().fillna(0)
     pct_px = px_5["close"].pct_change().fillna(0)
     hi_max, lo_min = px_5["high"].max(), px_5["low"].min()
@@ -175,8 +193,10 @@ def compute_window_features(
         "max_drawdown_5d": float(pct_px.min()),
         # 14. T-1 换手代理（amount / volume）
         "turnover_proxy": float(sig_day["amount"] / sig_day["volume"]) if sig_day["volume"] > 0 else 0,
-        # 15. 是否 ST（默认 0，由调用方按需通过 name 覆盖）
-        "is_st": 0,
+        # 15. 是否 ST：按信号日 T 的真实状态供给（B1 前这行写死 0，见 KI-DATA-008）。
+        #     未供给（is_st=None）时仍是 0 ⇒ 与改动前的矩阵逐值相同；面板判「无法判定」
+        #     的行由调用方记账（`tdxfeed/st_supply.py::TierTally`），不在这里折成「不是 ST」。
+        "is_st": int(st_flag),
         # 16. 是否新股（按 sig_idx < 250，即上市 < 250 个交易日）
         "is_new": int(sig_idx < 250),
         # 17-18. 市场类型（接受 bj/920/sh/sz 前缀或裸 6 位）
@@ -198,6 +218,8 @@ def compute_window_features_extended(
     code: str,
     sig_idx: int = -1,
     frame_hfq: pd.DataFrame | None = None,
+    *,
+    is_st: bool | None = None,
 ) -> dict | None:
     """扩展 26 维：18 维基础 + 8 维工程化新特征（v9 模型使用）。
 
@@ -211,7 +233,8 @@ def compute_window_features_extended(
       - dist_to_5d_low     距 5 日低点: (close-low.min())/close
       - amt_per_price      单位价格成交额: avg_amount_5d/prev_close
     """
-    base = compute_window_features(df, code, sig_idx=sig_idx, frame_hfq=frame_hfq)
+    base = compute_window_features(df, code, sig_idx=sig_idx, frame_hfq=frame_hfq,
+                                   is_st=is_st)
     if base is None:
         return None
 

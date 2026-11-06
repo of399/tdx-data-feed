@@ -58,6 +58,10 @@ ST_DEF_EXCEPTIONS = {
     "scripts/predict.py": ("forward", "int 契约的历史接口（predict.is_st(name) -> int），转发 names.is_st_name"),
     "tdxfeed/daban/limit_price.py": ("forward", "对外别名（limit_price.is_st(name) -> bool），转发 names.is_st_name"),
     "scripts/find_double_up_c_v2.py": ("other", "is_st(code, st_set) 判的是「代码在不在 ST 名单里」，不是名称判定"),
+    "tdxfeed/st_supply.py": ("other", "StSupply.is_st(code, on_date) 判的是「日期化面板的权威/推断区间是否覆盖那一天」，"
+                                      "**签名里没有 name、函数体里不调 is_st_name**（B1，2026-11-05）⇒ 不是名称判定的副本。"
+                                      "这条例外的真实性由 tests/test_st_supply_in_features.py::"
+                                      "test_st_supply_is_st_is_not_a_name_judgement 反向钉住"),
 }
 
 # ST 判定的**内联字符串判定**例外：{相对路径: 理由}

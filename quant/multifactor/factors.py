@@ -52,10 +52,19 @@ def resolve_parquet(code: str) -> Path:
     return read_path(daily_path(code))
 
 
-def get_limit(code: str) -> float:
-    """涨停判定阈值。委托 tdxfeed.execution.limits（唯一实现）。"""
+def get_limit(code: str, name: str = "", on_date=None, is_st: bool | None = None) -> float:
+    """涨停判定阈值。委托 tdxfeed.execution.limits（唯一实现）。
+
+    B1（KI-DATA-008）补的就是这层壳的**签名**：以前它只有 `code`，所以走这层的调用点
+    在类型上根本传不进交易日——主板 ST 并轨日（`MAIN_ST_RULE_CHANGE_DATE`）之前的
+    5% 档在这一层是「想传也传不进来」。现在 `on_date`/`is_st` 直通内核，
+    `name` 保留给只知名称不知面板状态的调用点（`is_st=None` 才按名称判）。
+    """
     from tdxfeed.execution.limits import limit_threshold
-    return limit_threshold(code)
+    from tdxfeed.names import is_st_name
+
+    flag = is_st_name(name) if is_st is None else bool(is_st)
+    return limit_threshold(code, is_st=flag, on_date=on_date)
 
 
 def parse_daily(fp: Path) -> pd.DataFrame | None:
@@ -141,12 +150,19 @@ class MFConfig:
 # --------------------------------------------------------------------------
 # 单股原始因子（可全历史向量化一次）
 # --------------------------------------------------------------------------
-def compute_stock_raw(df: pd.DataFrame, code: str) -> pd.DataFrame:
+def compute_stock_raw(df: pd.DataFrame, code: str, *, st_supply=None) -> pd.DataFrame:
     """返回以 date 为索引的因子原始值 DataFrame。
 
     列：mom_60d/mom_120d/mom_120d_ex5, zt_density_20d, fundflow_divergence_20d,
         fund_proxy_accel, amount_20d_avg, close, limit
+
+    `st_supply`（`tdxfeed/st_supply.StSupply`）给定时，`limit` 与 `zt_density_20d`
+    按**每个交易日**的档取（主板 ST 并轨前是 5% 档）；不给就是今天的形状——
+    整列恒等于 `get_limit(code)`，逐格相同（`tests/test_st_supply_in_features.py`
+    的 `test_compute_stock_raw_without_supply_matches_the_old_scalar_column` 钉这条）。
     """
+    from tdxfeed.st_supply import limit_series
+
     out = pd.DataFrame(index=df.index)
     out["date"] = df["date"]
     close = df["close"]
@@ -157,7 +173,9 @@ def compute_stock_raw(df: pd.DataFrame, code: str) -> pd.DataFrame:
     out["mom_120d"] = close / close.shift(120) - 1
     out["mom_120d_ex5"] = close.shift(5) / close.shift(125) - 1   # 剔除近 5 日反转
 
-    lim = get_limit(code)
+    # 阈值按日供给（B1）：没给面板时 limit_series 返回恒值列，与旧的标量逐格相同。
+    lim_list, _tiers, _flags = limit_series(code, list(df["date"]), st_supply)
+    lim = pd.Series(lim_list, index=df.index, dtype=float)
     is_up = (pct >= lim - RET_TOLERANCE).fillna(False)
     out["zt_density_20d"] = is_up.rolling(20, min_periods=5).mean()
 

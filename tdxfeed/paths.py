@@ -169,6 +169,50 @@ def factor_run_path() -> Path:
     return state_dir() / "factor_run.json"
 
 
+def st_history_dir() -> Path:
+    """日期化 ST 面板的**归组目录**：面板 + 原始台账 + 覆盖度报告三样都在这个目录下。
+
+    不放 `data/parquet/` 是刻意的：那张根目录按仓库惯例是行情表与其备份的容器
+    （`daily/ derived/ finance/ min1/ …`，顶层那个 `finance.parquet` 是历史例外），
+    把非行情产物放进去会让「这个目录里的东西都受 `write_table` 行情契约管」这条直觉变模糊。
+    面板本身是 B1/B2 要消费的产物（不是 `.state/` 那种可丢弃旁路），所以它与它的原始底座
+    同目录归组，比散开更可发现。
+    """
+    return DATA_ROOT / "st_history"
+
+
+def st_event_path() -> Path:
+    """ST 事件长表本体（唯一真相：不落派生的逐日区间表）。与原始台账同目录归组。"""
+    return st_history_dir() / "st_events.parquet"
+
+
+def st_board_snapshot_path() -> Path:
+    """ST 板块**逐日累积**快照表：台账只能回溯少数几条，历史段就靠这张表一天一天攒出来。"""
+    return st_history_dir() / "st_board_snapshot.parquet"
+
+
+def st_raw_dir() -> Path:
+    """原始抓取落点：先落 JSONL 再解析，采集可续跑、解析可重放。"""
+    return st_history_dir() / "raw"
+
+
+def st_f10_ledger_path() -> Path:
+    return st_raw_dir() / "f10_ledger.jsonl"
+
+
+def st_block_snapshot_path() -> Path:
+    return st_raw_dir() / "block_gn_st.json"
+
+
+def st_snapshot_days_path() -> Path:
+    """「哪些日子采到了板块快照」的登记：空成员那天也要记，否则断档会被读成『那天没人 ST』。"""
+    return st_raw_dir() / "block_gn_captured_days.json"
+
+
+def st_coverage_path() -> Path:
+    return st_history_dir() / "coverage.json"
+
+
 def read_path(path: Path) -> Path:
     """存在性守卫：把「路径算错」变成立刻可见的异常，而不是空表。"""
     if not Path(path).exists():

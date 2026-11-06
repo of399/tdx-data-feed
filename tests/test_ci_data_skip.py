@@ -35,6 +35,12 @@ DATA_DEPENDENT_MODULES = {
     "test_stage1_factors_parity.py",
     "test_stage1_union_configs.py",
     "test_stage1_wide_table.py",
+    # B1（2026-11-05）：真数据逐格中性判据。间接依赖（经 paths.daily_files()/st_event_path()
+    # 读盘），测试源码里没有 data/ 字样 ⇒ 必须显式 NEEDS_DATA = True 并登记在这里。
+    "test_st_supply_neutrality.py",
+    # 2026-11-06（名单写入者批次）：真数据双向差判据。它自己不写 data/ 字样，
+    # 依赖全在 `names.load_universe()` / `paths.daily_files()` 里 ⇒ 显式 NEEDS_DATA = True。
+    "test_universe_daily_parity.py",
     "test_wide_table_label_source.py",
 }
 

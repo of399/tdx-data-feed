@@ -19,8 +19,15 @@ NEEDS_DATA = False
 
 ROOT = Path(__file__).resolve().parents[1]
 
-FLAT = re.compile(r"data[/\\](?:parquet\b|adj_factor\b|hfq_factor\b|finance\b)")
-SEGMENTS = {"parquet", "adj_factor", "hfq_factor", "finance", "finance.parquet", "xdxr.parquet"}
+FLAT = re.compile(r"data[/\\](?:parquet\b|adj_factor\b|hfq_factor\b|finance\b|st_history\b)")
+SEGMENTS = {"parquet", "adj_factor", "hfq_factor", "finance", "finance.parquet", "xdxr.parquet",
+            # 2026-11-05 A 任务：日期化 ST 事件面板 + 逐日累积快照表。
+            # 落点是 data/st_history/（用户 2026-11-05 更正：不搬 data/parquet/，
+            # 那目录按惯例是行情表与其备份的容器，面板是产物不是旁路）。
+            # 目录入口只在 tdxfeed/paths.py 里拼，词表不扩的话那条守卫对新表是瞎的
+            # （tests/test_st_history_panel.py 钉这一条）。
+            "st_history", "st_events.parquet", "st_board_snapshot.parquet",
+            "block_gn_captured_days.json"}
 PATH_CALLS = {
     "Path", "read_parquet", "to_parquet", "read_csv", "to_csv", "open",
     "glob", "exists", "read_text", "write_text", "listdir", "mkdir",

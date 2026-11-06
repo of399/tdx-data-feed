@@ -160,14 +160,14 @@ install:  ## 装 Python 依赖 + 初始化
 	@echo "$(GREEN)✓ 安装完成$(NC)"
 	@echo ""
 	@echo "$(YELLOW)下一步:$(NC)"
-	@echo "  make data-universe  # 下载股票清单"
-	@echo "  make data-sync      # 同步日 K"
+	@echo "  make data-universe  # 刷新全 A 名单 data/all_a_stocks.json（闸门不过=拒写+非零退出）"
+	@echo "  make full-sync      # 全市场日 K 同步（生产入口；data-universe-bars 只是补齐到 TARGET 只）"
 
 venv:  ## 仅创建虚拟环境
 	python3 -m venv $(VENV)
 	@echo "$(GREEN)✓ 虚拟环境创建完成: $(VENV)$(NC)"
 
-setup: install data-universe full-sync  ## 完整初始化（环境 + 全市场数据）
+setup: install data-universe data-universe-bars full-sync  ## 完整初始化（环境 + 名单 + 全市场数据）
 
 update:  ## 更新依赖到最新版（受 requirements.txt 上限 pin 约束）
 	$(PIP) install --upgrade pip
@@ -286,9 +286,25 @@ audit: sop-quick  ## 跑 quick + 显示最近报告
 	@ls -lt v5/audit/*.md 2>/dev/null | head -5 | awk '{print "  ", $$NF}'
 
 # ============== 数据采集 ==============
-data-universe:  ## 下载全 A 股代码清单
+# 闸门容差（也可命令行 make data-universe UNIVERSE_MAX_RISE_PCT=10 临时放宽）：
+# 默认值是「一天内的正常变化」；首轮刷新（2026-11-06）之所以要 +10%，是旧名单从未收
+# 北交所 920 段（一次性 +355 只 +6.93%），属结构性补课，不是每天会发生的事。
+UNIVERSE_MAX_DROP_PCT ?= 2.0
+UNIVERSE_MAX_RISE_PCT ?= 5.0
+UNIVERSE_MIN_NAMED_RATIO ?= 0.9
+
+data-universe:  ## 刷新全 A 名单(唯一写入者 scripts/update_universe.py；先备份再原子写，闸门不过=非零退出且不写盘)
+	$(PYTHON) $(SCRIPTS)/update_universe.py \
+	  --max-drop-pct $(UNIVERSE_MAX_DROP_PCT) \
+	  --max-rise-pct $(UNIVERSE_MAX_RISE_PCT) \
+	  --min-named-ratio $(UNIVERSE_MIN_NAMED_RATIO)
+
+data-universe-dry:  ## 只出名单对账与闸门读数，不写盘（手工触发前的预演）
+	$(PYTHON) $(SCRIPTS)/update_universe.py --dry-run
+
+data-universe-bars:  ## 补齐沪深日线到 TARGET 只(不写名单!名单见 make data-universe)
 	$(PYTHON) $(SCRIPTS)/download_universe.py
-	@echo "$(GREEN)✓ 股票清单: $(DATA)/all_a_stocks.json$(NC)"
+	@echo "$(GREEN)✓ 日线补齐完成（目标条数见 download_universe.py --target，默认 10000）$(NC)"
 
 # ⚠️ 分工：data-sync = 单标的便捷同步(tdxfeed.cli sync，无参默认 sh600000)；
 #          full-sync  = 全市场增量同步(tdxfeed.full_sync，生产实际入口，tdxfeed-sync.timer 每晚调用的就是它)。
@@ -337,6 +353,31 @@ data-status:  ## 查看数据同步状态
 	@echo "$(CYAN)股票清单: $(shell jq 'length' $(DATA)/all_a_stocks.json 2>/dev/null || echo 'N/A') 只$(NC)"
 	@echo "$(CYAN)日 K: $(shell find $(DATA)/parquet/daily -maxdepth 1 -name '*.parquet' ! -name '*.v1.bak.parquet' 2>/dev/null | wc -l) 文件$(NC)"
 	@echo "$(CYAN)复权因子: $(shell ls $(DATA)/adj_factor/ 2>/dev/null | wc -l) 文件$(NC)"
+
+# 日期化 ST 事件面板（台账 KI-DATA-008 的前置产物；取证见
+# docs/research/2026-11-05-daban-st-tier-label-pollution.md）。
+# 可续跑：raw 台账里 status=ok 的票不重抓，中断后重跑同一个目标即可，整轮约 7 分钟。
+# F10 每票的事件条数分布是 {0:4739, 1:182, 2:233, 3:60, 4:11, 5:4}（全市场 5,229 只实测）——
+# **没有「每票最多 3 条」这个硬上限**（观测最大 5 条）；压制覆盖率的是 4,739/5,229 = 90.63%
+# 的票【特别处理】栏「暂无数据」，深度是**不均**而不是被卡在某个条数上。截断证据另看
+# 票级孤儿撤销与段级起点不可见两个数。
+# 覆盖度报告把条数分布、无日历代码、无名称源代码分开计数，读的人别把它当全历史权威。
+# 面板里的翻转要和 quantify --full 的全市场分母并排读，所以 build 接受一份 quantify 日志；
+# 文件不在就**不传**该参数（报告里那一项会写「不可用」），绝不拿面板数顶替。
+ST_QUANTIFY_LOG ?= $(DATA)/st_history/raw/quantify_full_20261105.log
+data-st-history:  ## 抓三源并构建日期化 ST 事件面板(可续跑,约 7 分钟)
+	$(PYTHON) $(SCRIPTS)/collect_st_history.py f10
+	$(PYTHON) $(SCRIPTS)/collect_st_history.py reparse
+	$(PYTHON) $(SCRIPTS)/collect_st_history.py block
+	$(PYTHON) $(SCRIPTS)/collect_st_history.py ak-sz
+	$(PYTHON) $(SCRIPTS)/collect_st_history.py build --include-inferred $(if $(wildcard $(ST_QUANTIFY_LOG)),--quantify-log $(ST_QUANTIFY_LOG))
+	$(PYTHON) $(SCRIPTS)/collect_st_history.py crosscheck
+
+data-st-history-status:  ## 看 ST 面板抓了多少、面板与覆盖度报告是否在
+	$(PYTHON) $(SCRIPTS)/collect_st_history.py status
+
+data-st-history-infer:  ## 价格反推层(第三层,低置信)→ raw；build 需 --include-inferred
+	$(PYTHON) $(SCRIPTS)/collect_st_history.py infer --full
 
 # ============== 量化分析 ==============
 analyze-double-up:  ## 方案 C：识别翻倍样本（plan-e-double-up.timer 工作日 18:30 跑同一个脚本）
@@ -676,10 +717,10 @@ reset-data:  ## 重置数据（删 parquet + adj_factor + predictions，需重�
 	rm -rf $(DATA)/parquet/daily/* $(DATA)/adj_factor/*
 	rm -rf $(DATA)/predictions/*
 	@echo "$(GREEN)✓ 数据已重置$(NC)"
-	@echo "$(YELLOW)下一步: make data-universe && make data-sync && make data-adj$(NC)"
+	@echo "$(YELLOW)下一步: make data-universe && make data-universe-bars && make data-sync && make data-adj$(NC)"
 
 # ============== 完整流程 ==============
-pipeline: install data-universe full-sync data-adj analyze-all deploy-all timer-enable  ## 完整流程（从零到全自动化）
+pipeline: install data-universe data-universe-bars full-sync data-adj analyze-all deploy-all timer-enable  ## 完整流程（从零到全自动化）
 
 quickstart: install predict  ## 5 分钟快速上手
 

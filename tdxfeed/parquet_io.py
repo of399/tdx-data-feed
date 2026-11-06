@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -101,25 +102,32 @@ def _as_date32(s: pd.Series) -> pd.Series:
     return out
 
 
-def write_table(path: Path, df: pd.DataFrame, date_col: str = "date") -> Path:
+def write_table(path: Path, df: pd.DataFrame,
+                date_col: str | Sequence[str] = "date") -> Path:
     """写 parquet：date 列强制 date32[day]；先写 .tmp 再 rename。
 
     先转换 date 列再 from_pandas：set_column 只换数据不换 pandas metadata，
     会让 Int64 带 NA 的表读回报 TypeError；from_pandas 一次生成一致的两者。
+
+    `date_col` 也可以传一组列名（一张表里多个日期列时，仍然只有这一个写入口，
+    不在调用方另拼一份 to_parquet）。
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    if date_col in df.columns:
+    cols = [date_col] if isinstance(date_col, str) else list(date_col)
+    cols = [c for c in cols if c in df.columns]
+    if cols:
         df = df.copy()
-        df[date_col] = _as_date32(df[date_col])
+        for c in cols:
+            df[c] = _as_date32(df[c])
     table = pa.Table.from_pandas(df, preserve_index=False)
-    if date_col in df.columns:
-        idx = table.schema.get_field_index(date_col)
+    for c in cols:
+        idx = table.schema.get_field_index(c)
         if pa.types.is_null(table.schema.field(idx).type):
             # 全空行/零行时 from_pandas 推断成 Arrow null 而非 date32[day]。纯 null 列
             # 没有 pandas 扩展 dtype 与之冲突，set_column 在这里不会触发上一轮那个 TypeError。
             table = table.set_column(
-                idx, pa.field(date_col, pa.date32()),
+                idx, pa.field(c, pa.date32()),
                 pa.array([None] * len(df), type=pa.date32()),
             )
     tmp = path.with_name(path.name + ".tmp")
