@@ -487,7 +487,8 @@ systemd user timer 是 Linux 服务器上的最佳实践。
 | download_adj_factor_b.py | 批量下载沪深复权因子（baostock）| 手动 |
 | download_adj_factor_bj.py | **已下线**（北交所数据 2026-10-21 移除）| — |
 | download_bj_daily.py | **已下线**（北交所数据 2026-10-21 移除）| — |
-| download_universe.py | 沪深 A 股代码清单 | 首次部署 |
+| update_universe.py | **`data/all_a_stocks.json` 唯一写入者**（akshare 取名 + 闸门拒写；手工 `make data-universe`，无 timer）| 首次部署 / 需要刷新名单时 |
+| download_universe.py | 沪深日线补齐到 `--target` 只（**不写名单**；旧文案把它当代码清单生产者，是假声明）| 首次部署 |
 | download_adj_factor_watch.py | watchdog 自动重启挂死进程 | 手动启动 |
 
 ### 量化分析（L3）

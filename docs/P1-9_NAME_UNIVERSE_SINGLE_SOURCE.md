@@ -118,7 +118,9 @@ universe_codes(path=None, *, prefixes=None, fallback=False) -> list[str]   # 唯
   （`{code: name}` / `{"codes"|"stocks": [...]}` / `[code, ...]`），文件缺失返回 `{}`（是否致命由调用方决定）。
 - `universe_codes()`：代码零填充到 6 位；`prefixes` 过滤 2 位前缀；`fallback=True` 时名单缺失/为空
   回退扫日线 parquet 目录（predict 与 MCP 回测的降级路径同源）。
-- **刻意不缓存**：名单每日由 `download_universe.py` 更新，而 MCP server 是长驻进程——缓存会让名称映射
+- **刻意不缓存**：名单会被 `scripts/update_universe.py` 刷新（2026-11-06 前的文案写的是 `download_universe.py`，
+  那个脚本只写日线、一个字的名单都不写——假声明已更正；`make data-universe`，手工触发、无 timer），而 MCP server
+  是长驻进程——缓存会让名称映射
   在进程存活期内一直是旧的（ST 改名当天穿帮）。143 KB 的 JSON 解析约 1 ms，每次重读成本可忽略。
 
 ### 5.2 语义口径的选择（为什么是"原样"）

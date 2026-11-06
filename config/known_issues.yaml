@@ -1416,3 +1416,106 @@ issues:
     due: "2026-11-25"
     exemption: "NONE"
     fix_hint: "三条路，都要先拍板「历史段两源差算不算缺陷」：① 对账窗口只比 `min(取数窗口起点, 已知修正差分界)` 之后的行——实测那 2,339 行全在 1991–2018、2019 起 0 行，按 2019-01-01 一刀就能放行全部 461 只，代价是主动放弃历史段的对账（与 AGENTS 里「扩到整表等于让每次 rebase 被历史差异拦住」同一条理由，只是这次它撞上了真实的一只票）；② 把 `data/.state/hfq_raw_close_mismatch.json` 里逐行的 (code, date) 当白名单，窗口内命中清单的日期跳过——最精确，但清单不进 git、CI 侧不存在，且要求清单不漂（重跑审计会覆盖）；③ 只比本次**新增**的行（`date > old_last`）——窗口最窄、语义最贴「修订检测」，但整表重拉时新增段≈全表，基本等于回到现状。推荐 ①，配一条用例造「文件首行早于 2019 + 历史段两源差」的形状，断言重拉能写进去、而 2019 之后的两源差仍拒写。无论选哪条，都要把「单只连续 N 轮 fail」变成可见信号（ KI-OPS-005 的 `factor_run.json` 已经带 fail 计数，接进 canary 即可），否则下一只被拦的票仍然只能靠翻日志发现"
+  - id: KI-DATA-008
+    title: "daban 的标签与 `limit` 特征调 `get_limit` 不传 `on_date`，主板 ST 的 5% 档在训练/特征两侧从未启用 ⇒ 并轨日（`MAIN_ST_RULE_CHANGE_DATE`）之前的历史正样本系统性漏记（已量化；2026-11-05 B1 收编生产闭包并接上按日 ST 供给，**产物已重训、并按四臂（`ctl`/`A`/`A2`/`I`）双跑完，未切流**，闭包外 17 处与在役推理侧仍未收编）"
+    theme: single-source
+    severity: P1
+    status: OPEN
+    first_seen: "2026-11-05"
+    last_seen: "2026-11-05"
+    seen_count: 2
+    sources: ["2026-11-05 B2 重训与双跑（本会话实跑；**四臂 `ctl`/`A`/`A2`/`I` 全部进表，主判据 = `ctl` vs `A2`**——
+              期间一条「只跑两臂」的范围改派于 21:21:41 送达，而四臂 20:30 前已全部跑完、
+              对照评估 20:36 跑完、结论快照 21:20 定稿 ⇒ **改派未按期生效，本批按四臂验收**；
+              改派窗口原约定「过期我就按四臂验收」，这是发送时序失误不是执行偏差。
+              `A`/`I` 是**已产出的灵敏度读数**：可引用方向，不得替代主判据，也不得因为 `A`（37.9167%）
+              与 `A2`（37.6786%）只差 0.24pp 就合并成「修好了」）：训练 `ctl`/`A`/`A2`/`I` 退出码全 0（18:41→20:30 串行），
+              对照评估退出码 0（20:31→20:36，产物 `d_signal_5d_model_daban_stfix_20261105_{ctl,A,A2,I}.txt`
+              四份全在场、按四臂进表，`daban_stfix_arms_20261105.{md,json}` 是那次
+              预登记运行的输出）。训练侧翻牌与 §13.3 预登记的机械读数**逐行相等**
+              （主判据臂 `A2` **+26,815**，分母是 `ctl` 的 216,833 ⇒ **+12.367%**；
+              灵敏度读数 `A` +8,368、`I` +55,922）；对照侧 `label_mismatch_ctl=0/1,729,388`、
+              `axis_mismatch_arm_rows=0`。**两套标签方向相反**：统一标签 `label_A2` 下
+              `A2` **+12.6190pp** [+10.3571, +14.9405]（p=q=0.0005，自助下限 1/2001）⇒
+              必要条件满足；旧标签下 `A2` **−8.4524pp** [−10.2976, −6.7842] ⇒ 方向为负。
+              主表那侧是**必要条件满足但不是充分证据**——统一标签与训练标签同源，
+              命中率的差里含「教什么考什么」这一项，本批没有标签中立的评估目标。
+              **50.67% 不是「模型能拿到 50.67%」**：那是 `coverage.json` 里 26,815/52,919 的
+              标签覆盖度占比，分母是污染面上限，不是正样本数；`A2` 训练矩阵的**权威档实占只有 15.87%**
+              （232,164 / 1,462,838，逐臂训练报告现读），**推断层不进 `A2`**（只有 `I` 进）。
+              四臂都跑完后原「两臂范围答不了」的两问有了读数，但都只作灵敏度不作判据：
+              `akshare_sz` 单独值多少（训练侧 `A` +8,368 → `A2` +26,815；评估侧 +12.8571 → +12.6190
+              即 **−0.2381pp**，方向上并不更好）、并读推断行会不会改变模型结论
+              （`I` +10.0000pp，比 `A2` 低 2.62pp 但仍为正；旧标签下 `I` −11.9048pp 是四臂里最差的）。
+              全部数字见 `docs/research/2026-11-05-daban-stfix-retrain-arms.md`。
+              **未切流**：现役 `data/double_up/d_signal_5d_model_daban.txt`（2026-10-19 17:30，
+              1,759,929 字节）19:11/20:43/21:20/22:03/22:24:16 五次读数逐位相同，`MODEL_REGISTRY` 未加条目，
+              systemd/timer 未改；**改派后的两臂重跑被脚本自己的「缺臂即拒」守卫拦下**
+              （21:22:59 退出码 1，未产文件），条为
+              `tests/test_daban_stfix_arms.py::test_reduced_arm_set_is_refused_not_rescaled`",
+              "2026-11-05 现役模型头：`venv/bin/python scripts/audit_daban_st_tier_pollution.py model-audit`（退出码 0）——`feature_names=29 / feature_infos 解析出 29 段 对齐=OK`，`limit` dim0 的 `feature_infos=[0.095…:0.195…]`（5% 档判定值 0.044 不在区间内）、`is_st` dim14 与 `is_bj` dim16 均为 `none`（常数列）",
+              "2026-11-05 AST 调用点清单（排除 data/ models/ logs/ _archive/ venv/，取 `ast.Call`）：`get_limit` 非测试调用点 19 处，其中传 `on_date` 的只有 1 处（`scripts/find_double_up_c.py:175`），未传 18 处；`tests/` 侧 32 处里 11 处显式带 `on_date` ⇒ 权威层被测试钉住，漏的是生产路径",
+              "2026-11-05 污染量全市场复跑（`scripts/audit_daban_st_tier_pollution.py quantify --full`、`sensitivity --full --detail`，均退出码 0）：5,221 只 / 16,763,761 可判样本行，现役 y=1 216,739（基准率 1.2929%），主板 5% 档天数 740,111（并轨前 729,558），标签 0→1 应翻转 52,919 ⇒ 正样本 269,658（**+24.42%**，中心档），三档带 **[16.32%, 36.68%]**",
+              "2026-11-06 全市场复跑（宇宙版本换了：名单 5,221 → 5,579（本轮补了唯一写入者）+ 日线多一个交易日；`quantify --full` 与 `sensitivity --full` 均退出码 0）：票数 5,222 / 可判样本行 16,768,995（主板 13,128,277 / 双创 3,640,718），现役 y=1 216,826（基准率 1.2930%），主板 5% 档天数 740,237（**并轨前 729,558 与 11-05 逐值相同**），标签 0→1 应翻转 **52,919（逐值相同）** ⇒ **+24.41%**，三档带 **[16.31%, 36.66%]**。**归因**：分子恒等（历史段不动），分母那 +5,234 行完全来自日线自己前进一个交易日；票数 +1 是全池恰好只有 `601091` 一只卡在 30 行（昨天 29 行被 `MIN_ROWS` 跳过）、`short_history` 计数随之 8 → 7；名单在这条链上只进 `_scan` 的 `st_now` 分组键（`_pick`/`_daily_iter` 的宇宙是 `paths.daily_files()`），355 只无日线的 920 段一行都不贡献。⇒ **引用本条任何分母类读数必须同时标日期与宇宙版本**；判据与逐消费方读数见 `docs/research/2026-11-06-universe-refresh-impact.md`",
+              "取证与口径全文：`docs/research/2026-11-05-daban-st-tier-label-pollution.md`（含与上一轮 +19.2% 的逐条对账：那是把主板判定值 0.094 套在双创上当分母造成的，59,026 行假正样本）",
+              "2026-11-05 通达信侧只读自证（本会话现跑，pytdx 直连 `180.153.18.170:7709` 成功；另一会话 `/tmp/probe_f10.py` 硬编码的 `218.6.170.47`/`218.85.139.19` 两台连不上、真实退出码 1）：F10 栏目实测只有 `最新提示` 一条，15 只样本的【特别处理】条目 max=3/中位=1（**同日晚后的全市场 5,229 只补测推翻了「max=3」这个说法**：分布 0:4739/1:182/2:233/3:60/4:11/5:4，观测最大 5 条，3 只是众数不是源侧硬上限）、000609 三条逐字对齐背景实例（公告日早于实施日 1–3 天）；`get_and_parse_block_info('block_gn.dat')` = 1,379,375 行 / 1.86s 且字段无日期列；`data/parquet/daily` 的 10,470 条目实为 5,237 active + 5,232 个 `.v1.bak.parquet` + 1 个 csv ⇒ active 唯一码 5,229（**旧写的 5,232 是把 `.v1.bak` 当代码数**）vs 名单 5,221 ⇒ 双向差实测 **8/0**（不是 11/0）；**2026-11-06 名单刷新后这组数的第二个已变**：写入者补上后名单 5,221 → 5,579（新增里 355 只是北交所 920 段，日线目录里没有它们），双向差实测 **8（日线侧，同一批）/ 355（名单侧 920 段）**，判据钉在 `tests/test_universe_daily_parity.py`；`finance`/`xdxr` 各 300 个 `.jsonl`"]
+    locations: ["tdxfeed/st_supply.py（B1 新建的按日供给层：三态 + 分层策略 + 缺面板拒跑；
+                B2 加了 `sources=` 分层与臂表单源 `ARM_PLAN`/`build_supply`）",
+                "scripts/compare_daban_stfix_arms.py（B2 新建的对照评估：冻结行集契约 +
+                逐臂整份重算 29 维 + 按日整块自助 + BH q，判据预登记在文件头 `PROTOCOL`；
+                `_parse_models` 有一条「缺臂即拒」守卫——范围要缩小必须由人显式授权并留痕，
+                不在命令行上临时缩比较集）",
+                "tests/test_daban_stfix_arms.py（B2 的 23 条守卫：臂接线、产物命名不可覆盖现役、
+                三组不变量现算、`ctl` ≡ 旧口径的算术穷举、载荷列去重、按行选来源、
+                自助单位是交易日、q 按全族算、裁定文案不得写「证伪」、**缺臂即拒**）",
+                "scripts/train_daban_model.py:197（`limit_series_for_stock` 逐信号日阈值）+ :209（`limit_val = limits[sig_idx]`）",
+                "tdxfeed/features_5d.py:166（dim1 按信号日取档）与 :199（dim15 的 `'is_st': int(st_flag)`，B1 前写死 0）",
+                "quant/multifactor/factors.py:55（那层壳的签名已补 `name`/`on_date`/`is_st`）+ :177（limit 列按日向量化）",
+                "未收编残留 17 处/14 文件：`tdxfeed/factors_polars.py:89`、`scripts/factor_engine.py:109/347/404`、`mcp/servers/backtest.py:748`、研究脚本若干——逐条登记在 `tests/test_limit_on_date_in_production.py::OUTSIDE_VERDICTS`",
+                "在役推理侧未接：`scripts/predict.py:466` 调 `compute_window_features_extended` 不传 `is_st` ⇒ 仍走「未供给」档（登记在同文件 `UNWIRED_SUPPLY_SITES`，B2 前置）"]
+    detect:
+      - kind: grep
+        paths: ["tdxfeed/factors_polars.py", "scripts/factor_engine.py", "mcp/servers/backtest.py"]
+        pattern: 'get_limit\((code|sym)\)'
+        min_count: 1
+        note: "2026-11-05 B1 之后本条测的是**残留未收编**（stage1 重训侧与 MCP 回测工具那 5 处），不再是生产闭包。原两条 `get_limit\\(code\\)`（train_daban_model / features_5d）与 `'is_st': 0` 在 B1 后已归零——若照原样留着，本条会在缺陷主体仍在时假翻 RESOLVED。全部收编后命中归 0 才算修完这一半"
+      - kind: grep
+        paths: ["scripts/predict.py"]
+        pattern: 'compute_window_features_extended\((?![^)]*is_st=)'
+        multiline: true
+        min_count: 1
+        note: "判「在役推理侧是否仍按未供给档取 dim1/dim15」。**形状 = 调用不带 `is_st=` 关键字才算命中**（2026-11-06 改）：原来写的是裸 `compute_window_features_extended\\(`，接线后照样命中 ⇒ 缺陷修完了台账还会一直报 STILL_PRESENT（假 STILL_PRESENT，与 detect[1] 的「归零才算修完」是同一种形状错误）。两条证明都在本会话实跑：现状新 pattern 命中 1（不造假 RESOLVED）；把 :466 换成带 `is_st=` 的副本后命中 0，而旧 pattern 仍命中 1。`multiline: true` 是必要的——逐行口径下跨行写法（开括号单独一行）会把已接线误判成未接线，`[^)]*` 要靠跨行才能吃到闭合括号前的关键字。带 `is_st=` 即视为已接（守卫 `test_inference_supply_sites_are_declared` 同判据）；本条与上一条 AND 关系（`scan_issue` 取 all），两条都归零才算修完。**「必须重训」这一半 grep 判不了**，由 `status` 与 `due` 承载：只要 `status: OPEN`，现役模型就仍是在旧矩阵上训练的"
+    impact: "**当前生产决策不受影响**（纯算术：并轨后 ST 主板 = 0.10 = 普通主板，而今天的行日期 ≥ 并轨日，只传代码的旧写法对今天恰好返回正确阈值——该结论要求「主板 ST 与普通主板同档」这条前提一直成立，任何一次分档再调整都会让它失效）。受影响的是**历史训练与评估**：并轨日之前的 ST 主板行按 10% 档打标签，涨幅落在 5% 档的真涨停被记成 y=0，中心档估计少记 52,919 行、正样本被低估 24.42%（**推断**，区间 [16.32%, 36.68%]；判据只能用价格上限反推——日期化台账虽已建成，但权威层只覆盖 490 只有事件 / 865 只有可判区间 / 301,694 票日 / 2,018 段（起点不可见 74 段），**深度 1–5 条不均，不存在「每票最多 3 条」那种硬上限**；真正压制覆盖率的是 4,739/5,229 = 90.63% 的票【特别处理】栏「暂无数据」，所以面板能解释的污染面是 50.67%（臂 A 只 15.81%），早期段仍要靠与台账互证 precision ≈0.8 的价格反推）。后果是三条：① 现役 daban 模型与它的 AUC/命中率是**在漏标标签上训练与评估的**，绝对值不可与修复后同读；② `limit` 这一维在历史行上供给的就是错值（不是「模型没用它」，是喂进去的值本身错），`is_st` 更是常数列 ⇒ 模型没有可用的 ST 信息；③ 一切以 daban 标签为准的回测/对比（`docs/research/2026-10-30-hfq-read-authority-dual-run.md` 的 hfq vs raw、`docs/research/2026-11-05-daban-label-caliber-and-displacement.md` 的位移数）两臂共享同一套漏标，**相对结论自洽但绝对命中率一致偏低**。B1 之后新增一处不传日期的生产调用**会被拦**（`guard` 已从 NONE 换成 `tests/test_limit_on_date_in_production.py`，生产面按 import 图算出，把生产文件登记成「非生产」凑绿直接判红）"
+    guard: "tests/test_limit_on_date_in_production.py"
+    owner: "jiuben"
+    due: "2026-12-15"
+    exemption: "NONE"
+    fix_hint: "**2026-11-05 B1 落地第 1、2 步（管道），B2 落地第 3 步（重训 + 双跑，**四臂 `ctl`/`A`/`A2`/`I` 全进表、主判据 = `ctl` vs `A2`**，未切流）⇒ 剩下的关键缺口换成两条：一条是在役推理侧接线，另一条是一个不挂在任何臂标签上的评估目标（本轮两套标签的裁定方向相反，命中率判据在「标签自身被改动」的对照里不具方向性）。** 现状：面板 `data/st_history/st_events.parquet` 已建成（79,552 行 / 3,420 票 / 8 列，两个日期列 `date32[day]`），读侧 `tdxfeed/st_supply.py` 按日供给三态，生产闭包内 4 处调用点已接守卫 `tests/test_limit_on_date_in_production.py`。剩下的：① 面板的**上限要照实测写进任何后续设计**——第 1 层 pytdx F10 的【特别处理】段落（字段 `公告日期/实施日期/处理类型`，撤销类同时写作「撤销」与「撤消」⇒ 解析要前缀匹配不能等值）实测全市场 5,229 只的条目数分布是 `0:4739, 1:182, 2:233, 3:60, 4:11, 5:4` ⇒ **不存在「每票最多 3 条」这种硬上限**（观测最大 5 条），真正压制覆盖率的是 4,739/5,229 = **90.63%** 的票该栏「暂无数据」；权威层合计只覆盖 490 只有事件 / 865 只有可判区间 / 301,694 票日 / 2,018 段（起点不可见 74 段），最早实施 2014-08-06；另注意 pytdx 的栏目清单里只有 `最新提示` 一条，【特别处理】是正文段落不是栏目；第 2 层 `block_gn.dat`（一次 1,379,375 行 / 1.8–2.3s，字段只有 `block_type/blockname/code/code_index` ⇒ **当日成员、无日期轴**，历史段只能靠逐日累积快照，从第一次采集往前一律盖不到）；第 3 层 akshare 深市带日期改名面板把区间拉回 1998（akshare 本就是已声明生产依赖：`requirements.txt:11`、`requirements.lock:9`）；第 4 层价格反推（`audit_daban_st_tier_pollution.py` 的 `regime5`）**只用于前三层覆盖不到的早期段，并显式标为推断非权威**（与台账互证的 2,974 票日上精确率 ≈0.8；面板 96.4% 的行是推断层，所以默认不读它，只能 `--include-inferred` 显式并读）。另有一条已被本轮实测收窄的好消息：日线 active 唯一码与名单的双向差实测是 **8/0**（不是旧记的 11/0）⇒ 「已退市票不在训练宇宙」对全市场成立，但那 8 只里含 **1 只已退市股 `600001`**（`sh600001.parquet` 是 1,023 行、2005-04-19→2009-12-15 的**个股**序列，不是指数文件），所以别把「名称侧无缺口」读成「一个例外都没有」。**（2026-11-06 更新：名单补了唯一写入者 `scripts/update_universe.py`（入口 `make data-universe`），首轮刷新 5,221 → 5,579 ⇒ 这组双向差变成 **8（日线侧，仍是那 8 只，逐条登记在 `tests/test_universe_daily_parity.py`）/ 355（名单侧全是北交所 920 段——`data/parquet/daily` 里没有它们的日线，属「名单有、日线无」）**；「已退市票不在训练宇宙」这条结论不受影响，变的是反向差从此有了非零的一边，引用时要说清是哪一天、哪一侧。名称侧判 ST 与按日面板也从对称差 11 只（名称 201 / 面板 194 / 交集 192）变成 197 = 197、双向差归零——这是记账对齐，**不构成重训理由**，本条的判据仍是面板而不是名称。）** ② **收编残留 17 处/14 文件**（`tdxfeed/factors_polars.py:89`、`scripts/factor_engine.py:109/347/404`、`mcp/servers/backtest.py:748` 与研究/基准脚本），逐条已在 `OUTSIDE_VERDICTS` 登记；**在役推理侧 `scripts/predict.py:466` 仍没接**（调 `compute_window_features_extended` 不传 `is_st=`，仍走「未供给」档）——B2 任务书没有授权改它，所以 B1 写的「必须与重训同批做」没做成，**dim1/dim15 的训练口径与推理口径现在不一致**。这一格现在是「记账上的错配」而不是「生产上的坏数」（现役模型本身还是旧矩阵产物，与旧口径推理恰好相配）；但**换现役模型必须与接线同批**，只换一头就是把错配写进生产链。③ 标签口径变更 ⇒ 必须重训并重做双跑（**B2 已做**，2026-11-05 训练串行 18:41→20:30、对照评估 20:31→20:36，五个退出码全 0；**按四臂验收**——用户 21:21:41 送达的「只跑两臂」改派**未按期生效**（四臂 20:30 前跑完、评估 20:36 跑完、快照 21:20 定稿），`A`/`I` 是**已产出的灵敏度读数**、可引用方向但不替代主判据）：四臂产物 `data/double_up/d_signal_5d_model_daban_stfix_20261105_{ctl,A,A2,I}.txt` 全在场，**现役 `data/double_up/d_signal_5d_model_daban.txt` 仍是在旧矩阵（dim1 恒 0.095/0.195、dim15 恒 0）上训的那一只，没换**。读数：训练侧翻牌与 §13.3 预登记的机械读数**逐行相等**（主判据臂 `A2` **+26,815**，对 `ctl` 的 216,833 ⇒ **+12.367%**；灵敏度读数 `A` +8,368、`I` +55,922，后者超过 quantify 的 52,919——那条数是**单一价格判据**在全市场样本行上的读数，不是集合意义上的上界，`I` 数的是权威∪推断）。**`coverage.json` 的 50.67% 是 26,815/52,919 的标签覆盖度占比，分母是污染面而不是正样本数 ⇒ 不得读成「模型能拿到 50.67%」。** 评估侧统一标签（`label_A2`）下 `A2` **+12.6190pp**（95% CI [+10.3571, +14.9405]，下界 > 0，p 与 BH q 同为自助下限 0.0005）⇒ **预登记的必要条件满足**；旧标签下 `A2` **−8.4524pp** [−10.2976, −6.7842] ⇒ **方向为负**。这一对反号就是本条现在还不能改 FIXED 的统计理由：统一标签与训练标签同源，命中率的差里含「教什么考什么」；要判方向得先有一个不挂在任何一臂标签上的评估目标。判据与停止规则原文在 `docs/research/2026-11-05-daban-st-tier-label-pollution.md` §13，B2 的全文与适用边界在 `docs/research/2026-11-05-daban-stfix-retrain-arms.md`（面板可解释 50.67%、臂 A 只 15.81%、`akshare_sz` 净贡献 34.86%——重训值不值得按这三个占比判，别只读行数；`A2` 那一格本轮实测在训练侧逐行兑现，`A`/`I` 的兑现属灵敏度读数、不作判据）。④ 守卫已建（AST 判据 + 双向闭合清单 + 四条变异对照，形状照 `tests/test_teacher_tag_hardcoding.py`）；`audit_daban_st_tier_pollution.py quantify --full` 的中心档 52,919/+24.42% 已由 `scripts/collect_st_history.py` 的同分母那一节并排打印；**B2 已把它与四臂实跑逐行对账**（臂 A +8,368、臂 A2 +26,815 兑现，见 `docs/research/2026-11-05-daban-stfix-retrain-arms.md` §5），但**钉成回归基线仍待做**（现在只有报告里的一次性对账，没有会红的守卫）。⑤ 全部收编 + 重训完成后本条两条 `detect` 才归零 ⇒ 状态改 FIXED 时 `guard` 必须仍指向真实测试文件（R5，已从 NONE 换成 `tests/test_limit_on_date_in_production.py`）"
+
+  - id: KI-OPS-008
+    title: "全 A 名单有唯一写入者但**没有任何调度**：`data/all_a_stocks.json` 只能手工 `make data-universe`，名称侧口径按周腐化（旧名单实测落后 ≥37 个自然日）"
+    theme: ops
+    severity: P2
+    status: OPEN
+    first_seen: "2026-11-06"
+    last_seen: "2026-11-06"
+    seen_count: 1
+    sources: ["2026-11-06 首轮刷新实跑（`venv/bin/python scripts/update_universe.py --max-rise-pct 10`，RC=0）：名单 5,221 → 5,579（增 362 / 删 4 / 改名 31），写前备份 `data/_backups/20261106/all_a_stocks-142718.json`（旧字节 143,556）",
+              "2026-11-06 落后下限实测（只读探针）：`001246` 首根日线 2026-09-30（22 行）却不在旧名单里，而同批日线文件的末根全是 2026-11-05 ⇒ 名单落后 ≥37 个自然日；这段窗口里沉淀出 7 只新标的缺席、4 只已退市仍挂名、31 条改名（19 条是 `XD`/`C` 除权标记的自然消退 + 9 条 ST/退市标记变化 + 3 条真换名）",
+              "2026-11-06 名称侧 vs 按日 ST 面板的对称差实测：刷新前 11 只（名称 201 / 面板 194 / 交集 192）⇒ 刷新后 **197 = 197、双向差归零**（判定日 2026-11-06；换 2026-11-05 判则读作 197 vs 198，差 1 只 ⇒ 这一格是**按日**的，引用要带日期）",
+              "逐消费方读数与 due 依据：`docs/research/2026-11-06-universe-refresh-impact.md` §3（表）与 §4（落后下限）"]
+    locations: ["scripts/update_universe.py（唯一写入者已在场：闸门 + 写前备份 + 走 `tdxfeed.atomic` 落位；本条缺的是**调度**，不是实现）",
+                "Makefile:296-306（`data-universe` / `data-universe-dry` / `data-universe-bars`；前两只都只能人手敲）",
+                "tdxfeed/names.py:37（读侧声明「手工触发、当前没有 timer 调度」——这条声明现在是真话，但也正因为它是真话，本条才成立）",
+                "systemd/ 与 systemd/system/ 下没有任何 universe 刷新单元 ⇒ 这就是 detect 判的那一格",
+                "受影响读数：`scripts/predict.py:548`/`:789` 候选池取 `universe_codes(fallback=True)`（名单落后 = 新标的进不了出票池）、`scripts/collect_st_history.py:842 _name_gap()`、`scripts/find_double_up_c.py:216` 打印的名称侧 ST 只数"]
+    detect:
+      - kind: glob_absent
+        pattern: systemd/**/*universe*
+        note: "「没有 universe 刷新单元」= 问题仍存在（`ok=True`）。用户级 `systemd/*.timer` 与系统级镜像 `systemd/system/*.service` 两级都算修好，所以用 `**`；2026-11-06 现状匹配 0 个 ⇒ STILL_PRESENT。两条证明都在本会话跑过：现状 0 命中；把 `systemd/tdx-universe-refresh.timer` 或 `systemd/system/tdx-universe.service` 任一副本放进树里（判定在 /tmp 副本根上做，真 systemd 目录一字未动）⇒ 匹配 1-2 个 ⇒ `ok=False` ⇒ 本条自动翻 RESOLVED。**不要用放宽闸门的方式把它「刷成已修」**：闸门默认值管的是日常变化。"
+    impact: "三条，都是本轮实测到的形状，不是推测：① **名称侧腐化**——`names.is_st_name` 判的是当日名称，名单不动就等于当日判断吃的是旧快照：本轮一次性看到 11 只名称/面板对称差与 31 条改名沉淀；② **新标的进不了出票池**——`predict` 的候选来自名单（`universe_codes`），名单没刷 ⇒ 新股不可能被扫到，实测 7 只、缺席 3–37 个自然日。注意这一条只影响到**出票侧**：这 7 只当时的日线都 <`MIN_ROWS=30`，`_series` 本来就把它们跳过，所以**不是标签/训练宇宙的锅**（`quantify` 的 pool 来自 `paths.daily_files()`，本轮全市场复跑的中心档翻转 52,919 逐值不变，见 `docs/research/2026-11-06-universe-refresh-impact.md` §1-§2）；③ **静默**——`data/` 不在 git，名单不动不留痕：没有 timer、没有 OnFailure、退出码没人看，只有拿日线目录反向对账才看得见（`tests/test_universe_daily_parity.py` 会让它变红，但那是**判据**，不是调度，红了也只说明「该刷了」）。不修的后果是每 3–5 周要人肉重演一次本轮这种「先 dry-run 被闸门拦下、再手工放宽」的动作，而且下一次未必有人想起来。"
+    guard: "tests/test_universe_writer.py"
+    owner: "jiuben"
+    due: "2026-11-20"
+    exemption: "NONE"
+    fix_hint: "落地只有两条路，都不要太久：**(A) 挂进已有同步链**——`systemd/system/tdx-sync.service` 加第四条 `ExecStartPost=-`（在 `precompute.indicators` / `adj_factor` / `hfq_factor` 之后）。代价是 `-` 前缀会把拒写与非零退出一起吞掉（KI-OPS-007 就是这么把「自家砍断登录握手」记成「baostock 不稳定」的），**所以这么接必须同时给一个可见性**：`scripts/canary_health_check.py` 的 `data_files`/名单新鲜度那一维现在不看 `all_a_stocks.json`，要接进来。**(B) 独立 oneshot + timer（推荐）**——`tdx-universe-refresh.service`（oneshot）+ `.timer` 工作日 16:35（排在 tdx-sync 之后、predict-daily 18:05 之前），自带 `TimeoutStartSec` 与 `OnFailure=`，失败会自己响。两条路都要守仓库纪律：单元里指向仓库的路径写 `@TDX_HOME@` 由 `scripts/render_systemd_units.py` 渲染（不要回填字面量），`make systemd-render` 后 `systemctl --user daemon-reload`，用户级 linger 决定它会不会在会话退出后停；系统级那只属于 `systemd/system/` 镜像、`make timer-install` 不碰、要 root（`systemd-run --user --pty --wait` + `sudo -A` 那条路）。**不要**为让 timer 变绿而放宽 `MAX_DROP_PCT`/`MAX_RISE_PCT` 默认值：本轮 +6.93% 是一次性结构性补课（首次收 920 段 355 只），日常刷新不该撞到这个数。到期如果 timer 仍没做，最低动作是手工跑一次 `make data-universe-dry` 并把对账读数记进本条 `sources`——这一步实测 <10 秒（akshare 抓取 6.5s + 本地比对），没有任何理由不做。守卫侧：`tests/test_universe_writer.py` 钉「写入者唯一 + 声明可核验」，`tests/test_universe_daily_parity.py` 钉「双向差逐条落在登记表里」（920 段按段放行、日线侧按码闭合登记），本条 detect 只判「有没有调度」这一格，别把它们混成一条。"

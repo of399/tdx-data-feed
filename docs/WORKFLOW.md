@@ -35,7 +35,8 @@
 | `tdxfeed/adj_factor_history.py` | **后复权因子反推（实验模块；2026-10-29 定夺不落地）**：从 hfq / 未复权两条序列反推，只写 `data/adj_factor_ext/`；不构成因子权威 | hfq + raw | 无（`data/adj_factor_ext/` 目录不存在、零消费者、不在每日链路内）| 不再计划回填 |
 | `tdxfeed/amount_fix.py` | **成交额缺口估算**（2026-10-26 新增并接入写入路径）：Sina 日K 无 amount 时用 `close × volume(手) × 100` 估算，**只补缺口不覆盖真值**；`writers.merge_write` / `incremental_update` 写入时自动调用 | 日线 df | 同 df（补 amount 列）| 写入路径自动 |
 | `scripts/backfill_daily_amount.py` | 成交额历史批量回填（**默认 dry-run**，落盘须显式 `--apply`；写前备份到 `data/parquet/daily_amount_bak/`）| daily parquet | 补齐后的 parquet + `.day` | 手动 |
-| `scripts/download_universe.py` | 沪深 A 股代码清单/补全 | pytdx 枚举 + Sina 日 K | `data/all_a_stocks.json` | 手动 |
+| `scripts/update_universe.py` | **名单的唯一写入者**（2026-11-06 新增）：akshare `stock_info_a_code_name()` → 归一到 6 位码 → 闸门（缩表 >2% / 暴涨 >5% / 有名称行 <90%）→ 先备份 `data/_backups/<YYYYMMDD>/` 再 tmp→`os.replace`；闸门不过或源不可用一律**拒写 + 非零退出**（RC2 / RC1）。旧文案把这个产物挂在 `download_universe.py` 名下，是假声明 | akshare | `data/all_a_stocks.json` | 手动 `make data-universe`（**无 timer**；`make data-universe-dry` 只出对账） |
+| `scripts/download_universe.py` | 沪深日线**补齐**到 `--target` 只（pytdx 枚举 + Sina 日 K）；**不写名单**（名单见上一行） | pytdx 枚举 + Sina 日 K | `data/parquet/daily/*.parquet` | 手动 `make data-universe-bars` |
 | `scripts/analyze_one.py` | 单只股多因子分析（技术面）| parquet/daily + adj_factor | dict（落库） | 单股触发 |
 | `tdxfeed/full_sync.py` | **实际生产全量同步**（systemd 调用）：Sina 源日K + akshare 清单 + 财务增量（**2026-10-26 起接入腾讯源分页深取**）。**不产复权因子**（`grep -n adj tdxfeed/full_sync.py tdxfeed/writers.py` 零命中）| Sina/akshare/baostock/腾讯 | `data/parquet/daily/*.parquet`（5,236）+ `sh\|sz/lday/*.day`（增量双写）| 系统级 `tdx-sync.timer` 工作日 16:30 |
 | `tdxfeed/adj_factor.py` | **复权因子增量更新**（2026-10-29 新增）：baostock 前复权/不复权双序列 → 重叠日校验 → 除权后整表重拉；`date` 保持 `date32[day]` | baostock | `data/adj_factor/*.parquet`（5,221）| `tdx-sync.service` 的 `ExecStartPost`（工作日 16:30 同步成功后；实测 122.6–124.9 分钟，非旧记的约 60 分钟）|
@@ -300,7 +301,7 @@
 │                                       data/parquet/daily/ (5,236 日K)       │
 │                                       复权 / 派生表走同步后置 ExecStartPost  │
 │                                             ↓                               │
-│  pytdx / akshare 清单 ──→ download_universe.py → data/all_a_stocks.json    │
+│  akshare 清单 ──→ update_universe.py → data/all_a_stocks.json  （手工）     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                        ↓
@@ -375,7 +376,7 @@
 ```
 tdx-data-feed/
 ├── data/
-│   ├── all_a_stocks.json              # 5,221 只沪深 A 股清单
+│   ├── all_a_stocks.json              # 5,579 条 A 股清单（2026-11-06 刷新后；含北交所 920 段 355 只——它们没有日线）
 │   ├── adj_factor/                    # 5,221 .parquet (date, adj_factor, qfq_close, raw_close, code)；tdx-sync ExecStartPost 维护
 │   ├── adj_factor_ext/                # 不存在（10-26 实验模块，10-29 定夺不落地；零消费者）
 │   ├── parquet/
@@ -553,7 +554,7 @@ tdx-data-feed/
 
 ```
 数据：
-  /home/jiuben/tdx-data-feed/data/all_a_stocks.json     # 5,221 只清单
+  /home/jiuben/tdx-data-feed/data/all_a_stocks.json     # 5,579 条清单（写入者 scripts/update_universe.py，手工 make data-universe）
   /home/jiuben/tdx-data-feed/data/parquet/daily/*.parquet  # 5,236 日 K（个股 5,228 + 指数 8；不含 .v1.bak）
   /home/jiuben/tdx-data-feed/data/adj_factor/*.parquet    # 5,221 复权因子（qfq 锚，每日增量）
   /home/jiuben/tdx-data-feed/data/hfq_factor/*.parquet    # 5,221 真后复权因子（每日增量）

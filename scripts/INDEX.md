@@ -6,7 +6,8 @@
 ## 一、数据采集（daily / 复权 / 分钟线）
 | 脚本 | 用途 |
 |---|---|
-| `download_universe.py` | 全市场日 K 同步（**仅沪深股票**；ETF/北交所/债券均已下线） |
+| `update_universe.py` | **`data/all_a_stocks.json` 的唯一写入者**（2026-11-06 新增）：akshare `stock_info_a_code_name()` → 闸门（缩表/暴涨/空名率）→ 备份 + 原子替换；拒写与源不可用分别 RC2/RC1，**不静默缩表**。入口 `make data-universe`（手工，无 timer）|
+| `download_universe.py` | 全市场日 K 同步（**仅沪深股票**；ETF/北交所/债券均已下线）。**不写名单**——旧说法（它更新 `all_a_stocks.json`）是假声明，写入者见上一行 |
 | `download_etf_bond.py` | **已下线**（ETF 数据 2026-10-21 移除，脚本仅保留弃用提示） |
 | `download_adj_factor_b.py` / `_watch.py` | 沪深复权因子**一次性回填** + 监控（命中已存在文件即跳过；日常更新走 `python -m tdxfeed.adj_factor`；`_bj.py` 已下线） |
 | `download_bj_daily.py` | **已下线**（北交所数据 2026-10-21 移除，脚本仅保留弃用提示） |

@@ -27,6 +27,7 @@
 | ID | 脚本 | 路径 | operationId |
 |---|---|---|---|
 | 1 | `download_universe.py` | scripts/ | `downloadUniverse` |
+| 1b | `update_universe.py` | scripts/ | `updateUniverse` |
 | 2 | `find_double_up_c.py` | scripts/ | `findDoubleUp` |
 | 3 | `find_double_up_c_v2.py` | scripts/ | `findDoubleUpV2` |
 | 4 | `find_d_signal_5d.py` | scripts/ | `findDSignal` |
@@ -48,7 +49,7 @@
 
 **operationId**: `downloadUniverse`
 **脚本**: `scripts/download_universe.py`
-**功能**: 下载全 A 股代码清单（含沪深北）
+**功能**: 用 pytdx 枚举全市场、筛出沪深股票，然后**从 Sina 补日线到 `--target` 只**。**不写名单**——`data/all_a_stocks.json` 的写入者是 `scripts/update_universe.py`（见 1b；旧版本这里写着本脚本产名单，是假声明，2026-11-06 更正）
 **命令语法**:
 
 ```bash
@@ -69,7 +70,7 @@ python scripts/download_universe.py [--target 10000]
 
 | 类型 | 路径 | 格式 |
 |---|---|---|
-| 主输出 | `data/all_a_stocks.json` | JSON（5,221 只沪深股票清单）|
+| 主输出 | `data/parquet/daily/{sh\|sz}*.parquet` | 只补缺失标的，已有文件跳过；经 `parquet_io.write_table`（`date32` + tmp→`os.replace`）|
 
 #### Responses
 
@@ -83,7 +84,7 @@ python scripts/download_universe.py [--target 10000]
 
 ```bash
 python scripts/download_universe.py --target 6000
-# 输出：data/all_a_stocks.json (5,221 只)
+# 输出：data/parquet/daily/ 下补齐到 6,000 只（不写名单）
 ```
 
 #### 错误
@@ -92,6 +93,61 @@ python scripts/download_universe.py --target 6000
 |---|---|---|
 | ConnectionError | pytdx 行情服务器连接失败 | 重试或更换服务器 |
 | JSONDecodeError | 接口返回异常 | 等待 30s 重试 |
+
+---
+
+### 1b. updateUniverse
+
+**operationId**: `updateUniverse`
+**脚本**: `scripts/update_universe.py`（`data/all_a_stocks.json` 的**唯一写入者**，2026-11-06 新增）
+**功能**: 走仓库已有的那一个取名通道 `akshare.stock_info_a_code_name()`（与 `tdxfeed/full_sync.py`、`tdxfeed/symbols.py` 同源），归一到 6 位数字码后写名单；写前过三道闸门，写时先备份再原子替换
+**命令语法**:
+
+```bash
+make data-universe          # 或 python scripts/update_universe.py
+make data-universe-dry      # 只出对账与闸门读数，不写盘
+```
+
+#### Parameters
+
+| 名称 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|:---:|---:|---|
+| `--out` | path | 否 | `paths.universe_path()` | 名单文件路径（测试与预演用）|
+| `--backup-root` | path | 否 | `<名单目录>/_backups` | 备份根；实际落 `<root>/<YYYYMMDD>/all_a_stocks-<HHMMSS>.json` |
+| `--dry-run` | flag | 否 | — | 只打印对账四数与闸门读数 |
+| `--max-drop-pct` | float | 否 | 2.0 | 条目数减少超过该百分比 ⇒ 拒写（静默缩表比不更更糟，照 `adj_factor` 的 `fail:shrink` 先例）|
+| `--max-rise-pct` | float | 否 | 5.0 | 条目数增加超过该百分比 ⇒ 拒写 |
+| `--min-named-ratio` | float | 否 | 0.9 | 有名称行的占比下限 ⇒ 低于则说明源的 `name` 列不可用 |
+
+#### 输出
+
+| 类型 | 路径 | 格式 |
+|---|---|---|
+| 主输出 | `data/all_a_stocks.json` | `{6 位代码: 名称}`，`indent=2` + `sort_keys` + 末尾换行；内容与现文件逐字节相同 ⇒ 不写不备份 |
+| 备份 | `data/_backups/<YYYYMMDD>/all_a_stocks-<HHMMSS>.json` | 覆写前的旧字节原件 |
+
+#### Responses
+
+| 退出码 | 含义 |
+|:---:|---|
+| 0 | 已写，或内容无变化未写 |
+| 1 | 取名源不可用 / 源返回 0 条 ⇒ **原文件不动**，不静默沿用旧名单 |
+| 2 | 闸门拒写（缩表 / 暴涨 / 空名率）⇒ 原文件不动 |
+
+#### 示例
+
+```bash
+make data-universe-dry
+# [对账] 条目数 5,579 → 5,579（+0 / -0 / 名称变化 0）      ← 幂等：内容与名单一致
+# [dry-run] 闸门通过，未写盘：目标 .../data/all_a_stocks.json      退出码 0
+
+# 首轮（2026-11-06）的同一命令是被闸门拦下的那次读数：
+# [对账] 条目数 5,221 → 5,579（+362 / -4 / 名称变化 31）
+# [拒写] 闸门：暴涨 +6.93%（5221 → 5579 只，容差 5.0%）⇒ 拒写      退出码 2
+make data-universe UNIVERSE_MAX_RISE_PCT=10                         # 结构性补课才临时放宽
+```
+
+守卫：`tests/test_universe_writer.py`（写入者唯一 + 读侧契约不坏 + 名字单源不被绕过）、`tests/test_universe_path_single_source.py`（R6 形状级豁免：写入者只允许 `read_bytes()` 取旧字节）、`tests/test_universe_daily_parity.py`（名单↔日线双向差逐条对登记表）。
 
 ---
 
@@ -844,6 +900,7 @@ head -3 data/double_up/d_signal_5d_model.txt
 | 脚本 | mode/dataset | 成功 | 失败 |
 |---|---|:---:|:---:|
 | download_universe.py | - | 0 | 1/2 |
+| update_universe.py | - | 0 | 1（源不可用）/ 2（闸门拒写）|
 | find_double_up_c.py | - | 0 | 1 |
 | find_double_up_c_v2.py | - | 0 | 1 |
 | find_d_signal_5d.py | - | 0 | 1 |
